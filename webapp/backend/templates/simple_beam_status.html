@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Simple Beam Job - {{ job.job_id[:8] }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Simple Beam Analysis</h1>
+    <p class="subtitle">Job ID: {{ job.job_id }}</p>
+</div>
+
+<div class="job-status-container"
+     {% if job.status.value in ['queued', 'running'] %}
+     hx-get="/partials/simple-beam-status/{{ job.job_id }}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+
+    <div class="job-card status-{{ job.status.value }}">
+        <div class="job-card-header">
+            <span class="job-id">{{ job.job_id[:8] }}...</span>
+            <span class="job-status-badge badge-{{ job.status.value }}">
+                {{ job.status.value | upper }}
+            </span>
+        </div>
+
+        {% if job.progress is defined and job.progress is not none %}
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {{ job.progress }}%"></div>
+        </div>
+        <div class="progress-text">{{ job.progress }}%</div>
+        {% endif %}
+
+        {% if job.status.value == 'done' and job.beam_summary %}
+        <div class="job-summary">
+            <h4>Results Summary</h4>
+            <table class="summary-table">
+                <tr>
+                    <td>Span Length</td>
+                    <td>{{ "%.2f"|format(job.beam_summary.span_m) }} m</td>
+                </tr>
+                <tr>
+                    <td>Support Type</td>
+                    <td>{{ job.beam_summary.support_type }}</td>
+                </tr>
+                <tr>
+                    <td>Section</td>
+                    <td>{{ job.beam_summary.section_name }}</td>
+                </tr>
+                <tr>
+                    <td>Max Displacement</td>
+                    <td>{{ "%.3f"|format(job.beam_summary.max_displacement_mm) }} mm</td>
+                </tr>
+                <tr>
+                    <td>Max Moment</td>
+                    <td>{{ "%.2f"|format(job.beam_summary.max_moment_kNm) }} kN-m</td>
+                </tr>
+                <tr>
+                    <td>Max Shear</td>
+                    <td>{{ "%.2f"|format(job.beam_summary.max_shear_kN) }} kN</td>
+                </tr>
+                <tr>
+                    <td>Deflection Check</td>
+                    <td class="{% if job.beam_summary.deflection_check %}check-pass{% else %}check-fail{% endif %}">
+                        {% if job.beam_summary.deflection_check %}PASS{% else %}FAIL{% endif %}
+                    </td>
+                </tr>
+            </table>
+
+            <div class="job-card-actions">
+                <a href="/api/jobs/{{ job.job_id }}/report" target="_blank" class="btn-primary">
+                    View Full Report
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if job.status.value == 'failed' and job.error %}
+        <div class="job-error">
+            <strong>Error:</strong> {{ job.error }}
+        </div>
+        {% endif %}
+
+        <div class="job-meta">
+            {% if job.created_at %}
+            <span>Created: {{ job.created_at }}</span>
+            {% endif %}
+            {% if job.completed_at %}
+            <span>Completed: {{ job.completed_at }}</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="job-actions">
+    <a href="/simple-beam" class="btn-secondary">New Simple Beam Analysis</a>
+    <a href="/jobs" class="btn-secondary">View All Jobs</a>
+    <a href="/" class="btn-secondary">Home</a>
+</div>
+{% endblock %}

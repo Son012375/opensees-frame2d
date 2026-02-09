@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}단순보 해석 - Simple Beam Analysis{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>단순보 해석 (Simple Beam)</h1>
+    <p class="subtitle">Enter beam parameters and loads to run OpenSees analysis</p>
+</div>
+
+<!-- Input Mode Selector -->
+<div class="mode-selector">
+    <button type="button" class="mode-btn active" data-mode="natural" onclick="switchMode('natural')">
+        <span class="mode-icon">🤖</span>
+        <span class="mode-label">자연어 입력</span>
+        <span class="mode-desc">Claude AI가 해석</span>
+    </button>
+    <button type="button" class="mode-btn" data-mode="direct" onclick="switchMode('direct')">
+        <span class="mode-icon">📝</span>
+        <span class="mode-label">직접 입력</span>
+        <span class="mode-desc">폼에 값 입력</span>
+    </button>
+</div>
+
+<!-- Natural Language Input Mode -->
+<div id="natural-mode" class="input-mode active">
+    <div class="form-section">
+        <h2>자연어로 보 설명</h2>
+        <p class="section-desc">보의 길이, 하중, 지지조건 등을 자연어로 설명하면 Claude AI가 해석 입력으로 변환합니다.</p>
+
+        <div class="form-group">
+            <label for="natural-input">보 설명</label>
+            <textarea id="natural-input" rows="4" placeholder="예: 길이 6m 단순보에 등분포하중 20kN/m 작용, H-400x200 단면 사용"></textarea>
+        </div>
+
+        <div class="example-prompts">
+            <p><strong>예시:</strong></p>
+            <ul>
+                <li><a href="#" onclick="fillExample(1); return false;">"길이 8m 단순보, 등분포하중 15kN/m, H-400x200"</a></li>
+                <li><a href="#" onclick="fillExample(2); return false;">"5m 캔틸레버, 끝단에 집중하중 50kN"</a></li>
+                <li><a href="#" onclick="fillExample(3); return false;">"10m 고정단 보, 중앙 집중하중 100kN, SS400 강재"</a></li>
+            </ul>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" class="btn-secondary" id="parse-btn" onclick="parseNaturalLanguage()">
+                Claude로 변환
+            </button>
+            <button type="button" class="btn-primary btn-lg" id="natural-submit-btn" onclick="submitNatural()">
+                해석 실행
+            </button>
+        </div>
+
+        <!-- Parsed preview -->
+        <div id="parsed-preview" class="parsed-preview" style="display: none;">
+            <h3>변환 결과 미리보기</h3>
+            <pre id="parsed-json"></pre>
+            <button type="button" class="btn-secondary btn-sm" onclick="editParsed()">직접 입력으로 수정</button>
+        </div>
+
+        <div id="parse-error" class="error-message" style="display: none;"></div>
+        <div id="api-warning" class="warning-message" style="display: none;">
+            Claude API 키가 설정되지 않았습니다. 직접 입력 모드를 사용하세요.
+        </div>
+    </div>
+</div>
+
+<!-- Direct Input Mode -->
+<div id="direct-mode" class="input-mode">
+    <form id="analysis-form" class="analysis-form">
+        <!-- Geometry Section -->
+        <section class="form-section">
+            <h2>Geometry</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="span">Span Length (m)</label>
+                    <input type="number" id="span" name="span" value="6.0" step="0.1" min="0.1" required>
+                </div>
+                <div class="form-group">
+                    <label for="support_type">Support Type</label>
+                    <select id="support_type" name="support_type">
+                        <option value="simple" selected>단순지지 (Simple)</option>
+                        <option value="cantilever">캔틸레버 (Cantilever)</option>
+                        <option value="fixed_fixed">양단고정 (Fixed-Fixed)</option>
+                        <option value="fixed_pin">고정-핀 (Fixed-Pin)</option>
+                        <option value="propped_cantilever">지지 캔틸레버 (Propped)</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sections & Material -->
+        <section class="form-section">
+            <h2>Section & Material</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="section_name">Section</label>
+                    <select id="section_name" name="section_name">
+                        <option value="H-400x200x8x13" selected>H-400x200x8x13</option>
+                        <option value="H-500x200x10x16">H-500x200x10x16</option>
+                        <option value="H-350x175x7x11">H-350x175x7x11</option>
+                        <option value="H-300x150x6.5x9">H-300x150x6.5x9</option>
+                        <option value="H-600x200x11x17">H-600x200x11x17</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="material_name">Material</label>
+                    <select id="material_name" name="material_name">
+                        <option value="SS275" selected>SS275 (KS)</option>
+                        <option value="SS400">SS400 (KS)</option>
+                        <option value="SM490">SM490 (KS)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="num_elements">Number of Elements</label>
+                    <select id="num_elements" name="num_elements">
+                        <option value="10">10</option>
+                        <option value="20" selected>20 (recommended)</option>
+                        <option value="40">40</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="deflection_limit">Deflection Limit (L/n)</label>
+                    <select id="deflection_limit" name="deflection_limit">
+                        <option value="250">L/250</option>
+                        <option value="300" selected>L/300</option>
+                        <option value="360">L/360</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Load Section -->
+        <section class="form-section">
+            <h2>Loads</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="load_type">Load Type</label>
+                    <select id="load_type" name="load_type" onchange="updateLoadInputs()">
+                        <option value="uniform" selected>등분포하중 (Uniform)</option>
+                        <option value="point_center">중앙 집중하중 (Point at Center)</option>
+                        <option value="point">임의 집중하중 (Point Load)</option>
+                        <option value="triangular">삼각형 하중 (Triangular)</option>
+                        <option value="partial_uniform">부분 등분포 (Partial Uniform)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="load-inputs">
+                <!-- Uniform load (default) -->
+                <div class="form-row" id="uniform-inputs">
+                    <div class="form-group">
+                        <label for="load_value">Load Value (kN/m)</label>
+                        <input type="number" id="load_value" name="load_value" value="20" step="0.1">
+                    </div>
+                </div>
+
+                <!-- Point load inputs (hidden by default) -->
+                <div class="form-row" id="point-inputs" style="display: none;">
+                    <div class="form-group">
+                        <label for="point_load_value">Point Load (kN)</label>
+                        <input type="number" id="point_load_value" name="point_load_value" value="50" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="point_location">Location from Left (m)</label>
+                        <input type="number" id="point_location" name="point_location" value="3.0" step="0.1">
+                    </div>
+                </div>
+
+                <!-- Partial uniform inputs (hidden by default) -->
+                <div class="form-row" id="partial-inputs" style="display: none;">
+                    <div class="form-group">
+                        <label for="partial_load_value">Load Value (kN/m)</label>
+                        <input type="number" id="partial_load_value" name="partial_load_value" value="20" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="load_start">Start (m)</label>
+                        <input type="number" id="load_start" name="load_start" value="1.0" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="load_end">End (m)</label>
+                        <input type="number" id="load_end" name="load_end" value="5.0" step="0.1">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Submit -->
+        <div class="form-actions">
+            <button type="submit" class="btn-primary btn-lg" id="submit-btn">
+                Run Analysis
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Job status area -->
+<div id="job-status-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/simple_beam_form.js"></script>
+{% endblock %}

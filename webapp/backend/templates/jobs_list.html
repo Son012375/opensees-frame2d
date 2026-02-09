@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Analysis History - OpenSees{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Analysis History</h1>
+    <p class="subtitle">View all completed and pending analysis jobs</p>
+</div>
+
+<div class="jobs-list-container">
+    {% if jobs %}
+    <div class="jobs-grid">
+        {% for job in jobs %}
+        <div class="job-list-card status-{{ job.status.value }}">
+            <div class="job-list-header">
+                <span class="job-type-badge type-{{ job.analysis_type or 'frame2d' }}">
+                    {{ job.analysis_type or 'frame2d' | upper | replace('_', ' ') }}
+                </span>
+                <span class="job-status-badge badge-{{ job.status.value }}">
+                    {{ job.status.value | upper }}
+                </span>
+            </div>
+
+            <div class="job-list-id">{{ job.job_id[:8] }}...</div>
+
+            <div class="job-list-meta">
+                {% if job.created_at %}
+                <span class="meta-item">{{ job.created_at[:16] | replace('T', ' ') }}</span>
+                {% endif %}
+            </div>
+
+            {% if job.status.value == 'done' %}
+            <div class="job-list-summary">
+                {% if job.summary %}
+                <!-- Frame2D summary -->
+                <span>{{ job.summary.num_stories }} Stories / {{ job.summary.num_bays }} Bays</span>
+                {% elif job.beam_summary %}
+                <!-- Simple Beam summary -->
+                <span>{{ "%.1f"|format(job.beam_summary.span_m) }}m - {{ job.beam_summary.support_type }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if job.status.value == 'failed' %}
+            <div class="job-list-error">
+                {{ job.error[:50] }}{% if job.error|length > 50 %}...{% endif %}
+            </div>
+            {% endif %}
+
+            <div class="job-list-actions">
+                {% if job.analysis_type == 'simple_beam' %}
+                <a href="/simple-beam/jobs/{{ job.job_id }}/status" class="btn-sm btn-secondary">View</a>
+                {% else %}
+                <a href="/jobs/{{ job.job_id }}/status" class="btn-sm btn-secondary">View</a>
+                {% endif %}
+
+                {% if job.status.value == 'done' %}
+                <a href="/api/jobs/{{ job.job_id }}/report" target="_blank" class="btn-sm btn-primary">Report</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h3>No Analysis Jobs Yet</h3>
+        <p>Run your first analysis to see results here.</p>
+        <div class="empty-actions">
+            <a href="/simple-beam" class="btn-secondary">Simple Beam</a>
+            <a href="/frame2d" class="btn-secondary">2D Frame</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

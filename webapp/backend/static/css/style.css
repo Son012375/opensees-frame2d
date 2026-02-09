@@ -704,3 +704,256 @@ button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Home Page - Analysis Type Cards
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.analysis-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+}
+
+.analysis-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 1.75rem;
+    box-shadow: var(--shadow);
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    position: relative;
+}
+
+.analysis-card:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.analysis-card.coming-soon {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.analysis-card.coming-soon:hover {
+    transform: none;
+    border-color: transparent;
+    box-shadow: var(--shadow);
+}
+
+.card-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.analysis-card h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+}
+
+.analysis-card > p {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.card-features {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem 0;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.card-features li {
+    padding: 0.25rem 0;
+    padding-left: 1.25rem;
+    position: relative;
+}
+
+.card-features li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--success);
+    font-weight: bold;
+}
+
+.card-status {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-top: auto;
+    align-self: flex-start;
+}
+
+.card-status.ready {
+    background: #d1fae5;
+    color: #047857;
+}
+
+.card-status.pending {
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Home Page - Features Section
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.info-section {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 2rem;
+    box-shadow: var(--shadow);
+}
+
+.info-section h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    color: var(--text);
+}
+
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+}
+
+.feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border-radius: 6px;
+}
+
+.feature-icon {
+    font-size: 1.5rem;
+}
+
+.feature-item span:last-child {
+    font-size: 0.875rem;
+    color: var(--text);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Jobs List Page
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.jobs-list-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.job-list-card {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.job-list-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-2px);
+}
+
+.job-list-id {
+    font-family: monospace;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.job-list-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.job-list-summary {
+    font-size: 0.875rem;
+    color: var(--text);
+    margin-bottom: 0.75rem;
+}
+
+.job-list-error {
+    font-size: 0.75rem;
+    color: var(--danger);
+    margin-bottom: 0.75rem;
+}
+
+.job-list-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.job-type-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.type-frame2d {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.type-simple_beam {
+    background: #dcfce7;
+    color: #166534;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Check Pass/Fail Indicators
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.check-pass {
+    color: #047857;
+    font-weight: 600;
+}
+
+.check-fail {
+    color: #b91c1c;
+    font-weight: 600;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Empty State Improvements
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+}
+
+.empty-state h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+}
+
+.empty-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 1.5rem;
+}
