@@ -248,3 +248,143 @@ def parse_simple_beam(user_input: str) -> Dict[str, Any]:
             result[key] = default_value
 
     return result
+
+
+# System prompt for Continuous Beam input conversion
+CONTINUOUS_BEAM_SYSTEM_PROMPT = """당신은 구조공학 전문가입니다. 사용자의 자연어 설명을 연속보 해석 입력 JSON으로 변환합니다.
+
+## 출력 형식 (JSON)
+```json
+{
+  "spans": [6.0, 8.0, 6.0],           // 경간 길이 배열 (m)
+  "loads": [                          // 하중 배열
+    {
+      "type": "uniform",              // 하중 타입
+      "value": 20.0                   // 하중 값 (kN/m 또는 kN)
+    }
+  ],
+  "supports": ["pin", "roller", "roller", "pin"],  // 지점 조건 (경간수+1개)
+  "hinges": null,                     // 힌지 지점 인덱스 (없으면 null)
+  "section_name": "H-400x200x8x13",   // 단면명
+  "material_name": "SS275",           // 재료명
+  "num_elements_per_span": 20,        // 경간당 요소 개수
+  "deflection_limit": 300             // 처짐 한계 (L/n)
+}
+```
+
+## 하중 객체 구조
+```json
+// 등분포하중 (전체 경간)
+{"type": "uniform", "value": 20.0}
+
+// 특정 경간 등분포하중
+{"type": "uniform", "value": 25.0, "span_index": 0}
+
+// 집중하중
+{"type": "point", "value": 50.0, "location": 3.0, "span_index": 1}
+
+// 삼각형 하중
+{"type": "triangular", "value": 0.0, "value_end": 20.0}
+
+// 부분 등분포
+{"type": "partial_uniform", "value": 15.0, "start": 1.0, "end": 4.0, "span_index": 0}
+```
+
+## 지점 조건 옵션
+- "pin": 핀 (수직/수평 구속, 회전 자유)
+- "roller": 롤러 (수직만 구속)
+- "fixed": 고정 (모든 자유도 구속)
+- "free": 자유단 (모든 자유도 자유)
+
+## 단면 옵션
+H-400x200x8x13, H-500x200x10x16, H-350x175x7x11, H-300x150x6.5x9, H-600x200x11x17
+
+## 재료 옵션
+SS275, SS400, SM490
+
+## 규칙
+1. spans 배열 길이 = 경간 수 (최소 2개)
+2. supports 배열 길이 = 경간 수 + 1
+3. span_index가 없으면 해당 하중은 전체 경간에 적용
+4. 사용자가 명시하지 않은 값은 합리적인 기본값 사용
+5. 반드시 유효한 JSON만 출력 (설명 없이)
+
+## 예시
+입력: "3경간 연속보, 각 경간 6m, 등분포하중 15kN/m"
+출력: {"spans":[6.0,6.0,6.0],"loads":[{"type":"uniform","value":15.0}],"supports":["pin","roller","roller","pin"],"hinges":null,"section_name":"H-400x200x8x13","material_name":"SS275","num_elements_per_span":20,"deflection_limit":300}
+
+입력: "2경간 연속보 (8m, 10m), 각 경간 중앙에 집중하중 50kN"
+출력: {"spans":[8.0,10.0],"loads":[{"type":"point","value":50.0,"location":4.0,"span_index":0},{"type":"point","value":50.0,"location":5.0,"span_index":1}],"supports":["pin","roller","pin"],"hinges":null,"section_name":"H-400x200x8x13","material_name":"SS275","num_elements_per_span":20,"deflection_limit":300}
+"""
+
+
+def parse_continuous_beam(user_input: str) -> Dict[str, Any]:
+    """
+    Convert natural language description to Continuous Beam input JSON using Claude API
+
+    Args:
+        user_input: Natural language description in Korean or English
+
+    Returns:
+        Dictionary with Continuous Beam input parameters
+
+    Raises:
+        ValueError: If API key not set or parsing fails
+    """
+    if not CLAUDE_API_KEY:
+        raise ValueError("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.")
+
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        system=CONTINUOUS_BEAM_SYSTEM_PROMPT,
+        messages=[
+            {"role": "user", "content": user_input}
+        ]
+    )
+
+    # Extract JSON from response
+    response_text = message.content[0].text.strip()
+
+    # Try to find JSON in response (in case there's extra text)
+    json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+    if json_match:
+        json_str = json_match.group()
+    else:
+        json_str = response_text
+
+    try:
+        result = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 파싱 실패: {e}\n응답: {response_text}")
+
+    # Validate required fields
+    required_fields = ["spans", "loads"]
+    for field in required_fields:
+        if field not in result:
+            raise ValueError(f"필수 필드 누락: {field}")
+
+    # Validate spans
+    if not isinstance(result["spans"], list) or len(result["spans"]) < 2:
+        raise ValueError("spans는 최소 2개의 경간이 필요합니다.")
+
+    # Set defaults for optional fields
+    defaults = {
+        "supports": ["pin"] + ["roller"] * (len(result["spans"]) - 1) + ["pin"],
+        "hinges": None,
+        "section_name": "H-400x200x8x13",
+        "material_name": "SS275",
+        "num_elements_per_span": 20,
+        "deflection_limit": 300
+    }
+
+    for key, default_value in defaults.items():
+        if key not in result or result[key] is None:
+            if key == "supports":
+                result[key] = ["pin"] + ["roller"] * (len(result["spans"]) - 1) + ["pin"]
+            else:
+                result[key] = default_value
+
+    return result

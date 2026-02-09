@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}연속보 해석 - Continuous Beam Analysis{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>연속보 해석 (Continuous Beam)</h1>
+    <p class="subtitle">Enter multi-span beam parameters and loads to run OpenSees analysis</p>
+</div>
+
+<!-- Input Mode Selector -->
+<div class="mode-selector">
+    <button type="button" class="mode-btn active" data-mode="natural" onclick="switchMode('natural')">
+        <span class="mode-icon">🤖</span>
+        <span class="mode-label">자연어 입력</span>
+        <span class="mode-desc">Claude AI가 해석</span>
+    </button>
+    <button type="button" class="mode-btn" data-mode="direct" onclick="switchMode('direct')">
+        <span class="mode-icon">📝</span>
+        <span class="mode-label">직접 입력</span>
+        <span class="mode-desc">폼에 값 입력</span>
+    </button>
+</div>
+
+<!-- Natural Language Input Mode -->
+<div id="natural-mode" class="input-mode active">
+    <div class="form-section">
+        <h2>자연어로 연속보 설명</h2>
+        <p class="section-desc">경간 길이, 하중, 지지조건 등을 자연어로 설명하면 Claude AI가 해석 입력으로 변환합니다.</p>
+
+        <div class="form-group">
+            <label for="natural-input">연속보 설명</label>
+            <textarea id="natural-input" rows="4" placeholder="예: 3경간 연속보, 경간 6m-8m-6m, 전 경간 등분포하중 20kN/m, H-400x200 단면"></textarea>
+        </div>
+
+        <div class="example-prompts">
+            <p><strong>예시:</strong></p>
+            <ul>
+                <li><a href="#" onclick="fillExample(1); return false;">"3경간 연속보, 각 경간 6m, 등분포하중 15kN/m"</a></li>
+                <li><a href="#" onclick="fillExample(2); return false;">"2경간 연속보 (8m, 10m), 각 경간 중앙에 집중하중 50kN"</a></li>
+                <li><a href="#" onclick="fillExample(3); return false;">"4경간 연속보, 경간 5m-6m-6m-5m, 1번째 경간만 등분포 25kN/m"</a></li>
+            </ul>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" class="btn-secondary" id="parse-btn" onclick="parseNaturalLanguage()">
+                Claude로 변환
+            </button>
+            <button type="button" class="btn-primary btn-lg" id="natural-submit-btn" onclick="submitNatural()">
+                해석 실행
+            </button>
+        </div>
+
+        <!-- Parsed preview -->
+        <div id="parsed-preview" class="parsed-preview" style="display: none;">
+            <h3>변환 결과 미리보기</h3>
+            <pre id="parsed-json"></pre>
+            <button type="button" class="btn-secondary btn-sm" onclick="editParsed()">직접 입력으로 수정</button>
+        </div>
+
+        <div id="parse-error" class="error-message" style="display: none;"></div>
+        <div id="api-warning" class="warning-message" style="display: none;">
+            Claude API 키가 설정되지 않았습니다. 직접 입력 모드를 사용하세요.
+        </div>
+    </div>
+</div>
+
+<!-- Direct Input Mode -->
+<div id="direct-mode" class="input-mode">
+    <form id="analysis-form" class="analysis-form">
+        <!-- Spans Section -->
+        <section class="form-section">
+            <h2>Spans (경간)</h2>
+            <p class="section-desc">각 경간의 길이를 입력하세요. 경간 추가/삭제가 가능합니다.</p>
+            <div id="spans-container">
+                <div class="span-row" data-index="0">
+                    <label>경간 1</label>
+                    <input type="number" class="span-input" value="6.0" step="0.1" min="0.5" max="50" required>
+                    <span>m</span>
+                    <button type="button" class="btn-remove" onclick="removeSpan(this)" style="display:none;">삭제</button>
+                </div>
+                <div class="span-row" data-index="1">
+                    <label>경간 2</label>
+                    <input type="number" class="span-input" value="8.0" step="0.1" min="0.5" max="50" required>
+                    <span>m</span>
+                    <button type="button" class="btn-remove" onclick="removeSpan(this)">삭제</button>
+                </div>
+            </div>
+            <button type="button" class="btn-secondary btn-sm" onclick="addSpan()">+ 경간 추가</button>
+        </section>
+
+        <!-- Supports Section -->
+        <section class="form-section">
+            <h2>Supports (지점 조건)</h2>
+            <p class="section-desc">각 지점의 경계 조건을 선택하세요. 지점 수 = 경간 수 + 1</p>
+            <div id="supports-container">
+                <!-- Dynamically generated -->
+            </div>
+        </section>
+
+        <!-- Sections & Material -->
+        <section class="form-section">
+            <h2>Section & Material</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="section_name">Section</label>
+                    <select id="section_name" name="section_name">
+                        <option value="H-400x200x8x13" selected>H-400x200x8x13</option>
+                        <option value="H-500x200x10x16">H-500x200x10x16</option>
+                        <option value="H-350x175x7x11">H-350x175x7x11</option>
+                        <option value="H-300x150x6.5x9">H-300x150x6.5x9</option>
+                        <option value="H-600x200x11x17">H-600x200x11x17</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="material_name">Material</label>
+                    <select id="material_name" name="material_name">
+                        <option value="SS275" selected>SS275 (KS)</option>
+                        <option value="SS400">SS400 (KS)</option>
+                        <option value="SM490">SM490 (KS)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="num_elements">Elements per Span</label>
+                    <select id="num_elements" name="num_elements">
+                        <option value="10">10</option>
+                        <option value="20" selected>20 (recommended)</option>
+                        <option value="40">40</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="deflection_limit">Deflection Limit (L/n)</label>
+                    <select id="deflection_limit" name="deflection_limit">
+                        <option value="250">L/250</option>
+                        <option value="300" selected>L/300</option>
+                        <option value="360">L/360</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Load Section -->
+        <section class="form-section">
+            <h2>Loads (하중)</h2>
+            <p class="section-desc">각 하중 케이스를 추가하세요. 경간별 또는 전체 적용이 가능합니다.</p>
+            <div id="loads-container">
+                <div class="load-card" data-index="0">
+                    <div class="load-card-header">
+                        <span>하중 1</span>
+                        <button type="button" class="btn-remove" onclick="removeLoad(this)" style="display:none;">삭제</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>적용 경간</label>
+                            <select class="load-span-select">
+                                <option value="all" selected>전체 경간</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>하중 타입</label>
+                            <select class="load-type-select" onchange="updateLoadInputs(this)">
+                                <option value="uniform" selected>등분포하중</option>
+                                <option value="point">집중하중</option>
+                                <option value="triangular">삼각형 하중</option>
+                                <option value="partial_uniform">부분 등분포</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="load-value-inputs">
+                        <div class="form-row uniform-inputs">
+                            <div class="form-group">
+                                <label>하중 값 (kN/m)</label>
+                                <input type="number" class="load-value" value="20" step="0.1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="btn-secondary btn-sm" onclick="addLoad()">+ 하중 추가</button>
+        </section>
+
+        <!-- Submit -->
+        <div class="form-actions">
+            <button type="submit" class="btn-primary btn-lg" id="submit-btn">
+                Run Analysis
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Job status area -->
+<div id="job-status-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/continuous_beam_form.js"></script>
+{% endblock %}

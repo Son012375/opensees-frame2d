@@ -20,7 +20,7 @@ from typing import Optional, List
 
 from app.models.schemas import Frame2DInput, JobCreateResponse, JobResponse, JobStatus, JobSummary
 from app.core.config import MCP_SERVER_PATH, JOBS_DIR
-from app.core.claude_service import parse_natural_language, parse_simple_beam, check_api_key
+from app.core.claude_service import parse_natural_language, parse_simple_beam, parse_continuous_beam, check_api_key
 
 
 class NaturalLanguageInput(BaseModel):
@@ -48,6 +48,18 @@ class SimpleBeamInput(BaseModel):
     load_end: Optional[float] = None
     load_value_end: Optional[float] = None
     num_elements: int = 20
+    deflection_limit: int = 300
+
+
+class ContinuousBeamInput(BaseModel):
+    """Continuous beam analysis input"""
+    spans: List[float]
+    loads: List[dict]
+    supports: Optional[List[str]] = None
+    hinges: Optional[List[int]] = None
+    section_name: str = "H-400x200x8x13"
+    material_name: str = "SS275"
+    num_elements_per_span: int = 20
     deflection_limit: int = 300
 
 
@@ -83,6 +95,12 @@ async def frame2d_page(request: Request):
 async def simple_beam_page(request: Request):
     """Simple beam analysis input page"""
     return templates.TemplateResponse("simple_beam.html", {"request": request})
+
+
+@app.get("/continuous-beam", response_class=HTMLResponse)
+async def continuous_beam_page(request: Request):
+    """Continuous beam analysis input page"""
+    return templates.TemplateResponse("continuous_beam.html", {"request": request})
 
 
 @app.get("/jobs", response_class=HTMLResponse)
@@ -311,6 +329,102 @@ async def simple_beam_job_status_page(request: Request, job_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Continuous Beam API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/continuous-beam/jobs", response_model=JobCreateResponse)
+async def create_continuous_beam_job(input_data: ContinuousBeamInput):
+    """Create and run Continuous Beam analysis"""
+    job_id = str(uuid.uuid4())
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save input
+    with open(job_dir / "input.json", "w", encoding="utf-8") as f:
+        json.dump(input_data.dict(), f, indent=2)
+
+    # Initialize job
+    jobs_db[job_id] = {
+        "job_id": job_id,
+        "status": JobStatus.RUNNING,
+        "progress": 10,
+        "created_at": datetime.now().isoformat(),
+        "analysis_type": "continuous_beam",
+    }
+
+    try:
+        # Add MCP server to path
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+
+        from core.continuous_beam import analyze_continuous_beam
+        from core.visualization import plot_beam_results_interactive
+
+        # Set default supports if not provided
+        supports = input_data.supports
+        if not supports:
+            # Default: pin at start, rollers in middle, roller at end
+            num_supports = len(input_data.spans) + 1
+            supports = ["pin"] + ["roller"] * (num_supports - 1)
+
+        # Run analysis
+        result = analyze_continuous_beam(
+            spans=input_data.spans,
+            loads=input_data.loads,
+            supports=supports,
+            hinges=input_data.hinges,
+            section_name=input_data.section_name,
+            material_name=input_data.material_name,
+            num_elements_per_span=input_data.num_elements_per_span,
+            deflection_limit=input_data.deflection_limit,
+        )
+
+        # Generate report
+        report_path = str(job_dir / "report.html")
+        plot_beam_results_interactive(result, output_path=report_path)
+
+        # Create summary for continuous beam
+        total_span = sum(input_data.spans)
+
+        # Calculate deflection check
+        allowable_mm = (total_span * 1000) / result.deflection_limit_ratio
+        deflection_ok = result.max_displacement <= allowable_mm
+
+        summary = {
+            "num_spans": len(input_data.spans),
+            "total_span_m": total_span,
+            "spans_m": input_data.spans,
+            "max_displacement_mm": result.max_displacement,
+            "max_moment_kNm": result.max_moment,
+            "max_shear_kN": result.max_shear,
+            "section_name": result.section_name,
+            "deflection_check": deflection_ok,
+            "allowable_deflection_mm": allowable_mm,
+        }
+        jobs_db[job_id]["beam_summary"] = summary
+
+        jobs_db[job_id]["status"] = JobStatus.DONE
+        jobs_db[job_id]["progress"] = 100
+        jobs_db[job_id]["completed_at"] = datetime.now().isoformat()
+        jobs_db[job_id]["report_url"] = f"/api/jobs/{job_id}/report"
+
+    except Exception as e:
+        jobs_db[job_id]["status"] = JobStatus.FAILED
+        jobs_db[job_id]["error"] = str(e)
+        print(f"Continuous beam analysis error: {traceback.format_exc()}")
+
+    return JobCreateResponse(job_id=job_id, message="Analysis completed")
+
+
+@app.get("/continuous-beam/jobs/{job_id}/status", response_class=HTMLResponse)
+async def continuous_beam_job_status_page(request: Request, job_id: str):
+    if job_id not in jobs_db:
+        return templates.TemplateResponse("partials/job_not_found.html", {"request": request})
+    job = jobs_db[job_id]
+    return templates.TemplateResponse("continuous_beam_status.html", {"request": request, "job": job})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Claude API endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -337,6 +451,18 @@ async def parse_beam_natural_language(input_data: NaturalLanguageInput):
     """Parse natural language to Simple Beam input JSON"""
     try:
         result = parse_simple_beam(input_data.text)
+        return ParseResponse(success=True, data=result)
+    except ValueError as e:
+        return ParseResponse(success=False, error=str(e))
+    except Exception as e:
+        return ParseResponse(success=False, error=f"파싱 오류: {str(e)}")
+
+
+@app.post("/api/claude/parse-continuous-beam", response_model=ParseResponse)
+async def parse_continuous_beam_natural_language(input_data: NaturalLanguageInput):
+    """Parse natural language to Continuous Beam input JSON"""
+    try:
+        result = parse_continuous_beam(input_data.text)
         return ParseResponse(success=True, data=result)
     except ValueError as e:
         return ParseResponse(success=False, error=str(e))
