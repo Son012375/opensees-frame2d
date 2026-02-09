@@ -492,8 +492,11 @@ def analyze_continuous_beam(
         forces = ops.eleForce(eid)
         m_i = forces[2] / 1e6
         m_j = -forces[5] / 1e6
-        v_i = -forces[1] / 1000
-        v_j = forces[4] / 1000
+        # 전단력: OpenSees eleForce → 교과서 부호 규약
+        # eleForce[1] = i-end Vy, eleForce[4] = j-end Vy
+        # 둘 다 같은 방향(위쪽 양수)으로 일관성 유지
+        v_i = forces[1] / 1000   # i-end shear (원래 부호 유지)
+        v_j = forces[4] / 1000   # j-end shear (원래 부호 유지)
 
         # 첫 노드 또는 경간 시작 노드의 right 값
         if i_node not in node_moment_right:
@@ -515,7 +518,7 @@ def analyze_continuous_beam(
         nodes = ops.eleNodes(start_elem)
         i_node = nodes[0]
         forces = ops.eleForce(start_elem)
-        v_i = -forces[1] / 1000
+        v_i = forces[1] / 1000   # i-end shear (일관된 부호 규약)
         m_i = forces[2] / 1e6
         node_shear_right[i_node] = v_i
         node_moment_right[i_node] = m_i

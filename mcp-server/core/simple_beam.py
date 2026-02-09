@@ -462,8 +462,11 @@ def analyze_simple_beam(
         forces = ops.eleForce(i + 1)
         m_i = forces[2] / 1e6    # N·mm → kN·m (부호 유지)
         m_j = -forces[5] / 1e6   # 반대쪽 부호 반전
-        v_i = -forces[1] / 1000  # N → kN (부호 유지)
-        v_j = forces[4] / 1000
+        # 전단력: OpenSees eleForce → 교과서 부호 규약
+        # eleForce[1] = i-end Vy, eleForce[4] = j-end Vy
+        # 둘 다 같은 방향으로 일관성 유지 (시각화에서 최종 변환)
+        v_i = forces[1] / 1000   # i-end shear
+        v_j = forces[4] / 1000   # j-end shear
         if i == 0:
             node_moments[0] = m_i
             node_shears[0] = v_i

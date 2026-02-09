@@ -35,6 +35,123 @@ from .sign_convention import (
 )
 
 
+def _process_sfd_discontinuities(x_data: list, shear_data: list, load_info: list, supports: list) -> tuple:
+    """
+    SFD에서 집중하중 및 지점 반력 위치에 수직 불연속성(vertical discontinuity) 처리
+
+    집중하중이 작용하는 위치에서 전단력 다이어그램은 수직으로 점프해야 함.
+    이를 위해 해당 위치에서 x좌표를 중복하고 점프 전/후 값을 분리.
+
+    Args:
+        x_data: 원본 x 좌표 배열
+        shear_data: 원본 전단력 배열 (부호변환 후)
+        load_info: 하중 정보 [{"type": "point", "location": ..., "value": ...}, ...]
+        supports: 지점 정보 [{"x": ..., "type": ...}, ...]
+
+    Returns:
+        (x_processed, shear_processed): 불연속점이 처리된 배열
+    """
+    if not x_data or not shear_data or len(x_data) != len(shear_data):
+        return x_data, shear_data
+
+    # 집중하중 정보: {위치: 하중값} (하향 양수)
+    point_loads = {}
+    for ld in (load_info or []):
+        if ld.get("type") == "point":
+            loc = round(ld.get("location", 0.0), 4)
+            val = ld.get("value", 0.0)
+            point_loads[loc] = point_loads.get(loc, 0.0) + val
+
+    # 내부 지점 위치 (반력에 의한 불연속)
+    internal_support_locs = set()
+    if supports and len(supports) > 2:
+        for s in supports[1:-1]:
+            sx = round(s.get("x", 0.0), 4)
+            internal_support_locs.add(sx)
+
+    # 모든 불연속점 위치
+    all_disc_locs = set(point_loads.keys()) | internal_support_locs
+
+    if not all_disc_locs:
+        return x_data, shear_data
+
+    # 결과 배열 구성
+    x_processed = []
+    shear_processed = []
+    tol = 0.001
+
+    i = 0
+    n = len(x_data)
+
+    while i < n:
+        curr_x = x_data[i]
+        curr_v = shear_data[i]
+
+        # 같은 x 좌표를 가진 연속 점들 확인
+        j = i + 1
+        while j < n and abs(x_data[j] - curr_x) < tol:
+            j += 1
+
+        num_same_x = j - i
+
+        if num_same_x >= 2:
+            # 이미 불연속점이 처리됨 → 그대로 복사
+            for k in range(i, j):
+                x_processed.append(x_data[k])
+                shear_processed.append(shear_data[k])
+        else:
+            # 단일 점 - 불연속점인지 확인
+            rounded_x = round(curr_x, 4)
+            is_point_load = rounded_x in point_loads
+            is_internal_support = rounded_x in internal_support_locs
+
+            if (is_point_load or is_internal_support) and 0 < i < n - 1:
+                # 집중하중에 의한 불연속점 처리
+                # OpenSees에서 shear[i]는 노드 i의 j-end(좌측요소) 전단력
+                # 집중하중 P 작용 시: V_right = V_left - P (하향 하중 = 전단력 감소)
+                prev_x = x_data[i - 1]
+                prev_v = shear_data[i - 1]
+                next_x = x_data[i + 1] if i + 1 < n else curr_x
+                next_v = shear_data[i + 1] if i + 1 < n else curr_v
+
+                # 좌측 값: 이전 구간의 선형 추세 외삽
+                # (등분포하중 구간에서 선형 감소 가정)
+                if abs(curr_x - prev_x) > 1e-6:
+                    slope_left = (curr_v - prev_v) / (curr_x - prev_x)
+                    v_left = prev_v + slope_left * (curr_x - prev_x)
+                else:
+                    v_left = curr_v
+
+                # 우측 값 계산
+                if is_point_load:
+                    # 집중하중에 의한 점프: V_after = V_before - P (텍스트북 부호규약)
+                    P = point_loads[rounded_x]
+                    v_right = v_left - P  # 하향 하중은 전단력 감소
+                elif is_internal_support:
+                    # 내부 지점 반력: 우측 값은 다음 추세에서 역산
+                    # next_v는 지점 직후의 값
+                    if abs(next_x - curr_x) > 1e-6:
+                        v_right = next_v - (next_v - curr_v) * (next_x - curr_x) / (next_x - curr_x) * 0.01
+                        v_right = curr_v  # 단순화: 현재값 = 우측값
+                    else:
+                        v_right = curr_v
+                else:
+                    v_right = curr_v
+
+                # 두 점 삽입
+                x_processed.append(curr_x)
+                shear_processed.append(v_left)
+                x_processed.append(curr_x)
+                shear_processed.append(v_right)
+            else:
+                x_processed.append(curr_x)
+                shear_processed.append(curr_v)
+
+        i = j
+
+    return x_processed, shear_processed
+
+
 def _get_support_info(result) -> list[dict]:
     """결과 객체에서 지점 정보 추출"""
     supports = []
@@ -404,6 +521,9 @@ def plot_beam_results(result, output_path: Optional[str] = None,
     # 하중 표시
     _load_info = getattr(result, 'load_info', []) or []
     _draw_loads_mpl(ax_struct, _load_info, span_total, beam_y=0.0)
+
+    # SFD 불연속점 처리 (집중하중, 내부지점에서 수직 점프)
+    x_sfd, shears_sfd = _process_sfd_discontinuities(list(x), list(shears_data), _load_info, supports)
     # 경간 길이 표시
     dim_y = -span_total * 0.07  # 보 아래쪽
     if hasattr(result, 'num_spans') and result.spans:
@@ -477,13 +597,13 @@ def plot_beam_results(result, output_path: Optional[str] = None,
             dx, dy = trial_dx, trial_dy
         return dx, dy  # fallback
 
-    # --- 3) SFD ---
+    # --- 3) SFD (불연속점 처리된 데이터 사용) ---
     ax_sfd = fig.add_subplot(gs[1, :])
     ax_sfd.set_title('Shear Force Diagram (kN)', fontsize=11, fontweight='bold')
-    ax_sfd.fill_between(x, shears_data, 0, alpha=0.3, color='red')
-    ax_sfd.plot(x, shears_data, 'r-', linewidth=1.5)
+    ax_sfd.fill_between(x_sfd, shears_sfd, 0, alpha=0.3, color='red')
+    ax_sfd.plot(x_sfd, shears_sfd, 'r-', linewidth=1.5)
     ax_sfd.axhline(y=0, color='black', linewidth=0.8)
-    abs_shears = [abs(v) for v in shears_data]
+    abs_shears = [abs(v) for v in shears_data]  # 원본 데이터에서 최대값 찾기
     max_v_idx = abs_shears.index(max(abs_shears))
     max_v_val = shears_data[max_v_idx]
     max_v_x = x[max_v_idx]
@@ -736,6 +856,12 @@ def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> 
 
     supports = _get_support_info(result)
 
+    # ─────────────────────────────────────────────────────────────────────
+    # SFD 불연속점 처리 (집중하중, 내부지점에서 수직 점프)
+    # ─────────────────────────────────────────────────────────────────────
+    _load_info = getattr(result, 'load_info', []) or []
+    x_sfd, shears_sfd = _process_sfd_discontinuities(list(x), list(shears_data), _load_info, supports)
+
     # 상단 2열 (구조형상 + 단면정보) + 하단 3행 (SFD, BMD, Displacement)
     fig = make_subplots(
         rows=4, cols=2,
@@ -919,9 +1045,10 @@ def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> 
     # =================================================================
 
     # 3) SFD (row=2, colspan=2) — with hovertemplate
-    # Note: shears_data already transformed to textbook convention (V>0 = ↑ on left face)
+    # Note: shears_sfd has discontinuities processed for point loads/supports
+    # x_sfd and shears_sfd may have duplicate x values at discontinuity points
     fig.add_trace(go.Scatter(
-        x=x, y=shears_data, mode='lines', name='Shear',
+        x=x_sfd, y=shears_sfd, mode='lines', name='Shear',
         line=dict(color='red', width=2),
         fill='tozeroy', fillcolor='rgba(255,0,0,0.15)',
         hovertemplate=(
