@@ -503,10 +503,10 @@ def analyze_continuous_beam(
         v_i = -forces[1] / 1000
         v_j = forces[4] / 1000
 
-        # 첫 노드 또는 경간 시작 노드의 right 값
-        if i_node not in node_moment_right:
-            node_shear_right[i_node] = v_i
-            node_moment_right[i_node] = m_i
+        # i-node의 right 값 (요소 시작점에서 오른쪽으로 가는 값)
+        # 항상 덮어쓰기: 집중하중 노드에서 올바른 불연속점 처리를 위해
+        node_shear_right[i_node] = v_i
+        node_moment_right[i_node] = m_i
 
         # j-node의 left 값 (요소 끝단에서 오는 값)
         node_shear_left[j_node] = v_j
