@@ -278,6 +278,9 @@ def analyze_continuous_beam(
     ops.timeSeries('Linear', 1)
     ops.pattern('Plain', 1, 1)
 
+    # 집중하중이 적용된 노드 집합 (SFD 불연속점 처리용)
+    point_load_nodes = set()
+
     for ld in loads:
         ld_type = ld.get("type", "uniform")
         ld_value = ld.get("value", 0.0)
@@ -312,6 +315,8 @@ def analyze_continuous_beam(
                 target_node = span_start_node + local_node_offset
                 P = ld_value * 1000  # kN → N
                 ops.load(target_node, 0, -P, 0)
+                # SFD 불연속점 처리를 위해 노드 추적
+                point_load_nodes.add(target_node)
 
             elif ld_type == "triangular":
                 w_start = ld_value
@@ -529,7 +534,11 @@ def analyze_continuous_beam(
         _, right_node = support_node_pairs[i]
         hinge_right_nodes.add(right_node)
 
-    # 배열 구성: 중간 지점에서 x좌표 중복, 힌지 right_node는 건너뜀
+    # 불연속점 노드 집합: 내부 지점 + 집중하중 노드
+    # 이 노드들에서는 좌측값, 우측값을 각각 삽입하여 SFD에서 수직 점프 표현
+    discontinuity_nodes = intermediate_support_set | point_load_nodes
+
+    # 배열 구성: 불연속점에서 x좌표 중복, 힌지 right_node는 건너뜀
     for nid in range(1, total_nodes + 1):
         if nid in hinge_right_nodes:
             continue  # 힌지 right_node는 건너뜀 (같은 좌표의 중복 노드)
@@ -537,29 +546,33 @@ def analyze_continuous_beam(
         x = ops.nodeCoord(nid, 1) / 1000
         d = ops.nodeDisp(nid, 2)
         r = ops.nodeDisp(nid, 3)  # 회전각 (rad)
-        if nid in intermediate_support_set:
-            # 중간 지점: 좌측값, 우측값 두 개 삽입
-            # 힌지인 경우: 모멘트는 0에 가까워야 함
-            is_hinge_left = False
-            for i in hinge_set:
-                left_node, right_node = support_node_pairs[i]
-                if nid == left_node:
-                    is_hinge_left = True
-                    # 힌지 left_node의 right 값은 힌지 right_node에서 가져옴
-                    m_right = node_moment_right.get(right_node, 0.0)
-                    v_right = node_shear_right.get(right_node, 0.0)
-                    r_right = ops.nodeDisp(right_node, 3)  # 힌지 우측 회전각
-                    break
 
+        if nid in discontinuity_nodes:
+            # 불연속점: 좌측값, 우측값 두 개 삽입하여 수직 점프 표현
+            # 내부 지점 힌지인 경우 특수 처리
+            is_hinge_left = False
+            if nid in intermediate_support_set:
+                for i in hinge_set:
+                    left_node, right_node = support_node_pairs[i]
+                    if nid == left_node:
+                        is_hinge_left = True
+                        m_right = node_moment_right.get(right_node, 0.0)
+                        v_right = node_shear_right.get(right_node, 0.0)
+                        r_right = ops.nodeDisp(right_node, 3)
+                        break
+
+            # 첫 번째 점: 좌측 값 (좌측 요소의 j-end)
             viz_node_positions.append(x)
             viz_displacements.append(d)
             viz_rotations.append(r)
             viz_moments.append(node_moment_left.get(nid, 0.0))
             viz_shears.append(node_shear_left.get(nid, 0.0))
+
+            # 두 번째 점: 우측 값 (우측 요소의 i-end)
             viz_node_positions.append(x)
             viz_displacements.append(d)
             if is_hinge_left:
-                viz_rotations.append(r_right)  # 힌지에서는 우측 노드 회전각
+                viz_rotations.append(r_right)
                 viz_moments.append(m_right)
                 viz_shears.append(v_right)
             else:
@@ -567,6 +580,7 @@ def analyze_continuous_beam(
                 viz_moments.append(node_moment_right.get(nid, 0.0))
                 viz_shears.append(node_shear_right.get(nid, 0.0))
         else:
+            # 일반 노드: 단일 값
             viz_node_positions.append(x)
             viz_displacements.append(d)
             viz_rotations.append(r)
