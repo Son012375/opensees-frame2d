@@ -1,0 +1,20 @@
+{
+  "stories": [3.0],
+  "bays": [5.0],
+  "column_section": "H-250x250",
+  "beam_section": "H-350x175",
+  "material_name": "SS275",
+  "supports": "fixed",
+  "num_elements_per_member": 4,
+  "load_cases": {
+    "DL": [
+      {"type": "floor", "story": 1, "value": 25}
+    ],
+    "LL": [
+      {"type": "floor", "story": 1, "value": 10}
+    ]
+  },
+  "load_combinations": {
+    "1.2DL+1.6LL": {"DL": 1.2, "LL": 1.6}
+  }
+}

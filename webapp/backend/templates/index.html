@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Frame2D Analysis - New Job{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>2D Frame Structural Analysis</h1>
+    <p class="subtitle">Enter frame geometry and loads to run OpenSees analysis</p>
+</div>
+
+<!-- Input Mode Selector -->
+<div class="mode-selector">
+    <button type="button" class="mode-btn active" data-mode="natural" onclick="switchMode('natural')">
+        <span class="mode-icon">🤖</span>
+        <span class="mode-label">자연어 입력</span>
+        <span class="mode-desc">Claude AI가 해석</span>
+    </button>
+    <button type="button" class="mode-btn" data-mode="direct" onclick="switchMode('direct')">
+        <span class="mode-icon">📝</span>
+        <span class="mode-label">직접 입력</span>
+        <span class="mode-desc">폼에 값 입력</span>
+    </button>
+</div>
+
+<!-- Natural Language Input Mode -->
+<div id="natural-mode" class="input-mode active">
+    <div class="form-section">
+        <h2>자연어로 구조물 설명</h2>
+        <p class="section-desc">건물의 형태, 하중 등을 자연어로 설명하면 Claude AI가 해석 입력으로 변환합니다.</p>
+
+        <div class="form-group">
+            <label for="natural-input">구조물 설명</label>
+            <textarea id="natural-input" rows="4" placeholder="예: 3층 2경간 철골 건물, 층고 3.5m, 경간 6m, 바닥하중 20kN/m, 지진하중은 각 층에 30, 60, 90kN 적용"></textarea>
+        </div>
+
+        <div class="example-prompts">
+            <p><strong>예시:</strong></p>
+            <ul>
+                <li><a href="#" onclick="fillExample(1); return false;">"3층 2경간, 층고 3.5m, 경간 6m, DL 20kN/m"</a></li>
+                <li><a href="#" onclick="fillExample(2); return false;">"5층 단일경간, 지진하중 50~100kN"</a></li>
+                <li><a href="#" onclick="fillExample(3); return false;">"2층 3경간, H-400 기둥, 고정단"</a></li>
+            </ul>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" class="btn-secondary" id="parse-btn" onclick="parseNaturalLanguage()">
+                Claude로 변환
+            </button>
+            <button type="button" class="btn-primary btn-lg" id="natural-submit-btn" onclick="submitNatural()">
+                해석 실행
+            </button>
+        </div>
+
+        <!-- Parsed preview -->
+        <div id="parsed-preview" class="parsed-preview" style="display: none;">
+            <h3>변환 결과 미리보기</h3>
+            <pre id="parsed-json"></pre>
+            <button type="button" class="btn-secondary btn-sm" onclick="editParsed()">직접 입력으로 수정</button>
+        </div>
+
+        <div id="parse-error" class="error-message" style="display: none;"></div>
+        <div id="api-warning" class="warning-message" style="display: none;">
+            Claude API 키가 설정되지 않았습니다. 직접 입력 모드를 사용하세요.
+        </div>
+    </div>
+</div>
+
+<!-- Direct Input Mode (existing form) -->
+<div id="direct-mode" class="input-mode">
+    <form id="analysis-form" class="analysis-form">
+        <!-- Geometry Section -->
+        <section class="form-section">
+            <h2>Geometry</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="stories">Story Heights (m)</label>
+                    <input type="text" id="stories" name="stories" value="3.5, 3.2, 3.2"
+                           placeholder="e.g., 3.5, 3.2, 3.2" required>
+                    <small>Comma-separated heights from bottom to top</small>
+                </div>
+                <div class="form-group">
+                    <label for="bays">Bay Widths (m)</label>
+                    <input type="text" id="bays" name="bays" value="6.0, 6.0"
+                           placeholder="e.g., 6.0, 6.0" required>
+                    <small>Comma-separated widths from left to right</small>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sections & Material -->
+        <section class="form-section">
+            <h2>Sections & Material</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="column_section">Column Section</label>
+                    <select id="column_section" name="column_section">
+                        <option value="H-300x300" selected>H-300x300</option>
+                        <option value="H-350x350">H-350x350</option>
+                        <option value="H-400x400">H-400x400</option>
+                        <option value="H-250x250">H-250x250</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="beam_section">Beam Section</label>
+                    <select id="beam_section" name="beam_section">
+                        <option value="H-400x200" selected>H-400x200</option>
+                        <option value="H-500x200">H-500x200</option>
+                        <option value="H-350x175">H-350x175</option>
+                        <option value="H-300x150">H-300x150</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="material_name">Material</label>
+                    <select id="material_name" name="material_name">
+                        <option value="SS275" selected>SS275 (KS)</option>
+                        <option value="SS400">SS400 (KS)</option>
+                        <option value="SM490">SM490 (KS)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="supports">Support Type</label>
+                    <select id="supports" name="supports">
+                        <option value="fixed" selected>Fixed</option>
+                        <option value="pinned">Pinned</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="num_elements">Elements per Member</label>
+                    <select id="num_elements" name="num_elements_per_member">
+                        <option value="4" selected>4 (recommended)</option>
+                        <option value="2">2</option>
+                        <option value="6">6</option>
+                        <option value="8">8</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Load Cases -->
+        <section class="form-section">
+            <h2>Load Cases</h2>
+            <div id="load-cases-container">
+                <!-- DL Case -->
+                <div class="load-case-card" data-case="DL">
+                    <div class="load-case-header">
+                        <h3>DL (Dead Load)</h3>
+                    </div>
+                    <div class="load-items" id="loads-DL">
+                        <div class="load-item">
+                            <select class="load-type">
+                                <option value="floor" selected>Floor Load</option>
+                                <option value="lateral">Lateral Load</option>
+                            </select>
+                            <input type="number" class="load-story" placeholder="Story" value="1" min="1">
+                            <input type="number" class="load-value" placeholder="Value (kN/m)" value="20" step="0.1">
+                            <button type="button" class="btn-remove" onclick="removeLoad(this)">X</button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-secondary btn-sm" onclick="addLoad('DL')">+ Add Load</button>
+                </div>
+
+                <!-- EQX Case -->
+                <div class="load-case-card" data-case="EQX">
+                    <div class="load-case-header">
+                        <h3>EQX (Earthquake X)</h3>
+                    </div>
+                    <div class="load-items" id="loads-EQX">
+                        <div class="load-item">
+                            <select class="load-type">
+                                <option value="floor">Floor Load</option>
+                                <option value="lateral" selected>Lateral Load</option>
+                            </select>
+                            <input type="number" class="load-story" placeholder="Story" value="1" min="1">
+                            <input type="number" class="load-value" placeholder="Value (kN)" value="50" step="0.1">
+                            <button type="button" class="btn-remove" onclick="removeLoad(this)">X</button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-secondary btn-sm" onclick="addLoad('EQX')">+ Add Load</button>
+                </div>
+            </div>
+            <button type="button" class="btn-secondary" onclick="addLoadCase()">+ Add Load Case</button>
+        </section>
+
+        <!-- Load Combinations -->
+        <section class="form-section">
+            <h2>Load Combinations</h2>
+            <div id="combinations-container">
+                <div class="combo-item">
+                    <input type="text" class="combo-name" placeholder="Name" value="1.2DL+1.0EQX">
+                    <input type="text" class="combo-formula" placeholder="Formula" value="DL:1.2, EQX:1.0">
+                </div>
+            </div>
+            <button type="button" class="btn-secondary btn-sm" onclick="addCombo()">+ Add Combination</button>
+            <small class="form-hint">Format: CaseName:Factor, CaseName:Factor</small>
+        </section>
+
+        <!-- Submit -->
+        <div class="form-actions">
+            <button type="submit" class="btn-primary btn-lg" id="submit-btn">
+                Run Analysis
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Job status area (for HTMX updates) -->
+<div id="job-status-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/form.js"></script>
+{% endblock %}

@@ -1,0 +1,22 @@
+# Render Blueprint - Frame2D Analysis Web App
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: frame2d-analysis
+    runtime: python
+    region: singapore  # 한국에서 가까운 리전
+    plan: free
+    buildCommand: |
+      cd webapp/backend && pip install -r requirements.txt
+    startCommand: |
+      cd webapp/backend && python -m uvicorn app.main_simple:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONPATH
+        value: /opt/render/project/src/webapp/backend:/opt/render/project/src/mcp-server
+      - key: MCP_SERVER_PATH
+        value: /opt/render/project/src/mcp-server
+      - key: ANTHROPIC_API_KEY
+        sync: false  # Render 대시보드에서 수동 설정
+    healthCheckPath: /health
+    autoDeploy: true

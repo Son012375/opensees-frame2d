@@ -1,0 +1,25 @@
+{
+  "stories": [3.5, 3.2, 3.2],
+  "bays": [6.0, 6.0],
+  "column_section": "H-300x300",
+  "beam_section": "H-400x200",
+  "material_name": "SS275",
+  "supports": "fixed",
+  "num_elements_per_member": 4,
+  "load_cases": {
+    "DL": [
+      {"type": "floor", "story": 1, "value": 20},
+      {"type": "floor", "story": 2, "value": 20},
+      {"type": "floor", "story": 3, "value": 15}
+    ],
+    "EQX": [
+      {"type": "lateral", "story": 1, "fx": 30},
+      {"type": "lateral", "story": 2, "fx": 60},
+      {"type": "lateral", "story": 3, "fx": 90}
+    ]
+  },
+  "load_combinations": {
+    "1.2DL+1.0EQX": {"DL": 1.2, "EQX": 1.0},
+    "1.4DL": {"DL": 1.4}
+  }
+}

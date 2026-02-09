@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+opensees-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment / Secrets
+.env
+.env.local
+*.bat
+!example.bat
+
+# Jobs data (generated)
+webapp/backend/jobs/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+NUL
+CON
+PRN
+AUX
+
+# Test outputs
+*.html
+!webapp/backend/templates/*.html

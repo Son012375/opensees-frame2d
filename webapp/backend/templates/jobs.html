@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Job History{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Job History</h1>
+    <p class="subtitle">Recent analysis jobs</p>
+</div>
+
+<div class="jobs-toolbar">
+    <button class="btn-secondary btn-sm" hx-get="/partials/jobs-list" hx-target="#jobs-list" hx-swap="innerHTML">
+        Refresh
+    </button>
+</div>
+
+<div id="jobs-list">
+    {% include "partials/jobs_list.html" %}
+</div>
+{% endblock %}

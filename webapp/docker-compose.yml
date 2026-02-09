@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Redis - Message broker for Celery
+  # ───────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: frame2d-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # API Server - FastAPI application
+  # ───────────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: frame2d-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MCP_SERVER_PATH=/app/mcp-server
+    volumes:
+      - ../mcp-server:/app/mcp-server:ro
+      - jobs-data:/app/backend/jobs
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Celery Worker - Analysis task processor
+  # ───────────────────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: frame2d-worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MCP_SERVER_PATH=/app/mcp-server
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - ../mcp-server:/app/mcp-server:ro
+      - jobs-data:/app/backend/jobs
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+
+volumes:
+  redis-data:
+  jobs-data:
