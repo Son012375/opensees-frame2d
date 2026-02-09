@@ -1,0 +1,82 @@
+<div class="job-card status-{{ job.status.value }}"
+     {% if job.status.value in ['queued', 'running'] %}
+     hx-get="/partials/job-status/{{ job.job_id }}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML"
+     {% endif %}>
+
+    <div class="job-card-header">
+        <span class="job-id">{{ job.job_id[:8] }}...</span>
+        <span class="job-status-badge badge-{{ job.status.value }}">
+            {{ job.status.value | upper }}
+        </span>
+    </div>
+
+    {% if job.progress is not none %}
+    <div class="progress-bar">
+        <div class="progress-fill" style="width: {{ job.progress }}%"></div>
+    </div>
+    <div class="progress-text">{{ job.progress }}%</div>
+    {% endif %}
+
+    {% if job.status.value == 'done' and job.summary %}
+    <div class="job-summary">
+        <h4>Results Summary</h4>
+        <table class="summary-table">
+            <tr>
+                <td>Stories / Bays</td>
+                <td>{{ job.summary.num_stories }} / {{ job.summary.num_bays }}</td>
+            </tr>
+            <tr>
+                <td>Max Displacement X</td>
+                <td>{{ "%.2f"|format(job.summary.max_displacement_x_mm) }} mm</td>
+            </tr>
+            <tr>
+                <td>Max Displacement Y</td>
+                <td>{{ "%.2f"|format(job.summary.max_displacement_y_mm) }} mm</td>
+            </tr>
+            <tr>
+                <td>Max Drift</td>
+                <td>{{ "%.4f"|format(job.summary.max_drift) }} (Story {{ job.summary.max_drift_story }})</td>
+            </tr>
+            <tr>
+                <td>Max Moment</td>
+                <td>{{ "%.1f"|format(job.summary.max_moment_kNm) }} kN-m</td>
+            </tr>
+            <tr>
+                <td>Max Shear</td>
+                <td>{{ "%.1f"|format(job.summary.max_shear_kN) }} kN</td>
+            </tr>
+            <tr>
+                <td>Max Axial</td>
+                <td>{{ "%.1f"|format(job.summary.max_axial_kN) }} kN</td>
+            </tr>
+            <tr>
+                <td>Base Shear</td>
+                <td>{{ "%.1f"|format(job.summary.base_shear_kN) }} kN</td>
+            </tr>
+        </table>
+
+        <div class="job-card-actions">
+            <a href="/api/jobs/{{ job.job_id }}/report" target="_blank" class="btn-primary">
+                View Full Report
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if job.status.value == 'failed' and job.error %}
+    <div class="job-error">
+        <strong>Error:</strong> {{ job.error }}
+    </div>
+    {% endif %}
+
+    <div class="job-meta">
+        {% if job.created_at %}
+        <span>Created: {{ job.created_at }}</span>
+        {% endif %}
+        {% if job.completed_at %}
+        <span>Completed: {{ job.completed_at }}</span>
+        {% endif %}
+    </div>
+</div>

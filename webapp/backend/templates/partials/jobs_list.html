@@ -1,0 +1,29 @@
+{% if jobs %}
+<div class="jobs-grid">
+    {% for job in jobs %}
+    <a href="/jobs/{{ job.job_id }}/status" class="job-list-item status-{{ job.status.value }}">
+        <div class="job-list-header">
+            <span class="job-id">{{ job.job_id[:8] }}...</span>
+            <span class="job-status-badge badge-{{ job.status.value }}">
+                {{ job.status.value | upper }}
+            </span>
+        </div>
+
+        {% if job.summary %}
+        <div class="job-list-summary">
+            {{ job.summary.num_stories }} stories, {{ job.summary.num_bays }} bays
+        </div>
+        {% endif %}
+
+        {% if job.created_at %}
+        <div class="job-list-time">{{ job.created_at }}</div>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No jobs found</p>
+    <a href="/" class="btn-primary">Create New Analysis</a>
+</div>
+{% endif %}

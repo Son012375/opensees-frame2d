@@ -54,6 +54,7 @@ CON
 PRN
 AUX
 
-# Test outputs
+# Test outputs (but keep templates)
 *.html
 !webapp/backend/templates/*.html
+!webapp/backend/templates/**/*.html
