@@ -2,6 +2,26 @@
 단순보 해석 모듈
 OpenSeesPy를 사용한 2D 단순보 정적 해석
 Supabase DB 연동
+
+===================================================================================
+SIGN CONVENTION (OpenSees Local Coordinate System)
+===================================================================================
+
+This module stores internal forces in OpenSees local coordinate convention:
+- eleForce(tag) returns [N_i, V_i, M_i, N_j, V_j, M_j]
+- These are nodal equilibrating forces (reaction forces on nodes)
+
+For visualization, the sign_convention.py module transforms to textbook convention:
+- Shear V: + upward on left cut face
+- Moment M: + sagging (tension at bottom)
+
+Transformation (applied in visualization.py):
+    V_textbook = -V_opensees
+    M_textbook = -M_opensees
+
+NOTE: The BeamResult.moments and BeamResult.shears arrays store OpenSees convention.
+      Transformation is applied only at the visualization layer for plotting.
+===================================================================================
 """
 from __future__ import annotations
 

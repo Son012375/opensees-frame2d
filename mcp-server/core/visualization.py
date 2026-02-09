@@ -26,6 +26,14 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Sign convention transformation for textbook-compliant visualization
+from .sign_convention import (
+    transform_to_textbook_convention,
+    transform_member_forces_to_textbook,
+    get_sfd_annotation,
+    get_bmd_annotation,
+)
+
 
 def _get_support_info(result) -> list[dict]:
     """결과 객체에서 지점 정보 추출"""
@@ -343,14 +351,27 @@ def _draw_section_sketch(ax, section_name: str):
 
 def plot_beam_results(result, output_path: Optional[str] = None,
                       fmt: str = "png", dpi: int = 150) -> str:
-    """matplotlib로 해석 결과 시각화"""
+    """matplotlib로 해석 결과 시각화
+
+    Note: Internal forces follow OpenSees local coordinate convention.
+          Visualization follows textbook/MIDAS sign convention.
+          Transformation: V_plot = -V_raw, M_plot = -M_raw
+    """
     x = result.node_positions
     if not x:
         raise ValueError("시각화 데이터가 없습니다 (node_positions 비어있음)")
 
     disps = result.displacements
-    moments = result.moments
-    shears_data = result.shears
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Sign Convention Transformation
+    # Raw data from OpenSees → Textbook convention for visualization
+    # V_plot = -V_raw, M_plot = -M_raw
+    # ─────────────────────────────────────────────────────────────────────
+    shears_raw = result.shears
+    moments_raw = result.moments
+    shears_data, moments = transform_to_textbook_convention(shears_raw, moments_raw)
+
     span_total = x[-1]
 
     section_name = getattr(result, 'section_name', '') or ''
@@ -473,7 +494,7 @@ def plot_beam_results(result, output_path: Optional[str] = None,
     ax_sfd.set_xlim(-span_total * 0.05, span_total * 1.05)
     ax_sfd.set_ylabel('V (kN)')
     ax_sfd.grid(True, alpha=0.3)
-    ax_sfd.text(0.99, 0.97, 'V > 0: ↑ on left face', transform=ax_sfd.transAxes,
+    ax_sfd.text(0.99, 0.97, get_sfd_annotation(), transform=ax_sfd.transAxes,
                 fontsize=7, ha='right', va='top', color='#888', style='italic')
 
     # --- 4) BMD  (priority-based labelling) ---
@@ -540,7 +561,7 @@ def plot_beam_results(result, output_path: Optional[str] = None,
     ax_bmd.set_xlim(-span_total * 0.05, span_total * 1.05)
     ax_bmd.set_ylabel('M (kN·m)')
     ax_bmd.grid(True, alpha=0.3)
-    ax_bmd.text(0.99, 0.97, 'M > 0: sagging (tension at bottom)', transform=ax_bmd.transAxes,
+    ax_bmd.text(0.99, 0.97, get_bmd_annotation(), transform=ax_bmd.transAxes,
                 fontsize=7, ha='right', va='top', color='#888', style='italic')
     # Option A 정의 범례
     ax_bmd.text(0.01, 0.97, 'Support label = section moment (BL/BR in table)',
@@ -687,14 +708,27 @@ def _section_sketch_base64(section_name: str) -> str:
 
 
 def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> str:
-    """plotly로 인터랙티브 시각화 → HTML 파일"""
+    """plotly로 인터랙티브 시각화 → HTML 파일
+
+    Note: Internal forces follow OpenSees local coordinate convention.
+          Visualization follows textbook/MIDAS sign convention.
+          Transformation: V_plot = -V_raw, M_plot = -M_raw
+    """
     x = result.node_positions
     if not x:
         raise ValueError("시각화 데이터가 없습니다 (node_positions 비어있음)")
 
     disps = result.displacements
-    moments = result.moments
-    shears_data = result.shears
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Sign Convention Transformation
+    # Raw data from OpenSees → Textbook convention for visualization
+    # V_plot = -V_raw, M_plot = -M_raw
+    # ─────────────────────────────────────────────────────────────────────
+    shears_raw = result.shears
+    moments_raw = result.moments
+    shears_data, moments = transform_to_textbook_convention(shears_raw, moments_raw)
+
     span_total = x[-1]
 
     section_name = getattr(result, 'section_name', '') or ''
@@ -885,14 +919,21 @@ def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> 
     # =================================================================
 
     # 3) SFD (row=2, colspan=2) — with hovertemplate
+    # Note: shears_data already transformed to textbook convention (V>0 = ↑ on left face)
     fig.add_trace(go.Scatter(
         x=x, y=shears_data, mode='lines', name='Shear',
         line=dict(color='red', width=2),
         fill='tozeroy', fillcolor='rgba(255,0,0,0.15)',
-        hovertemplate='x=%{x:.2f}m<br>V=%{y:.2f} kN<extra></extra>',
+        hovertemplate=(
+            'x=%{x:.2f}m<br>V=%{y:.2f} kN<br>'
+            '<span style="color:#999;font-size:10px">'
+            'Textbook convention: V&gt;0 = ↑ on left face</span>'
+            '<extra></extra>'
+        ),
     ), row=2, col=1)
 
     # 4) BMD (row=3, colspan=2) — with hovertemplate
+    # Note: moments already transformed to textbook convention (M>0 = sagging)
     fig.add_trace(go.Scatter(
         x=x, y=moments, mode='lines', name='Moment',
         line=dict(color='blue', width=2),
@@ -900,8 +941,7 @@ def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> 
         hovertemplate=(
             'x=%{x:.2f}m<br>M=%{y:.2f} kN·m<br>'
             '<span style="color:#999;font-size:10px">'
-            'Sign: M&gt;0 sagging (tension at bottom). '
-            'End moments follow element local convention.</span>'
+            'Textbook convention: M&gt;0 = sagging (tension at bottom)</span>'
             '<extra></extra>'
         ),
     ), row=3, col=1)
@@ -933,10 +973,10 @@ def plot_beam_results_interactive(result, output_path: Optional[str] = None) -> 
                         row=4, col=1)
 
     # 부호 규약 + Option A 정의
-    fig.add_annotation(text='V > 0: ↑ on left face', xref='x3 domain', yref='y3 domain',
+    fig.add_annotation(text=get_sfd_annotation(), xref='x3 domain', yref='y3 domain',
                        x=1, y=1, showarrow=False, font=dict(size=9, color='#888'),
                        xanchor='right', yanchor='top', row=2, col=1)
-    fig.add_annotation(text='M > 0: sagging  |  Support label = section moment (hover for BL/BR)',
+    fig.add_annotation(text=f'{get_bmd_annotation()}  |  Support label = section moment (hover for BL/BR)',
                        xref='x5 domain', yref='y5 domain',
                        x=1, y=1, showarrow=False, font=dict(size=8, color='#888'),
                        xanchor='right', yanchor='top', row=3, col=1)
@@ -1698,12 +1738,25 @@ def plot_frame_2d_multi_interactive(
         if sd:
             case_data[name] = sd
 
-    # 부재력 데이터
+    # 부재력 데이터 (부호 규약 변환 적용)
+    # Internal forces follow OpenSees local coordinate convention.
+    # Visualization follows textbook/MIDAS sign convention.
+    # Transformation: V_plot = -V_raw, M_plot = -M_raw (axial unchanged)
     member_forces_data = {}
     for name in all_names:
-        mf = multi_result.member_forces.get(name)
-        if mf:
-            member_forces_data[name] = mf
+        mf_raw = multi_result.member_forces.get(name)
+        if mf_raw:
+            # Apply sign convention transformation to each member's V and M
+            mf_transformed = []
+            for member in mf_raw:
+                member_copy = dict(member)  # shallow copy
+                # Transform V and M arrays to textbook convention
+                if "V_kN" in member_copy and member_copy["V_kN"]:
+                    member_copy["V_kN"] = [-v for v in member_copy["V_kN"]]
+                if "M_kNm" in member_copy and member_copy["M_kNm"]:
+                    member_copy["M_kNm"] = [-m for m in member_copy["M_kNm"]]
+                mf_transformed.append(member_copy)
+            member_forces_data[name] = mf_transformed
 
     # 부재 정보
     member_info = multi_result.member_info

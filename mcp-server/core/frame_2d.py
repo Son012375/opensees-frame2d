@@ -4,6 +4,30 @@ OpenSeesPy를 사용한 2D 프레임 정적 해석
 - 멀티 하중케이스 / 하중조합 지원
 - 부재력 다이어그램 (N/V/M) 생성
 - 층별 분석 (변위, 층간변위, 층전단)
+
+===================================================================================
+SIGN CONVENTION (OpenSees Local Coordinate System)
+===================================================================================
+
+This module stores internal forces in OpenSees local coordinate convention:
+- eleForce(tag) returns [N_i, V_i, M_i, N_j, V_j, M_j]
+- These are nodal equilibrating forces (reaction forces on nodes)
+- For j-end forces, sign is flipped (×-1) to convert from nodal reaction to
+  internal force at the element end.
+
+For visualization, the sign_convention.py module transforms to textbook convention:
+- Shear V: + upward on left cut face
+- Moment M: + sagging (tension at bottom)
+- Axial N: + tension (unchanged)
+
+Transformation (applied in visualization.py):
+    V_textbook = -V_opensees
+    M_textbook = -M_opensees
+    N_textbook = N_opensees (unchanged)
+
+NOTE: The member_forces dict stores OpenSees convention (V_kN, M_kNm arrays).
+      Transformation is applied in visualization.py when preparing JSON data.
+===================================================================================
 """
 from __future__ import annotations
 
