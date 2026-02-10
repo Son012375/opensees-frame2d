@@ -269,3 +269,165 @@ Transformation Rule (beam elements):
 This transformation is applied ONLY at the visualization layer.
 Analysis results retain OpenSees convention for numerical consistency.
 """
+
+
+# ==============================================================================
+# Member Direction Enforcement (for consistent sign conventions)
+# ==============================================================================
+
+def enforce_beam_direction(
+    ni_x: float, ni_y: float, nj_x: float, nj_y: float
+) -> tuple[bool, bool]:
+    """
+    Check and enforce beam direction: i=left, j=right.
+
+    For horizontal beams, the node with smaller x-coordinate should be i-node.
+    This ensures consistent SFD/BMD representation where left is always i-end.
+
+    Parameters
+    ----------
+    ni_x, ni_y : float
+        Current i-node coordinates
+    nj_x, nj_y : float
+        Current j-node coordinates
+
+    Returns
+    -------
+    tuple[bool, bool]
+        (is_valid, needs_swap)
+        - is_valid: True if this is a valid horizontal beam (x differs)
+        - needs_swap: True if nodes should be swapped to enforce i=left
+
+    Example
+    -------
+    >>> is_valid, needs_swap = enforce_beam_direction(10.0, 3.0, 0.0, 3.0)
+    >>> # needs_swap = True because ni_x > nj_x
+    """
+    # Check if beam is horizontal (same y, different x)
+    is_horizontal = abs(ni_y - nj_y) < 1e-6 and abs(ni_x - nj_x) > 1e-6
+
+    if not is_horizontal:
+        # Not a horizontal beam, no swap needed (could be inclined)
+        return False, False
+
+    # For horizontal beam: i should be at smaller x (left)
+    needs_swap = ni_x > nj_x
+    return True, needs_swap
+
+
+def enforce_column_direction(
+    ni_x: float, ni_y: float, nj_x: float, nj_y: float
+) -> tuple[bool, bool]:
+    """
+    Check and enforce column direction: i=bottom, j=top.
+
+    For vertical columns, the node with smaller y-coordinate should be i-node.
+    This ensures consistent local coordinate system where i is at the base.
+
+    Parameters
+    ----------
+    ni_x, ni_y : float
+        Current i-node coordinates
+    nj_x, nj_y : float
+        Current j-node coordinates
+
+    Returns
+    -------
+    tuple[bool, bool]
+        (is_valid, needs_swap)
+        - is_valid: True if this is a valid vertical column (y differs)
+        - needs_swap: True if nodes should be swapped to enforce i=bottom
+
+    Example
+    -------
+    >>> is_valid, needs_swap = enforce_column_direction(0.0, 6.0, 0.0, 0.0)
+    >>> # needs_swap = True because ni_y > nj_y
+    """
+    # Check if column is vertical (same x, different y)
+    is_vertical = abs(ni_x - nj_x) < 1e-6 and abs(ni_y - nj_y) > 1e-6
+
+    if not is_vertical:
+        # Not a vertical column, no swap needed (could be inclined)
+        return False, False
+
+    # For vertical column: i should be at smaller y (bottom)
+    needs_swap = ni_y > nj_y
+    return True, needs_swap
+
+
+def enforce_member_direction(
+    ni_x: float, ni_y: float, nj_x: float, nj_y: float,
+    member_type: str
+) -> tuple[bool, bool]:
+    """
+    Check and enforce member direction based on member type.
+
+    Parameters
+    ----------
+    ni_x, ni_y : float
+        Current i-node coordinates
+    nj_x, nj_y : float
+        Current j-node coordinates
+    member_type : str
+        "beam" or "column"
+
+    Returns
+    -------
+    tuple[bool, bool]
+        (is_valid, needs_swap)
+    """
+    if member_type.lower() == "beam":
+        return enforce_beam_direction(ni_x, ni_y, nj_x, nj_y)
+    elif member_type.lower() == "column":
+        return enforce_column_direction(ni_x, ni_y, nj_x, nj_y)
+    else:
+        # Unknown type, assume no swap needed
+        return True, False
+
+
+def swap_element_forces(
+    N_i: float, V_i: float, M_i: float,
+    N_j: float, V_j: float, M_j: float
+) -> tuple[float, float, float, float, float, float]:
+    """
+    Swap i-end and j-end forces when element direction is reversed.
+
+    When swapping nodes (i↔j), the forces must also be adjusted:
+    - Axial and shear signs are reversed (direction flips)
+    - Moment signs are unchanged (rotation sense preserved)
+
+    Parameters
+    ----------
+    N_i, V_i, M_i : float
+        Forces at original i-end
+    N_j, V_j, M_j : float
+        Forces at original j-end
+
+    Returns
+    -------
+    tuple[float, ...]
+        (N_i_new, V_i_new, M_i_new, N_j_new, V_j_new, M_j_new)
+        Forces after swapping, with appropriate sign changes
+    """
+    # After swap: new_i = old_j, new_j = old_i
+    # Axial and shear reverse sign (direction of positive axis flips)
+    # Moment preserves sign (rotation sense is invariant)
+    return (-N_j, -V_j, M_j, -N_i, -V_i, M_i)
+
+
+# ==============================================================================
+# Frame Member Force Diagram Data Structure
+# ==============================================================================
+
+MEMBER_FORCE_FIELDS = {
+    "s_m": "Position along member (m) from i-end",
+    "N_kN": "Axial force (kN), tension positive - OpenSees convention",
+    "V_kN": "Shear force (kN) - OpenSees local y convention",
+    "M_kNm": "Bending moment (kN·m) - OpenSees convention",
+}
+
+VISUALIZATION_TRANSFORM = {
+    "N": lambda n: n,           # Axial: no change
+    "V": lambda v: -v,          # Shear: negate for textbook
+    "M": lambda m: -m,          # Moment: negate for textbook (sagging positive)
+}

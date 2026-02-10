@@ -42,6 +42,10 @@ from core.simple_beam import (
     DEFAULT_SECTIONS,
     DEFAULT_MATERIALS,
 )
+from core.sign_convention import (
+    enforce_beam_direction,
+    enforce_column_direction,
+)
 
 
 # ============================================================
@@ -253,6 +257,37 @@ def generate_frame_geometry(
             ni = node_grid[(story_idx, bay_idx)]
             nj = node_grid[(story_idx, bay_idx + 1)]
             connections.append((ni, nj, "beam"))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Member Direction Validation (for consistent sign convention)
+    # - Beams: i=left (smaller x), j=right (larger x)
+    # - Columns: i=bottom (smaller y), j=top (larger y)
+    # ─────────────────────────────────────────────────────────────────────────
+    node_map = {n.id: n for n in nodes}
+    for ni, nj, elem_type in connections:
+        ni_node = node_map[ni]
+        nj_node = node_map[nj]
+
+        if elem_type == "beam":
+            is_valid, needs_swap = enforce_beam_direction(
+                ni_node.x, ni_node.y, nj_node.x, nj_node.y
+            )
+            if is_valid and needs_swap:
+                raise ValueError(
+                    f"Beam element ({ni}→{nj}): member direction violation. "
+                    f"i-node x={ni_node.x} > j-node x={nj_node.x}. "
+                    "Beams must have i=left, j=right."
+                )
+        elif elem_type == "column":
+            is_valid, needs_swap = enforce_column_direction(
+                ni_node.x, ni_node.y, nj_node.x, nj_node.y
+            )
+            if is_valid and needs_swap:
+                raise ValueError(
+                    f"Column element ({ni}→{nj}): member direction violation. "
+                    f"i-node y={ni_node.y} > j-node y={nj_node.y}. "
+                    "Columns must have i=bottom, j=top."
+                )
 
     return nodes, connections
 
