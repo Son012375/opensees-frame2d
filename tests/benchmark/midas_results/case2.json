@@ -1,0 +1,17 @@
+{
+  "Top Disp N3 dx": 1.388,
+  "Top Disp N4 dx": 1.388,
+  "Top Disp N3 dy": -0.0756,
+  "Top Disp N4 dy": -0.0887,
+  "Col1 Base Moment": -51.11,
+  "Col2 Base Moment": -51.11,
+  "Beam Moment (i-end)": 23.89,
+  "Beam Moment (j-end)": 23.89,
+  "Base Shear": -50.0,
+  "Reaction N1 Fx": -25.0,
+  "Reaction N1 Fy": 92.04,
+  "Reaction N1 Mz": 51.11,
+  "Reaction N2 Fx": -25.0,
+  "Reaction N2 Fy": 107.96,
+  "Reaction N2 Mz": 51.11
+}

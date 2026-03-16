@@ -1,0 +1,19 @@
+{
+  "Roof Disp dx (avg)": 18.444,
+  "Roof Disp N7 dx": 18.444,
+  "Roof Disp N8 dx": 18.444,
+  "Story Drift 1": 0.001481,
+  "Story Drift 2": 0.002526,
+  "Story Drift 3": 0.002141,
+  "Base Shear": -150.0,
+  "Col1 Base Moment": -213.0,
+  "Col2 Base Moment": -213.0,
+  "Top Beam Moment (i)": 80.31,
+  "Top Beam Moment (j)": 80.31,
+  "Reaction N1 Fx": -75.0,
+  "Reaction N1 Fy": 141.03,
+  "Reaction N1 Mz": 213.0,
+  "Reaction N2 Fx": -75.0,
+  "Reaction N2 Fy": 338.97,
+  "Reaction N2 Mz": 213.0
+}

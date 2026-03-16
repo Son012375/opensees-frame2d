@@ -1,0 +1,3489 @@
+[
+  {
+    "id": "TC-01",
+    "description": "5층 오피스 (서울 강남, 기본 단면)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 1.198,
+      "analysis": 1.913,
+      "design_check": 0.009,
+      "interpretation": 0.0,
+      "html_report": 0.154,
+      "total": 3.274
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 18.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 1.4835,
+      "T1_y_s": 1.9604,
+      "T1_rz_s": 1.6631,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.9604,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.6631,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.4835,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.6388,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.5288,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.0668,
+      "max_interaction_ratio": 0.9709,
+      "ng_stories": 8,
+      "ng_members": 32
+    },
+    "critical_members_top3": [
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 0.971,
+        "status": "OK"
+      },
+      {
+        "id": 49,
+        "type": "beam_x",
+        "ratio": 0.969,
+        "status": "OK"
+      },
+      {
+        "id": 54,
+        "type": "beam_x",
+        "ratio": 0.903,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "moderate",
+      "severity_label_ko": "보통 — 단면 보강 필요",
+      "summary_ko": "설계검토 부적합 (변위 NG 8층, 부재 NG 32개). 주 원인: 횡강성 부족. 단면 보강으로 해결 가능.",
+      "summary_en": "Design check NG (drift NG 8 stories, member NG 32). Primary cause: Insufficient lateral stiffness. Resolvable with section upgrade.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "critical",
+          "message_en": "Overall severity: Moderate — section upgrade needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 1.07 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "32 members NG — max interaction 0.97 (beam_x #48, story 4)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (8)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.960s, empirical Ta=0.743s, ratio 2.64 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 2 Y-dir, ratio 1.07)"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 2.64,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmp6gnmosp4.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-02",
+    "description": "10층 주상복합 (부산 해운대, 1F 근생/2-9F 오피스/10F 기계실)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4.5,
+          "usage": "retail"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3,
+          "usage": "mechanical_room",
+          "dead_load_finish": 2.0
+        }
+      ],
+      "bays_x": [
+        8,
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "해운대구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.576,
+      "analysis": 11.24,
+      "design_check": 0.037,
+      "interpretation": 0.0,
+      "html_report": 0.559,
+      "total": 12.412
+    },
+    "model_summary": {
+      "num_stories": 10,
+      "total_height_m": 35.5,
+      "total_width_x_m": 24,
+      "total_width_y_m": 16,
+      "floor_area_m2": 384,
+      "bays_x": [
+        8,
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "retail",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "mechanical_room"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "해운대구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 132,
+    "num_elements": 1160,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 3.1342,
+      "T1_y_s": 4.2105,
+      "T1_rz_s": 3.6836,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 4.2105,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 3.6836,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 3.1342,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 1.3796,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 1.2015,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.6488,
+      "max_interaction_ratio": 1.8107,
+      "ng_stories": 28,
+      "ng_members": 167
+    },
+    "critical_members_top3": [
+      {
+        "id": 124,
+        "type": "beam_x",
+        "ratio": 1.811,
+        "status": "NG"
+      },
+      {
+        "id": 126,
+        "type": "beam_x",
+        "ratio": 1.801,
+        "status": "NG"
+      },
+      {
+        "id": 125,
+        "type": "beam_x",
+        "ratio": 1.692,
+        "status": "NG"
+      }
+    ],
+    "interpretation": {
+      "severity": "severe",
+      "severity_label_ko": "심각 — 구조시스템 변경 검토",
+      "summary_ko": "설계검토 부적합 (변위 NG 28층, 부재 NG 167개). 주 원인: 횡강성 부족. 구조시스템 변경 검토 필요.",
+      "summary_en": "Design check NG (drift NG 28 stories, member NG 167). Primary cause: Insufficient lateral stiffness. Structural system change needed.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R15",
+          "severity": "critical",
+          "message_en": "Overall severity: Severe — structural system review needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 1 Y-dir, ratio 1.65 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "critical",
+          "message_en": "167 members NG — max interaction 1.81 (beam_x #124, story 5)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 7 (18)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=4.210s, empirical Ta=1.236s, ratio 3.41 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 7"
+        ],
+        "contributing_factors_ko": [
+          "7층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 1 Y-dir, ratio 1.65)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-400x200",
+          "recommended": "H-450x200",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-400x200 → H-450x200 (56 beam_x NG)"
+        },
+        {
+          "type": "system_change",
+          "target": "structural_system",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Section upgrade insufficient — consider adding bracing or shear walls"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 1,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 3.41,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmp1ashuhr3.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-03",
+    "description": "3층 주거 (대전 서구, 소규모)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 3,
+          "usage": "residential"
+        },
+        {
+          "height": 3,
+          "usage": "residential"
+        },
+        {
+          "height": 3,
+          "usage": "residential"
+        }
+      ],
+      "bays_x": [
+        6,
+        6
+      ],
+      "bays_y": [
+        6
+      ],
+      "region": "서구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.447,
+      "analysis": 0.933,
+      "design_check": 0.003,
+      "interpretation": 0.0,
+      "html_report": 0.121,
+      "total": 1.504
+    },
+    "model_summary": {
+      "num_stories": 3,
+      "total_height_m": 9,
+      "total_width_x_m": 12,
+      "total_width_y_m": 6,
+      "floor_area_m2": 72,
+      "bays_x": [
+        6,
+        6
+      ],
+      "bays_y": [
+        6
+      ],
+      "usages": [
+        "residential",
+        "residential",
+        "residential"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "서구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 24,
+    "num_elements": 156,
+    "modal": {
+      "num_modes": 9,
+      "T1_x_s": 0.4183,
+      "T1_y_s": 0.5932,
+      "T1_rz_s": 0.5224,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 0.5932,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 0.5224,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 0.4183,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.1917,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.1641,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 0.3009,
+      "max_interaction_ratio": 0.2749,
+      "ng_stories": 0,
+      "ng_members": 3
+    },
+    "critical_members_top3": [
+      {
+        "id": 21,
+        "type": "beam_x",
+        "ratio": 0.275,
+        "status": "OK"
+      },
+      {
+        "id": 22,
+        "type": "beam_x",
+        "ratio": 0.275,
+        "status": "OK"
+      },
+      {
+        "id": 19,
+        "type": "beam_x",
+        "ratio": 0.273,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "safe",
+      "severity_label_ko": "안전",
+      "summary_ko": "모든 설계검토 통과. 최대 활용률 30%.",
+      "summary_en": "All design checks passed. Max utilization 30%.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "info",
+          "message_en": "Overall severity: Safe"
+        },
+        {
+          "code": "R03",
+          "severity": "info",
+          "message_en": "Drift OK — max ratio 0.30"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "3 members NG — max interaction 0.27 (beam_x #21, story 1)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 3 (3)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        },
+        {
+          "code": "R12",
+          "severity": "info",
+          "message_en": "Modal results normal — T1=0.593s (empirical Ta=0.442s)"
+        }
+      ],
+      "diagnosis": null,
+      "suggestions": [],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 1.34,
+      "flexibility_flag": false,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmp6tc65827.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-04",
+    "description": "1층 단일 건물 (최소 규모)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "retail"
+        }
+      ],
+      "bays_x": [
+        8
+      ],
+      "bays_y": [
+        6
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.293,
+      "analysis": 0.749,
+      "design_check": 0.001,
+      "interpretation": 0.0,
+      "html_report": 0.07,
+      "total": 1.113
+    },
+    "model_summary": {
+      "num_stories": 1,
+      "total_height_m": 4,
+      "total_width_x_m": 8,
+      "total_width_y_m": 6,
+      "floor_area_m2": 48,
+      "bays_x": [
+        8
+      ],
+      "bays_y": [
+        6
+      ],
+      "usages": [
+        "retail"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 8,
+    "num_elements": 32,
+    "modal": {
+      "num_modes": 3,
+      "T1_x_s": 0.2291,
+      "T1_y_s": 0.3377,
+      "T1_rz_s": 0.2829,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 0.3377,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 0.2829,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 0.2291,
+          "direction": "TRAN-X"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "OK",
+      "max_drift_ratio": 0.1259,
+      "max_interaction_ratio": 0.3119,
+      "ng_stories": 0,
+      "ng_members": 0
+    },
+    "critical_members_top3": [
+      {
+        "id": 5,
+        "type": "beam_x",
+        "ratio": 0.312,
+        "status": "OK"
+      },
+      {
+        "id": 6,
+        "type": "beam_x",
+        "ratio": 0.312,
+        "status": "OK"
+      },
+      {
+        "id": 2,
+        "type": "column",
+        "ratio": 0.247,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "safe",
+      "severity_label_ko": "안전",
+      "summary_ko": "모든 설계검토 통과. 최대 활용률 31%.",
+      "summary_en": "All design checks passed. Max utilization 31%.",
+      "findings_count": 5,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "info",
+          "message_en": "Overall severity: Safe"
+        },
+        {
+          "code": "R03",
+          "severity": "info",
+          "message_en": "Drift OK — max ratio 0.13"
+        },
+        {
+          "code": "R08",
+          "severity": "info",
+          "message_en": "Members OK — max interaction 0.31"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=0.338s, empirical Ta=0.240s, ratio 1.40 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": null,
+      "suggestions": [],
+      "drift_pattern": "negligible",
+      "critical_story": 1,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 1.4,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmplce0nsz8.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-05",
+    "description": "지역 미지정 (지진/풍하중 없이)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8
+      ]
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.209,
+      "analysis": 0.781,
+      "design_check": 0.001,
+      "interpretation": 0.0,
+      "html_report": 0.123,
+      "total": 1.114
+    },
+    "model_summary": {
+      "num_stories": 3,
+      "total_height_m": 11.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 8,
+      "floor_area_m2": 128,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL"
+    ],
+    "num_load_cases": 2,
+    "num_combos": 2,
+    "num_nodes": 24,
+    "num_elements": 156,
+    "modal": {
+      "num_modes": 9,
+      "T1_x_s": 0.7838,
+      "T1_y_s": 1.1161,
+      "T1_rz_s": 0.9817,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.1161,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 0.9817,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 0.7838,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.3518,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.3021,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": null,
+      "max_interaction_ratio": 0.422,
+      "ng_stories": 0,
+      "ng_members": 7
+    },
+    "critical_members_top3": [
+      {
+        "id": 29,
+        "type": "beam_x",
+        "ratio": 0.422,
+        "status": "OK"
+      },
+      {
+        "id": 30,
+        "type": "beam_x",
+        "ratio": 0.422,
+        "status": "OK"
+      },
+      {
+        "id": 27,
+        "type": "beam_x",
+        "ratio": 0.417,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "safe",
+      "severity_label_ko": "안전",
+      "summary_ko": "모든 설계검토 통과. 최대 활용률 42%.",
+      "summary_en": "All design checks passed. Max utilization 42%.",
+      "findings_count": 5,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "info",
+          "message_en": "Overall severity: Safe"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "7 members NG — max interaction 0.42 (beam_x #29, story 3)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 3 (4)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.116s, empirical Ta=0.513s, ratio 2.17 (> 1.4)"
+        }
+      ],
+      "diagnosis": null,
+      "suggestions": [],
+      "T1_Ta_ratio": 2.17,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpl7x8062f.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-06",
+    "description": "대경간+중하중 (창고, 12m경간)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 6,
+          "usage": "storage"
+        },
+        {
+          "height": 5,
+          "usage": "storage"
+        }
+      ],
+      "bays_x": [
+        12,
+        12
+      ],
+      "bays_y": [
+        12
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.388,
+      "analysis": 0.857,
+      "design_check": 0.002,
+      "interpretation": 0.0,
+      "html_report": 0.098,
+      "total": 1.345
+    },
+    "model_summary": {
+      "num_stories": 2,
+      "total_height_m": 11,
+      "total_width_x_m": 24,
+      "total_width_y_m": 12,
+      "floor_area_m2": 288,
+      "bays_x": [
+        12,
+        12
+      ],
+      "bays_y": [
+        12
+      ],
+      "usages": [
+        "storage",
+        "storage"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 18,
+    "num_elements": 104,
+    "modal": {
+      "num_modes": 6,
+      "T1_x_s": 1.4487,
+      "T1_y_s": 2.1338,
+      "T1_rz_s": 1.8503,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 2.1338,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.8503,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.4487,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.6409,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.5382,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 2.2456,
+      "max_interaction_ratio": 2.5576,
+      "ng_stories": 8,
+      "ng_members": 20
+    },
+    "critical_members_top3": [
+      {
+        "id": 19,
+        "type": "beam_x",
+        "ratio": 2.558,
+        "status": "NG"
+      },
+      {
+        "id": 20,
+        "type": "beam_x",
+        "ratio": 2.557,
+        "status": "NG"
+      },
+      {
+        "id": 17,
+        "type": "beam_x",
+        "ratio": 2.553,
+        "status": "NG"
+      }
+    ],
+    "interpretation": {
+      "severity": "severe",
+      "severity_label_ko": "심각 — 구조시스템 변경 검토",
+      "summary_ko": "설계검토 부적합 (변위 NG 8층, 부재 NG 20개). 주 원인: 횡강성 부족. 구조시스템 변경 검토 필요.",
+      "summary_en": "Design check NG (drift NG 8 stories, member NG 20). Primary cause: Insufficient lateral stiffness. Structural system change needed.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R15",
+          "severity": "critical",
+          "message_en": "Overall severity: Severe — structural system review needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 1 Y-dir, ratio 2.25 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "critical",
+          "message_en": "20 members NG — max interaction 2.56 (beam_x #19, story 2)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (10)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=2.134s, empirical Ta=0.513s, ratio 4.16 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "High story height at story [1, 2] (> 4.5m)",
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "[1, 2]층 높은 층고 (> 4.5m)",
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 1 Y-dir, ratio 2.25)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-400x200",
+          "recommended": "H-450x200",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-400x200 → H-450x200 (8 beam_x NG)"
+        },
+        {
+          "type": "system_change",
+          "target": "structural_system",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Section upgrade insufficient — consider adding bracing or shear walls"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 1,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 4.16,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpypcqruzq.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-07",
+    "description": "비표준 용도 (gymnasium → gym 매핑 확인)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 5,
+          "usage": "gym"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        10,
+        10
+      ],
+      "bays_y": [
+        8
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.325,
+      "analysis": 0.842,
+      "design_check": 0.002,
+      "interpretation": 0.0,
+      "html_report": 0.083,
+      "total": 1.252
+    },
+    "model_summary": {
+      "num_stories": 2,
+      "total_height_m": 8.5,
+      "total_width_x_m": 20,
+      "total_width_y_m": 8,
+      "floor_area_m2": 160,
+      "bays_x": [
+        10,
+        10
+      ],
+      "bays_y": [
+        8
+      ],
+      "usages": [
+        "gym",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 18,
+    "num_elements": 104,
+    "modal": {
+      "num_modes": 6,
+      "T1_x_s": 0.7734,
+      "T1_y_s": 1.1189,
+      "T1_rz_s": 1.0093,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.1189,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.0093,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 0.7734,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.2963,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.2646,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 0.9362,
+      "max_interaction_ratio": 0.9013,
+      "ng_stories": 0,
+      "ng_members": 5
+    },
+    "critical_members_top3": [
+      {
+        "id": 15,
+        "type": "beam_x",
+        "ratio": 0.901,
+        "status": "OK"
+      },
+      {
+        "id": 16,
+        "type": "beam_x",
+        "ratio": 0.901,
+        "status": "OK"
+      },
+      {
+        "id": 13,
+        "type": "beam_x",
+        "ratio": 0.9,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "marginal",
+      "severity_label_ko": "경계",
+      "summary_ko": "설계검토 통과, 최대 활용률 94%으로 여유 부족. 하중 변경 시 재검토 필요.",
+      "summary_en": "Design checks passed, max utilization 94% with limited margin.",
+      "findings_count": 9,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "caution",
+          "message_en": "Overall severity: Marginal"
+        },
+        {
+          "code": "R14",
+          "severity": "caution",
+          "message_en": "Design checks passed but with limited margin. Re-check if loads change."
+        },
+        {
+          "code": "R01",
+          "severity": "critical",
+          "message_en": "Soft story detected at story [1] — drift concentration"
+        },
+        {
+          "code": "R03",
+          "severity": "info",
+          "message_en": "Drift OK — max ratio 0.94"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "5 members NG — max interaction 0.90 (beam_x #15, story 2)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (3)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.119s, empirical Ta=0.423s, ratio 2.64 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "soft_story",
+        "primary_cause_ko": "연약층 (Soft Story)",
+        "primary_cause_en": "Soft story irregularity",
+        "contributing_factors": [
+          "High story height at story [1] (> 4.5m)",
+          "Structure too flexible (T1/Ta = 2.64)"
+        ],
+        "contributing_factors_ko": [
+          "[1]층 높은 층고 (> 4.5m)",
+          "과유연 구조 (T1/Ta = 2.64)"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (3 NG at story 2, max ratio 0.90)"
+        },
+        {
+          "type": "geometry_review",
+          "target": "story_[1]",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Reinforce story [1]: consider adding bracing or increasing column size"
+        }
+      ],
+      "drift_pattern": "soft_story",
+      "critical_story": 1,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 2.64,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpbo3oyee9.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-08",
+    "description": "극소 단면 + 15층 (H-200x200 기둥 → NG 예상)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구",
+      "column_section": "H-200x200",
+      "beam_x_section": "H-200x100",
+      "beam_y_section": "H-200x100"
+    },
+    "expect": {
+      "expect_status": "NG",
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.857,
+      "analysis": 14.463,
+      "design_check": 0.044,
+      "interpretation": 0.0,
+      "html_report": 0.588,
+      "total": 15.952
+    },
+    "model_summary": {
+      "num_stories": 15,
+      "total_height_m": 53.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-200x200",
+      "beam_x_section": "H-200x100",
+      "beam_y_section": "H-200x100",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 144,
+    "num_elements": 1260,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 13.785,
+      "T1_y_s": 15.6507,
+      "T1_rz_s": 14.5334,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 15.6507,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 14.5334,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 13.785,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 5.1574,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 4.7474,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 11.915,
+      "max_interaction_ratio": 12.6334,
+      "ng_stories": 120,
+      "ng_members": 255
+    },
+    "critical_members_top3": [
+      {
+        "id": 151,
+        "type": "beam_x",
+        "ratio": 12.633,
+        "status": "NG"
+      },
+      {
+        "id": 150,
+        "type": "beam_x",
+        "ratio": 12.612,
+        "status": "NG"
+      },
+      {
+        "id": 145,
+        "type": "beam_x",
+        "ratio": 12.443,
+        "status": "NG"
+      }
+    ],
+    "interpretation": {
+      "severity": "severe",
+      "severity_label_ko": "심각 — 구조시스템 변경 검토",
+      "summary_ko": "설계검토 부적합 (변위 NG 120층, 부재 NG 255개). 주 원인: 횡강성 부족. 구조시스템 변경 검토 필요.",
+      "summary_en": "Design check NG (drift NG 120 stories, member NG 255). Primary cause: Insufficient lateral stiffness. Structural system change needed.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R15",
+          "severity": "critical",
+          "message_en": "Overall severity: Severe — structural system review needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 3 Y-dir, ratio 11.91 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "critical",
+          "message_en": "255 members NG — max interaction 12.63 (beam_x #151, story 2)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (18)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=15.651s, empirical Ta=1.670s, ratio 9.37 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-200x200",
+          "recommended": "H-250x250",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-200x200 → H-250x250 (story 3 Y-dir, ratio 11.91)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-200x100",
+          "recommended": "H-250x125",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-200x100 → H-250x125 (90 beam_x NG)"
+        },
+        {
+          "type": "system_change",
+          "target": "structural_system",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Section upgrade insufficient — consider adding bracing or shear walls"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 3,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 9.37,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpq2cy916z.html",
+    "verification": {
+      "status_match": true,
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-09a",
+    "description": "[Sensitivity 단면] 5층 오피스 - 소단면 H-200",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구",
+      "column_section": "H-200x200",
+      "beam_x_section": "H-200x100",
+      "beam_y_section": "H-200x100"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.399,
+      "analysis": 1.393,
+      "design_check": 0.009,
+      "interpretation": 0.0,
+      "html_report": 0.172,
+      "total": 1.973
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 18.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-200x200",
+      "beam_x_section": "H-200x100",
+      "beam_y_section": "H-200x100",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 4.3877,
+      "T1_y_s": 5.2958,
+      "T1_rz_s": 4.755,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 5.2958,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 4.755,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 4.3877,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 1.6574,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 1.4288,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 8.2801,
+      "max_interaction_ratio": 6.7645,
+      "ng_stories": 40,
+      "ng_members": 81
+    },
+    "critical_members_top3": [
+      {
+        "id": 72,
+        "type": "beam_x",
+        "ratio": 6.764,
+        "status": "NG"
+      },
+      {
+        "id": 73,
+        "type": "beam_x",
+        "ratio": 6.763,
+        "status": "NG"
+      },
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 5.957,
+        "status": "NG"
+      }
+    ],
+    "interpretation": {
+      "severity": "severe",
+      "severity_label_ko": "심각 — 구조시스템 변경 검토",
+      "summary_ko": "설계검토 부적합 (변위 NG 40층, 부재 NG 81개). 주 원인: 횡강성 부족. 구조시스템 변경 검토 필요.",
+      "summary_en": "Design check NG (drift NG 40 stories, member NG 81). Primary cause: Insufficient lateral stiffness. Structural system change needed.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R15",
+          "severity": "critical",
+          "message_en": "Overall severity: Severe — structural system review needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 8.28 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "critical",
+          "message_en": "81 members NG — max interaction 6.76 (beam_x #72, story 3)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (17)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=5.296s, empirical Ta=0.743s, ratio 7.13 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-200x200",
+          "recommended": "H-250x250",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-200x200 → H-250x250 (story 2 Y-dir, ratio 8.28)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-200x100",
+          "recommended": "H-250x125",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-200x100 → H-250x125 (30 beam_x NG)"
+        },
+        {
+          "type": "system_change",
+          "target": "structural_system",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Section upgrade insufficient — consider adding bracing or shear walls"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 7.13,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpe6050mcb.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-09b",
+    "description": "[Sensitivity 단면] 5층 오피스 - 대단면 H-400",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구",
+      "column_section": "H-400x400",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.376,
+      "analysis": 1.412,
+      "design_check": 0.009,
+      "interpretation": 0.0,
+      "html_report": 0.186,
+      "total": 1.983
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 18.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-400x400",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 1.2079,
+      "T1_y_s": 1.4535,
+      "T1_rz_s": 1.3048,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.4535,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.3048,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.2079,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.4528,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.3897,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 0.627,
+      "max_interaction_ratio": 0.8859,
+      "ng_stories": 0,
+      "ng_members": 20
+    },
+    "critical_members_top3": [
+      {
+        "id": 55,
+        "type": "beam_x",
+        "ratio": 0.886,
+        "status": "OK"
+      },
+      {
+        "id": 54,
+        "type": "beam_x",
+        "ratio": 0.885,
+        "status": "OK"
+      },
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 0.877,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "marginal",
+      "severity_label_ko": "경계",
+      "summary_ko": "설계검토 통과, 최대 활용률 89%으로 여유 부족. 하중 변경 시 재검토 필요.",
+      "summary_en": "Design checks passed, max utilization 89% with limited margin.",
+      "findings_count": 8,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "caution",
+          "message_en": "Overall severity: Marginal"
+        },
+        {
+          "code": "R14",
+          "severity": "caution",
+          "message_en": "Design checks passed but with limited margin. Re-check if loads change."
+        },
+        {
+          "code": "R03",
+          "severity": "info",
+          "message_en": "Drift OK — max ratio 0.63"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "20 members NG — max interaction 0.89 (beam_x #55, story 1)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 3 (5)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.454s, empirical Ta=0.743s, ratio 1.96 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "member_capacity",
+        "primary_cause_ko": "부재 내력 부족",
+        "primary_cause_en": "Insufficient member capacity",
+        "contributing_factors": [
+          "Structure too flexible (T1/Ta = 1.96)",
+          "Member failures concentrated at story 3"
+        ],
+        "contributing_factors_ko": [
+          "과유연 구조 (T1/Ta = 1.96)",
+          "3층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-400x400",
+          "recommended": "H-414x405",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-400x400 → H-414x405 (5 NG at story 3, max ratio 0.89)"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 1.96,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmp5kw40zgh.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-10a",
+    "description": "[Sensitivity 지역] 5층 오피스 - 서울 (zone I)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.413,
+      "analysis": 1.417,
+      "design_check": 0.009,
+      "interpretation": 0.0,
+      "html_report": 0.159,
+      "total": 1.998
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 18.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 1.4835,
+      "T1_y_s": 1.9604,
+      "T1_rz_s": 1.6631,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.9604,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.6631,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.4835,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.6388,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.5288,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.0668,
+      "max_interaction_ratio": 0.9709,
+      "ng_stories": 8,
+      "ng_members": 32
+    },
+    "critical_members_top3": [
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 0.971,
+        "status": "OK"
+      },
+      {
+        "id": 49,
+        "type": "beam_x",
+        "ratio": 0.969,
+        "status": "OK"
+      },
+      {
+        "id": 54,
+        "type": "beam_x",
+        "ratio": 0.903,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "moderate",
+      "severity_label_ko": "보통 — 단면 보강 필요",
+      "summary_ko": "설계검토 부적합 (변위 NG 8층, 부재 NG 32개). 주 원인: 횡강성 부족. 단면 보강으로 해결 가능.",
+      "summary_en": "Design check NG (drift NG 8 stories, member NG 32). Primary cause: Insufficient lateral stiffness. Resolvable with section upgrade.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "critical",
+          "message_en": "Overall severity: Moderate — section upgrade needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 1.07 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "32 members NG — max interaction 0.97 (beam_x #48, story 4)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (8)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.960s, empirical Ta=0.743s, ratio 2.64 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 2 Y-dir, ratio 1.07)"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 2.64,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmprxruzel5.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-10b",
+    "description": "[Sensitivity 지역] 5층 오피스 - 울산 (zone I, 높은 PGA)",
+    "config_input": {
+      "stories": [
+        {
+          "height": 4,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "울주군"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.37,
+      "analysis": 1.414,
+      "design_check": 0.011,
+      "interpretation": 0.0,
+      "html_report": 0.172,
+      "total": 1.967
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 18.0,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "울주군",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 1.4835,
+      "T1_y_s": 1.9604,
+      "T1_rz_s": 1.6631,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.9604,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.6631,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.4835,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.6388,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.5288,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.0668,
+      "max_interaction_ratio": 1.0031,
+      "ng_stories": 8,
+      "ng_members": 34
+    },
+    "critical_members_top3": [
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 1.003,
+        "status": "NG"
+      },
+      {
+        "id": 49,
+        "type": "beam_x",
+        "ratio": 1.002,
+        "status": "NG"
+      },
+      {
+        "id": 54,
+        "type": "beam_x",
+        "ratio": 0.91,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "moderate",
+      "severity_label_ko": "보통 — 단면 보강 필요",
+      "summary_ko": "설계검토 부적합 (변위 NG 8층, 부재 NG 34개). 주 원인: 횡강성 부족. 단면 보강으로 해결 가능.",
+      "summary_en": "Design check NG (drift NG 8 stories, member NG 34). Primary cause: Insufficient lateral stiffness. Resolvable with section upgrade.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "critical",
+          "message_en": "Overall severity: Moderate — section upgrade needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 1.07 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "34 members NG — max interaction 1.00 (beam_x #48, story 4)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (8)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.960s, empirical Ta=0.743s, ratio 2.64 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 2 Y-dir, ratio 1.07)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-400x200",
+          "recommended": "H-450x200",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-400x200 → H-450x200 (2 beam_x NG)"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 2.64,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpkwv1k3sy.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-11a",
+    "description": "[Sensitivity 층고] 5층 오피스 - 표준 층고 3.5m",
+    "config_input": {
+      "stories": [
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        },
+        {
+          "height": 3.5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.431,
+      "analysis": 1.408,
+      "design_check": 0.011,
+      "interpretation": 0.0,
+      "html_report": 0.17,
+      "total": 2.02
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 17.5,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 1.4166,
+      "T1_y_s": 1.849,
+      "T1_rz_s": 1.5827,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 1.849,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 1.5827,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 1.4166,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.6053,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.5035,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.072,
+      "max_interaction_ratio": 0.9457,
+      "ng_stories": 4,
+      "ng_members": 32
+    },
+    "critical_members_top3": [
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 0.946,
+        "status": "OK"
+      },
+      {
+        "id": 49,
+        "type": "beam_x",
+        "ratio": 0.944,
+        "status": "OK"
+      },
+      {
+        "id": 54,
+        "type": "beam_x",
+        "ratio": 0.909,
+        "status": "OK"
+      }
+    ],
+    "interpretation": {
+      "severity": "moderate",
+      "severity_label_ko": "보통 — 단면 보강 필요",
+      "summary_ko": "설계검토 부적합 (변위 NG 4층, 부재 NG 32개). 주 원인: 횡강성 부족. 단면 보강으로 해결 가능.",
+      "summary_en": "Design check NG (drift NG 4 stories, member NG 32). Primary cause: Insufficient lateral stiffness. Resolvable with section upgrade.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R13",
+          "severity": "critical",
+          "message_en": "Overall severity: Moderate — section upgrade needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 1.07 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "32 members NG — max interaction 0.95 (beam_x #48, story 4)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (8)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=1.849s, empirical Ta=0.727s, ratio 2.54 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 2 Y-dir, ratio 1.07)"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 2.54,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpjsr8h1cz.html",
+    "verification": {
+      "modal_exists": true
+    }
+  },
+  {
+    "id": "TC-11b",
+    "description": "[Sensitivity 층고] 5층 오피스 - 고층고 5.0m",
+    "config_input": {
+      "stories": [
+        {
+          "height": 5,
+          "usage": "office"
+        },
+        {
+          "height": 5,
+          "usage": "office"
+        },
+        {
+          "height": 5,
+          "usage": "office"
+        },
+        {
+          "height": 5,
+          "usage": "office"
+        },
+        {
+          "height": 5,
+          "usage": "office"
+        }
+      ],
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "region": "강남구"
+    },
+    "expect": {
+      "expect_has_modal": true
+    },
+    "status": "PASS",
+    "error": null,
+    "timings": {
+      "model_build": 0.0,
+      "load_gen": 0.352,
+      "analysis": 1.435,
+      "design_check": 0.011,
+      "interpretation": 0.0,
+      "html_report": 0.147,
+      "total": 1.945
+    },
+    "model_summary": {
+      "num_stories": 5,
+      "total_height_m": 25,
+      "total_width_x_m": 16,
+      "total_width_y_m": 16,
+      "floor_area_m2": 256,
+      "bays_x": [
+        8,
+        8
+      ],
+      "bays_y": [
+        8,
+        8
+      ],
+      "usages": [
+        "office",
+        "office",
+        "office",
+        "office",
+        "office"
+      ],
+      "column_section": "H-300x300",
+      "beam_x_section": "H-400x200",
+      "beam_y_section": "H-400x200",
+      "material": "SS275",
+      "region": "강남구",
+      "site_class": "S3",
+      "importance": "II"
+    },
+    "load_cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "load_combos": [
+      "1.4DL",
+      "1.2DL+1.6LL",
+      "1.2DL+1.0LL+1.0EQX",
+      "1.2DL+1.0LL-1.0EQX",
+      "0.9DL+1.0EQX",
+      "0.9DL-1.0EQX",
+      "1.2DL+1.0LL+1.0EQY",
+      "1.2DL+1.0LL-1.0EQY",
+      "0.9DL+1.0EQY",
+      "0.9DL-1.0EQY",
+      "1.2DL+1.0LL+1.0WX",
+      "1.2DL+1.0LL-1.0WX",
+      "0.9DL+1.0WX",
+      "0.9DL-1.0WX",
+      "1.2DL+1.0LL+1.0WY",
+      "1.2DL+1.0LL-1.0WY",
+      "0.9DL+1.0WY",
+      "0.9DL-1.0WY"
+    ],
+    "num_load_cases": 6,
+    "num_combos": 18,
+    "num_nodes": 54,
+    "num_elements": 420,
+    "modal": {
+      "num_modes": 15,
+      "T1_x_s": 2.182,
+      "T1_y_s": 2.9542,
+      "T1_rz_s": 2.4697,
+      "modes": [
+        {
+          "mode": 1,
+          "period_s": 2.9542,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 2,
+          "period_s": 2.4697,
+          "direction": "ROTN-Z"
+        },
+        {
+          "mode": 3,
+          "period_s": 2.182,
+          "direction": "TRAN-X"
+        },
+        {
+          "mode": 4,
+          "period_s": 0.9769,
+          "direction": "TRAN-Y"
+        },
+        {
+          "mode": 5,
+          "period_s": 0.7969,
+          "direction": "ROTN-Z"
+        }
+      ]
+    },
+    "design_check": {
+      "overall_status": "NG",
+      "max_drift_ratio": 1.434,
+      "max_interaction_ratio": 1.2134,
+      "ng_stories": 12,
+      "ng_members": 38
+    },
+    "critical_members_top3": [
+      {
+        "id": 48,
+        "type": "beam_x",
+        "ratio": 1.213,
+        "status": "NG"
+      },
+      {
+        "id": 49,
+        "type": "beam_x",
+        "ratio": 1.211,
+        "status": "NG"
+      },
+      {
+        "id": 55,
+        "type": "beam_x",
+        "ratio": 1.164,
+        "status": "NG"
+      }
+    ],
+    "interpretation": {
+      "severity": "severe",
+      "severity_label_ko": "심각 — 구조시스템 변경 검토",
+      "summary_ko": "설계검토 부적합 (변위 NG 12층, 부재 NG 38개). 주 원인: 횡강성 부족. 구조시스템 변경 검토 필요.",
+      "summary_en": "Design check NG (drift NG 12 stories, member NG 38). Primary cause: Insufficient lateral stiffness. Structural system change needed.",
+      "findings_count": 7,
+      "findings": [
+        {
+          "code": "R15",
+          "severity": "critical",
+          "message_en": "Overall severity: Severe — structural system review needed"
+        },
+        {
+          "code": "R02",
+          "severity": "warning",
+          "message_en": "Drift exceeds limit: story 2 Y-dir, ratio 1.43 (limit 1.00)"
+        },
+        {
+          "code": "R05",
+          "severity": "warning",
+          "message_en": "38 members NG — max interaction 1.21 (beam_x #48, story 4)"
+        },
+        {
+          "code": "R06",
+          "severity": "caution",
+          "message_en": "Governing failure mode: shear"
+        },
+        {
+          "code": "R07",
+          "severity": "warning",
+          "message_en": "NG members concentrated at story 2 (9)"
+        },
+        {
+          "code": "R09",
+          "severity": "warning",
+          "message_en": "Structure too flexible: T1=2.954s, empirical Ta=0.950s, ratio 3.11 (> 1.4)"
+        },
+        {
+          "code": "R11",
+          "severity": "caution",
+          "message_en": "1st mode direction (TRAN-Y) correlates with drift NG (Y-direction)"
+        }
+      ],
+      "diagnosis": {
+        "primary_cause": "lateral_stiffness",
+        "primary_cause_ko": "횡강성 부족",
+        "primary_cause_en": "Insufficient lateral stiffness",
+        "contributing_factors": [
+          "High story height at story [1, 2, 3, 4, 5] (> 4.5m)",
+          "Member failures concentrated at story 2"
+        ],
+        "contributing_factors_ko": [
+          "[1, 2, 3, 4, 5]층 높은 층고 (> 4.5m)",
+          "2층 부재 파괴 집중"
+        ]
+      },
+      "suggestions": [
+        {
+          "type": "section_upgrade",
+          "target": "column",
+          "current": "H-300x300",
+          "recommended": "H-350x350",
+          "impact": "high",
+          "message_en": "Upgrade column section: H-300x300 → H-350x350 (story 2 Y-dir, ratio 1.43)"
+        },
+        {
+          "type": "section_upgrade",
+          "target": "beam_x",
+          "current": "H-400x200",
+          "recommended": "H-450x200",
+          "impact": "medium",
+          "message_en": "Upgrade beam-X section: H-400x200 → H-450x200 (6 beam_x NG)"
+        },
+        {
+          "type": "system_change",
+          "target": "structural_system",
+          "current": null,
+          "recommended": null,
+          "impact": "high",
+          "message_en": "Section upgrade insufficient — consider adding bracing or shear walls"
+        }
+      ],
+      "drift_pattern": "uniform",
+      "critical_story": 2,
+      "critical_direction": "Y",
+      "T1_Ta_ratio": 3.11,
+      "flexibility_flag": true,
+      "torsion_risk": false,
+      "first_mode": "TRAN-Y"
+    },
+    "html_report_path": "C:\\Users\\youm\\AppData\\Local\\Temp\\tmpb87mj1np.html",
+    "verification": {
+      "modal_exists": true
+    }
+  }
+]
