@@ -1,0 +1,251 @@
+# load_contract.yaml — KDS 하중 파라미터 DB 머신 리더블 명세
+# Version: 1.0.0 | Date: 2026-02-10
+
+meta:
+  contract_version: "1.0.0"
+  default_code_id: "KDS 41 12 00"
+  default_code_version: "2022-10-11"
+  supabase_table: "public.load_params"
+
+# ──────────────────────────────────────────
+# param_type 정의
+# ──────────────────────────────────────────
+param_types:
+
+  live_load:
+    description: "기본활하중 (표 3.2-1, 3.3-1)"
+    subtypes: [distributed, concentrated]
+    primary_key_domain: occupancy_keys
+    secondary_key_domain: sub_use_keys
+    value_unit:
+      distributed: "kN/m²"
+      concentrated: "kN"
+    nullable_value: false
+
+  live_reduction:
+    description: "활하중 저감 (절 3.5)"
+    subtypes: [general, influence_area, exceptions]
+    primary_key_examples: [reduction_formula, min_influence_area, min_factor_1floor, column_foundation, heavy_load_threshold]
+    value_unit_varies: true
+    nullable_value: true  # 수식인 경우 null
+
+  roof_live_reduction:
+    description: "지붕활하중 저감 (절 3.6)"
+    subtypes: [formula, general, by_area, by_slope, exceptions]
+    primary_key_examples: [L, Lo, At, F, R1, R2, occupancy_assembly]
+    secondary_key_pattern:
+      by_area: "At_0_20 | At_20_60 | At_ge_60"
+      by_slope: "F_le_1_3 | F_1_3_1 | F_ge_1"
+    value_unit_varies: true
+    nullable_value: true
+
+  similar_live_load:
+    description: "유사활하중 (절 3.7~3.8)"
+    subtypes: [railing, partition_wall, vehicle_barrier]
+    primary_key_examples: [railing_point_load, railing_line_load, partition_lateral_load, fixed_ladder_load, vehicle_barrier_load]
+    value_unit_varies: true
+    nullable_value: false
+
+  load_combo:
+    description: "하중조합 계수 (절 1.7)"
+    subtypes: [uls, sls]
+    primary_key_domain: load_case_keys
+    secondary_key_domain: combo_keys
+    value_unit: "-"
+    nullable_value: false
+
+# ──────────────────────────────────────────
+# 키 사전
+# ──────────────────────────────────────────
+load_case_keys:
+  DL:   {symbol: D,  description_ko: "고정하중(자중)", includes: [F]}
+  SDL:  {symbol: D,  description_ko: "추가고정하중(마감재 등)", note: "현재 미분리"}
+  LL:   {symbol: L,  description_ko: "바닥 활하중"}
+  RLL:  {symbol: Lr, description_ko: "지붕 활하중"}
+  SNOW: {symbol: S,  description_ko: "설하중"}
+  WIND: {symbol: W,  description_ko: "풍하중", expand_to: [WIND_X_POS, WIND_X_NEG, WIND_Y_POS, WIND_Y_NEG]}
+  EQ:   {symbol: E,  description_ko: "지진하중", expand_to: [EQ_X, EQ_Y]}
+
+# 방향 확장 규칙
+direction_expansion:
+  policy: "DB에는 단일 키(WIND, EQ)만 저장. 해석 시 expand_to로 확장"
+  timing: "Step 5→6 사이 (조합 적용 직전)"
+  rules:
+    WIND:
+      expand_to: [WIND_X_POS, WIND_X_NEG, WIND_Y_POS, WIND_Y_NEG]
+      factor_inheritance: "DB의 WIND 계수를 4방향 모두에 동일 적용"
+      load_source: "사용자 입력 (풍압 계산 결과)"
+      governing: "4방향 중 최대 효과를 governing으로 선택"
+    EQ:
+      expand_to: [EQ_X, EQ_Y]
+      factor_inheritance: "DB의 EQ 계수를 2방향 모두에 동일 적용"
+      load_source: "사용자 입력 (응답스펙트럼 등)"
+      governing: "2방향 중 최대 효과를 governing으로 선택"
+
+combo_keys:
+  uls:
+    ULS1: {formula_id: "1.7-1", formula: "1.4(D+F)"}
+    ULS2: {formula_id: "1.7-2", formula: "1.2(D+F+T)+1.6(L+H)+0.5(Lr/S/R)"}
+    ULS3: {formula_id: "1.7-3", formula: "1.2D+1.6(Lr/S/R)+(1.0L or 0.5W)"}
+    ULS4: {formula_id: "1.7-4", formula: "1.2D+1.0W+1.0L+0.5(Lr/S/R)"}
+    ULS5: {formula_id: "1.7-5", formula: "1.2D+1.0E+1.0L+0.2S"}
+    ULS6: {formula_id: "1.7-6", formula: "0.9D+1.0W"}
+    ULS7: {formula_id: "1.7-7", formula: "0.9D+1.0E"}
+  sls:
+    SLS1: {formula_id: "1.7-8",  formula: "D+F"}
+    SLS2: {formula_id: "1.7-9",  formula: "D+F+L+T"}
+    SLS3: {formula_id: "1.7-10", formula: "D+F+(Lr/S/R)"}
+    SLS4: {formula_id: "1.7-11", formula: "D+F+0.75(L+T)+0.75(Lr/S/R)"}
+    SLS5: {formula_id: "1.7-12", formula: "D+F+(0.6W or 0.7E)"}
+    SLS6: {formula_id: "1.7-13", formula: "D+F+0.75(0.6W/0.7E)+0.75L+0.75(Lr/S/R)"}
+    SLS7: {formula_id: "1.7-14", formula: "0.6D+0.6W"}
+    SLS8: {formula_id: "1.7-15", formula: "0.6D+0.7E"}
+
+occupancy_keys:
+  - office
+  - residential
+  - hospital
+  - school
+  - library
+  - retail
+  - assembly
+  - storage
+  - parking
+  - factory
+  - roof
+  - corridor
+  - mechanical_room
+
+# ──────────────────────────────────────────
+# conditions.kind 스키마
+# ──────────────────────────────────────────
+conditions_schema:
+
+  alt:
+    description: "대안 선택 — 같은 group 내 후보 중 하나를 채택"
+    required: [kind, group, candidates]
+    optional: [choose, policy]
+    properties:
+      kind:       {type: string, const: "alt"}
+      group:      {type: string, enum: [roof_or_snow, wind_or_eq, live_or_wind]}
+      candidates: {type: array, items: {type: string}}
+      choose:     {type: integer, default: 1}
+      policy:     {type: string, enum: [max_effect, envelope], default: max_effect}
+    max_effect_algorithm: |
+      for candidate_key in candidates:
+        factor = combo_record[candidate_key].value
+        load   = load_cases[candidate_key]
+        effect = factor × load
+      selected = argmax(effect)
+      # effect가 모두 0이면 첫 번째 후보 선택
+      # 나머지 후보 계수 → 0
+
+  reduction:
+    description: "하중 저감 — target의 계수를 factor로 교체"
+    required: [kind, target, allowed, factor]
+    optional: [ref, condition_ko]
+    properties:
+      kind:         {type: string, const: "reduction"}
+      target:       {type: string, description: "저감 대상 load case 키"}
+      allowed:      {type: boolean}
+      factor:       {type: number, description: "교체 계수값"}
+      ref:          {type: string, description: "참조 param_type"}
+      condition_ko: {type: string, description: "적용 조건 한국어"}
+
+  derived:
+    description: "파생 계수 — 계산값 추적용 (리포트/근거), 계산에 영향 없음"
+    required: [kind, expression, base_factors]
+    properties:
+      kind:         {type: string, const: "derived"}
+      expression:   {type: string, description: "산식 문자열 (예: 0.75*0.6)"}
+      base_factors: {type: array, items: {type: number}}
+
+  includes:
+    description: "동반 하중 — DL에 F/T/H가 포함됨을 명시"
+    required: [includes]
+    optional: [note]
+    properties:
+      includes: {type: array, items: {type: string, enum: [F, T, H]}}
+      note:     {type: string}
+    processing_policy:
+      phase1: "F/T/H는 DL에 흡수(absorbed). 1.2(D+F+T) → 1.2×DL로 계산"
+      phase2_future: "별도 load case 분리 시 includes 해석하여 동일 계수 자동 적용"
+      report: "includes 존재 시 리포트에 '(F 포함)' 등 주석 표시"
+
+# ──────────────────────────────────────────
+# 하중 적용 규칙 (Load Application Spec)
+# ──────────────────────────────────────────
+load_application:
+  by_unit:
+    "kN/m²":
+      type: "면하중 (area load)"
+      target: "슬래브, 다이어프램 요소"
+      method: "면적 비례 분배 → 등가 절점하중"
+    "kN/m":
+      type: "선하중 (line load)"
+      target: "보, 난간, 벽체 상단"
+      method: "길이 비례 분배 → 등가 절점하중"
+    "kN":
+      type: "집중하중 (point load)"
+      target: "특정 절점"
+      method: "단일 점 직접 적용"
+  concurrent_rule: "같은 부재에 면하중+집중하중 모두 정의 시, 불리한 쪽 하나만 적용 (동시 재하 아님)"
+
+# ──────────────────────────────────────────
+# 적용 순서 (Evaluation Steps)
+# ──────────────────────────────────────────
+evaluation_steps:
+
+  - step: 1
+    name: "설계기준 선택"
+    input:  {code_id: string, code_version: string}
+    output: {filter: "WHERE code_id=:code_id AND code_version=:code_version"}
+    note: "모든 후속 쿼리에 이 필터를 적용"
+
+  - step: 2
+    name: "입력 정규화"
+    input:  {user_text: string}
+    output: {occupancy: string, member_type: string, floors_supported: integer, tributary_area: number, roof_slope: number}
+    agent: "LLM"
+    ref_file: "data/mapping/occupancy.json"
+    note: "LLM이 자연어를 도메인 키로 변환. 매핑 파일 참조 필수"
+
+  - step: 3
+    name: "기본 하중 조회"
+    input:  {occupancy: string, sub_use: string}
+    output: {base_loads: {LL: number, RLL: number, unit: string}}
+    query: "SELECT value, unit FROM live_load_distributed WHERE primary_key=:occupancy"
+    note: "secondary_key로 세부 용도 필터 가능"
+
+  - step: 4
+    name: "저감/예외 적용"
+    input:  {base_loads: object, member_type: string, tributary_area: number, floors_supported: integer, roof_slope: number}
+    output: {reduced_loads: {LL: number, RLL: number}}
+    sub_steps:
+      - name: "4a. 바닥활하중 저감"
+        ref_view: "live_reduction"
+        logic: "C = 0.3 + 4.2/sqrt(A), A = tributary_area * multiplier, clamp by C_min"
+      - name: "4b. 지붕활하중 저감"
+        ref_view: "roof_live_reduction"
+        logic: "L = Lo * R1(At) * R2(F), clamp [0.6, 1.0]"
+      - name: "4c. 예외 확인"
+        check: "assembly, parking_passenger → no reduction"
+
+  - step: 5
+    name: "Load Case 구성"
+    input:  {reduced_loads: object, user_defined: object}
+    output: {load_cases: {DL: number, LL: number, RLL: number, SNOW: number, WIND: number, EQ: number}}
+    note: "모든 값은 kN/m² 또는 kN. 사용자가 직접 입력한 DL/WIND/EQ 등을 포함"
+
+  - step: 6
+    name: "하중조합 적용"
+    input:  {load_cases: object, combo_ids: [string]}
+    output: {combo_results: [{combo_id: string, factored_load: number, governing: boolean}]}
+    query: "SELECT primary_key, value, conditions FROM load_combo WHERE secondary_key=:combo_id"
+    logic: |
+      for each combo:
+        records = query(combo_id)
+        resolve alt groups (kind=alt → pick max_effect candidate)
+        apply reductions (kind=reduction → replace factor if condition met)
+        factored_load = sum(load_cases[rec.primary_key] * rec.value for rec in selected)
+      return max(factored_load) as governing

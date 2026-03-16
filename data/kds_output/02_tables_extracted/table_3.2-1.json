@@ -1,0 +1,606 @@
+{
+  "table_id": "표 3.2-1",
+  "title": "기본등분포활하중",
+  "source": {
+    "code_id": "KDS 41 12 00",
+    "code_version": "2022-10-11",
+    "clause_id": "3.2.1",
+    "page_start": 20,
+    "page_end": 23
+  },
+  "headers": ["번호", "용도", "세부용도", "등분포활하중(kN/m²)"],
+  "rows": [
+    {
+      "row_index": 0,
+      "number": 1,
+      "category": "주택",
+      "subcategory": "주거용 건축물의 거실",
+      "cells": {
+        "등분포활하중": {"value": 2.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 1,
+      "number": 1,
+      "category": "주택",
+      "subcategory": "공동주택의 공용실",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 2,
+      "number": 2,
+      "category": "병원",
+      "subcategory": "병실",
+      "cells": {
+        "등분포활하중": {"value": 2.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 3,
+      "number": 2,
+      "category": "병원",
+      "subcategory": "수술실, 공용실, 실험실",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 4,
+      "number": 2,
+      "category": "병원",
+      "subcategory": "1층 외의 모든 층 복도",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 5,
+      "number": 3,
+      "category": "숙박시설",
+      "subcategory": "객실",
+      "cells": {
+        "등분포활하중": {"value": 2.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 6,
+      "number": 3,
+      "category": "숙박시설",
+      "subcategory": "공용실",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 7,
+      "number": 4,
+      "category": "사무실",
+      "subcategory": "일반 사무실",
+      "cells": {
+        "등분포활하중": {"value": 2.5, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 8,
+      "number": 4,
+      "category": "사무실",
+      "subcategory": "특수용도사무실",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 9,
+      "number": 4,
+      "category": "사무실",
+      "subcategory": "문서보관실",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 10,
+      "number": 4,
+      "category": "사무실",
+      "subcategory": "1층 외의 모든 층 복도",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 11,
+      "number": 5,
+      "category": "학교",
+      "subcategory": "교실",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 12,
+      "number": 5,
+      "category": "학교",
+      "subcategory": "일반 실험실",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 13,
+      "number": 5,
+      "category": "학교",
+      "subcategory": "중량물 실험실",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 14,
+      "number": 5,
+      "category": "학교",
+      "subcategory": "1층 외의 모든 층 복도",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 15,
+      "number": 6,
+      "category": "판매장",
+      "subcategory": "상점, 백화점 (1층)",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 16,
+      "number": 6,
+      "category": "판매장",
+      "subcategory": "상점, 백화점 (2층 이상)",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 17,
+      "number": 6,
+      "category": "판매장",
+      "subcategory": "창고형 매장",
+      "cells": {
+        "등분포활하중": {"value": 6.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 18,
+      "number": 6,
+      "category": "판매장",
+      "subcategory": "모든 층 복도",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 19,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "무대",
+      "cells": {
+        "등분포활하중": {"value": 7.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 20,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "식당",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 21,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "주방",
+      "cells": {
+        "등분포활하중": {"value": 7.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 22,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "극장 및 집회장 (고정 좌석)",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 23,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "집회장 (이동 좌석)",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 24,
+      "number": 7,
+      "category": "집회 및 유흥장",
+      "subcategory": "연회장, 무도장",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 25,
+      "number": 8,
+      "category": "체육시설",
+      "subcategory": "체육관 바닥, 옥외경기장",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 26,
+      "number": 8,
+      "category": "체육시설",
+      "subcategory": "스탠드 (고정 좌석)",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 27,
+      "number": 8,
+      "category": "체육시설",
+      "subcategory": "스탠드 (이동 좌석)",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 28,
+      "number": 9,
+      "category": "도서관",
+      "subcategory": "열람실",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 29,
+      "number": 9,
+      "category": "도서관",
+      "subcategory": "서고",
+      "cells": {
+        "등분포활하중": {"value": 7.5, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 30,
+      "number": 9,
+      "category": "도서관",
+      "subcategory": "1층 외의 모든 층 복도",
+      "cells": {
+        "등분포활하중": {"value": 4.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 31,
+      "number": 10,
+      "category": "주차장",
+      "subcategory": "총중량 30kN 이하의 차량(옥내)",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 32,
+      "number": 10,
+      "category": "주차장",
+      "subcategory": "총중량 30kN 이하의 차량(옥외)",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 33,
+      "number": 10,
+      "category": "주차장",
+      "subcategory": "총중량 30kN 초과 90kN 이하의 차량",
+      "cells": {
+        "등분포활하중": {"value": 6.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 34,
+      "number": 10,
+      "category": "주차장 및 옥외 차도",
+      "subcategory": "총중량 90kN 초과 180kN 이하의 차량",
+      "cells": {
+        "등분포활하중": {"value": 12.0, "unit": "kN/m²"}
+      },
+      "conditions": ["주1) 참조: 총중량 90kN 초과 180kN 이하인 차량은 3.4의 규정에 따를 수 있다"],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 35,
+      "number": 10,
+      "category": "주차장 및 옥외 차도",
+      "subcategory": "옥외 차도와 차도 양측의 보도",
+      "cells": {
+        "등분포활하중": {"value": 12.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 36,
+      "number": 11,
+      "category": "창고",
+      "subcategory": "경량품 저장창고",
+      "cells": {
+        "등분포활하중": {"value": 6.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 37,
+      "number": 11,
+      "category": "창고",
+      "subcategory": "중량품 저장창고",
+      "cells": {
+        "등분포활하중": {"value": 12.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 38,
+      "number": 12,
+      "category": "공장",
+      "subcategory": "경공업 공장",
+      "cells": {
+        "등분포활하중": {"value": 6.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 39,
+      "number": 12,
+      "category": "공장",
+      "subcategory": "중공업 공장",
+      "cells": {
+        "등분포활하중": {"value": 12.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 40,
+      "number": 13,
+      "category": "지붕",
+      "subcategory": "점유·사용하지 않는 지붕(지붕활하중)",
+      "cells": {
+        "등분포활하중": {"value": 1.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 41,
+      "number": 13,
+      "category": "지붕",
+      "subcategory": "산책로 용도",
+      "cells": {
+        "등분포활하중": {"value": 3.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 42,
+      "number": 13,
+      "category": "지붕",
+      "subcategory": "정원 또는 집회 용도",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 43,
+      "number": 13,
+      "category": "지붕",
+      "subcategory": "출입이 제한된 조경 구역",
+      "cells": {
+        "등분포활하중": {"value": 1.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 44,
+      "number": 13,
+      "category": "지붕",
+      "subcategory": "헬리콥터 이착륙장",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 45,
+      "number": 14,
+      "category": "기계실",
+      "subcategory": "공조실, 전기실, 기계실 등",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": ["주2) 참조: 장비 자체의 고정하중을 포함하지 않는다"],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 46,
+      "number": 15,
+      "category": "광장",
+      "subcategory": "옥외광장",
+      "cells": {
+        "등분포활하중": {"value": 12.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 47,
+      "number": 16,
+      "category": "발코니",
+      "subcategory": "출입 바닥 활하중의 1.5배 (최대 5.0kN/m²)",
+      "cells": {
+        "등분포활하중": {"value": null, "unit": "kN/m²", "formula": "출입 바닥 활하중 × 1.5", "max_value": 5.0}
+      },
+      "conditions": ["최대 5.0kN/m²"],
+      "confidence": 0.90
+    },
+    {
+      "row_index": 48,
+      "number": 17,
+      "category": "로비 및 복도",
+      "subcategory": "로비, 1층 복도",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 49,
+      "number": 17,
+      "category": "로비 및 복도",
+      "subcategory": "1층 외의 모든 층 복도 (병원, 사무실, 학교, 집회 및 유흥장, 도서관은 별도 규정)",
+      "cells": {
+        "등분포활하중": {"value": null, "unit": "kN/m²", "reference": "출입 바닥 활하중"}
+      },
+      "conditions": ["병원, 사무실, 학교, 집회 및 유흥장, 도서관은 별도 규정"],
+      "confidence": 0.90
+    },
+    {
+      "row_index": 50,
+      "number": 18,
+      "category": "계단",
+      "subcategory": "단독주택 또는 2세대 거주 주택",
+      "cells": {
+        "등분포활하중": {"value": 2.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 51,
+      "number": 18,
+      "category": "계단",
+      "subcategory": "기타의 계단",
+      "cells": {
+        "등분포활하중": {"value": 5.0, "unit": "kN/m²"}
+      },
+      "conditions": [],
+      "confidence": 0.95
+    }
+  ],
+  "notes": [
+    {
+      "note_id": 1,
+      "text": "총중량 90kN 초과 180kN 이하인 차량은 3.4의 규정에 따를 수 있다. 총중량 180kN을 초과하는 중량차량의 활하중은 3.4의 규정에 따라야 한다.",
+      "applies_to": "주차장 및 옥외 차도 (번호 10)"
+    },
+    {
+      "note_id": 2,
+      "text": "장비 자체의 고정하중을 포함하지 않는다.",
+      "applies_to": "기계실 (번호 14)"
+    }
+  ],
+  "summary": {
+    "total_categories": 18,
+    "total_rows": 52,
+    "value_range": {"min": 1.0, "max": 12.0, "unit": "kN/m²"},
+    "rows_with_formula": [47, 49],
+    "rows_with_conditions": [34, 45, 47, 49]
+  },
+  "extraction_confidence": 0.94
+}

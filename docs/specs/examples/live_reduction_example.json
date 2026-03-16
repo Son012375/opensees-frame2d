@@ -1,0 +1,84 @@
+{
+  "_comment": "live_reduction view 레코드 예시 — 활하중 저감 (절 3.5)",
+  "view": "public.live_reduction",
+  "filter": "param_type='live_reduction'",
+
+  "records": [
+    {
+      "param_type": "live_reduction",
+      "param_subtype": "general",
+      "primary_key": "min_influence_area",
+      "secondary_key": null,
+      "value": 36,
+      "unit": "m²",
+      "conditions": [],
+      "notes": "지붕활하중을 제외한 등분포활하중에 적용",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.5.1"
+    },
+    {
+      "param_type": "live_reduction",
+      "param_subtype": "general",
+      "primary_key": "reduction_formula",
+      "secondary_key": null,
+      "value": null,
+      "unit": "-",
+      "conditions": [
+        {"variable": "C", "description": "활하중저감계수"},
+        {"variable": "A", "description": "영향면적(m²)", "constraint": "A ≥ 36"}
+      ],
+      "notes": "C = 0.3 + 4.2 / sqrt(A)",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.5.1"
+    },
+    {
+      "param_type": "live_reduction",
+      "param_subtype": "general",
+      "primary_key": "min_factor_1floor",
+      "secondary_key": null,
+      "value": 0.5,
+      "unit": "-",
+      "conditions": [{"floors_supported": 1}],
+      "notes": null,
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.5.3"
+    },
+    {
+      "param_type": "live_reduction",
+      "param_subtype": "influence_area",
+      "primary_key": "column_foundation",
+      "secondary_key": null,
+      "value": 4,
+      "unit": "-",
+      "conditions": [],
+      "notes": "영향면적 = 부하면적 × 4",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.5.2"
+    },
+    {
+      "param_type": "live_reduction",
+      "param_subtype": "exceptions",
+      "primary_key": "assembly_no_reduction",
+      "secondary_key": null,
+      "value": null,
+      "unit": "-",
+      "conditions": [{"occupancy": ["assembly"], "rule": "no_reduction", "load_threshold": "≤5kN/m²"}],
+      "notes": "활하중 5kN/m² 이하의 공중집회 용도에 대해서는 활하중을 저감할 수 없다",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.5.3"
+    }
+  ],
+
+  "usage_example": {
+    "scenario": "3층 기둥, 사무실, 부하면적 18m²",
+    "steps": [
+      {"step": "영향면적 배수 조회", "query": "primary_key='column_foundation'", "result": 4},
+      {"step": "영향면적 계산", "calc": "A = 18 × 4 = 72m²"},
+      {"step": "최소면적 확인", "query": "primary_key='min_influence_area'", "result": "36m²", "check": "72 ≥ 36 → 저감 가능"},
+      {"step": "저감계수 산정", "calc": "C = 0.3 + 4.2/√72 = 0.3 + 0.495 = 0.795"},
+      {"step": "하한 확인", "query": "primary_key='min_factor_2plus_floors'", "result": 0.4, "check": "0.795 ≥ 0.4 → OK"},
+      {"step": "예외 확인", "query": "param_subtype='exceptions'", "check": "office ≠ assembly, parking → 예외 아님"},
+      {"step": "최종", "result": "저감계수 C = 0.795, 저감 활하중 = 2.5 × 0.795 = 1.99 kN/m²"}
+    ]
+  }
+}

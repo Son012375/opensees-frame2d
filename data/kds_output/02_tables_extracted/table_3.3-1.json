@@ -1,0 +1,303 @@
+{
+  "table_id": "표 3.3-1",
+  "title": "기본집중활하중",
+  "source": {
+    "code_id": "KDS 41 12 00",
+    "code_version": "2022-10-11",
+    "clause_id": "3.3.1",
+    "page_start": 23,
+    "page_end": 25
+  },
+  "headers": ["번호", "용도", "세부용도", "집중하중(kN)", "하중접촉면(m×m)"],
+  "rows": [
+    {
+      "row_index": 0,
+      "category": "병원",
+      "subcategory": "병실, 수술실, 공용실, 실험실",
+      "cells": {
+        "번호": 1,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 1,
+      "category": "병원",
+      "subcategory": "로비와 모든 복도",
+      "cells": {
+        "번호": 1,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 2,
+      "category": "사무실",
+      "subcategory": "일반 사무실, 특수용도사무실, 문서보관실",
+      "cells": {
+        "번호": 2,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 3,
+      "category": "사무실",
+      "subcategory": "로비와 모든 복도",
+      "cells": {
+        "번호": 2,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 4,
+      "category": "학교",
+      "subcategory": "교실, 일반 실험실, 중량물 실험실",
+      "cells": {
+        "번호": 3,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 5,
+      "category": "학교",
+      "subcategory": "로비와 모든 복도",
+      "cells": {
+        "번호": 3,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 6,
+      "category": "판매장",
+      "subcategory": "상점, 백화점 (1층)",
+      "cells": {
+        "번호": 4,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 7,
+      "category": "판매장",
+      "subcategory": "상점, 백화점 (2층 이상)",
+      "cells": {
+        "번호": 4,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 8,
+      "category": "판매장",
+      "subcategory": "창고형 매장",
+      "cells": {
+        "번호": 4,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 9,
+      "category": "도서관",
+      "subcategory": "열람실, 서고",
+      "cells": {
+        "번호": 5,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 10,
+      "category": "도서관",
+      "subcategory": "로비와 모든 복도",
+      "cells": {
+        "번호": 5,
+        "집중하중": {"value": 5.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 11,
+      "category": "주차장 및 옥외차도",
+      "subcategory": "총중량 30kN 이하의 차량",
+      "cells": {
+        "번호": 6,
+        "집중하중": {"value": 15.0, "unit": "kN"},
+        "하중접촉면": "0.12×0.12"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 12,
+      "category": "주차장 및 옥외차도",
+      "subcategory": "총중량 30kN 초과 90kN 이하의 차량",
+      "cells": {
+        "번호": 6,
+        "집중하중": {"value": 36.0, "unit": "kN"},
+        "하중접촉면": "0.12×0.12"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 13,
+      "category": "주차장 및 옥외차도",
+      "subcategory": "총중량 90kN 초과 180kN 이하의 차량",
+      "cells": {
+        "번호": 6,
+        "집중하중": {"value": 54.0, "unit": "kN"},
+        "하중접촉면": "0.25×0.60"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 14,
+      "category": "주차장 및 옥외차도",
+      "subcategory": "옥외 차도와 차도 양측의 보도",
+      "cells": {
+        "번호": 6,
+        "집중하중": {"value": 54.0, "unit": "kN"},
+        "하중접촉면": "0.25×0.60"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 15,
+      "category": "공장",
+      "subcategory": "경공업 공장",
+      "cells": {
+        "번호": 7,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 16,
+      "category": "공장",
+      "subcategory": "중공업 공장",
+      "cells": {
+        "번호": 7,
+        "집중하중": {"value": 15.0, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 17,
+      "category": "지붕",
+      "subcategory": "유지·보수 작업자의 하중을 받는 모든 지붕",
+      "cells": {
+        "번호": 8,
+        "집중하중": {"value": 1.5, "unit": "kN"},
+        "하중접촉면": "0.75×0.75"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 18,
+      "category": "지붕",
+      "subcategory": "헬리콥터 이착륙장 - 최대허용이륙하중 20kN 이하",
+      "cells": {
+        "번호": 8,
+        "집중하중": {"value": 28.0, "unit": "kN"},
+        "하중접촉면": "0.20×0.20"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 19,
+      "category": "지붕",
+      "subcategory": "헬리콥터 이착륙장 - 최대허용이륙하중 60kN 이하",
+      "cells": {
+        "번호": 8,
+        "집중하중": {"value": 84.0, "unit": "kN"},
+        "하중접촉면": "0.30×0.30"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    },
+    {
+      "row_index": 20,
+      "category": "지붕",
+      "subcategory": "작업장 상부에 노출된 지붕의 주 구조재 및 트러스 하현재 절점 - 공장, 창고, 자동차 정비소",
+      "cells": {
+        "번호": 8,
+        "집중하중": {"value": 10.0, "unit": "kN"},
+        "하중접촉면": null
+      },
+      "conditions": ["하중접촉면 값 없음 (표에 '–' 표기)"],
+      "confidence": 0.90
+    },
+    {
+      "row_index": 21,
+      "category": "지붕",
+      "subcategory": "지붕의 주 구조재 및 트러스 하현재 절점 - 기타 용도의 상부 지붕",
+      "cells": {
+        "번호": 8,
+        "집중하중": {"value": 1.5, "unit": "kN"},
+        "하중접촉면": null
+      },
+      "conditions": ["하중접촉면 값 없음 (표에 '–' 표기)"],
+      "confidence": 0.90
+    },
+    {
+      "row_index": 22,
+      "category": "계단",
+      "subcategory": "계단 디딤판",
+      "cells": {
+        "번호": 9,
+        "집중하중": {"value": 1.5, "unit": "kN"},
+        "하중접촉면": "0.05×0.05"
+      },
+      "conditions": [],
+      "confidence": 0.95
+    }
+  ],
+  "notes": [
+    {
+      "note_index": 1,
+      "text": "총중량 90kN 초과 180kN 이하인 차량은 3.4의 규정에 따를 수 있다.",
+      "applies_to": "주차장 및 옥외차도 (번호 6)"
+    },
+    {
+      "note_index": 2,
+      "text": "총중량 180kN을 초과하는 중량차량의 활하중은 3.4의 규정에 따라야 한다.",
+      "applies_to": "주차장 및 옥외차도 (번호 6)"
+    }
+  ],
+  "extraction_confidence": 0.93
+}

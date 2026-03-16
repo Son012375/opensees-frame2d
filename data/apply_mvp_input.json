@@ -1,0 +1,37 @@
+{
+  "code": {
+    "code_id": "KDS 41 12 00",
+    "code_version": "2022-10-11"
+  },
+  "combo_request": {
+    "param_subtype": "uls",
+    "combo_id": "ULS3"
+  },
+  "building": {
+    "name": "MVP-3D",
+    "floors": [
+      {
+        "level": 1,
+        "height_m": 3.5,
+        "occupancy_key": "office",
+        "floor_area_m2": 400.0,
+        "edge_beam_total_length_m": 80.0
+      },
+      {
+        "level": 2,
+        "height_m": 3.5,
+        "occupancy_key": "office",
+        "floor_area_m2": 400.0,
+        "edge_beam_total_length_m": 80.0
+      }
+    ]
+  },
+  "loads_user": {
+    "DL_kN_per_m2": 5.0,
+    "SDL_kN_per_m2": 1.0,
+    "wind_base_kN_per_m2": 1.2,
+    "snow_base_kN_per_m2": 0.8,
+    "eq_base_kN_per_m2": 0.7,
+    "use_direction_expansion": true
+  }
+}

@@ -1,0 +1,669 @@
+{
+  "building": {
+    "num_stories": 11,
+    "total_height_m": 45.0,
+    "total_width_x_m": 28.0,
+    "total_width_y_m": 28.0,
+    "floor_area_m2": 784.0,
+    "bays_x": [
+      6.5,
+      2.5,
+      4.0,
+      2.0,
+      13.0
+    ],
+    "bays_y": [
+      6.5,
+      6.5,
+      2.0,
+      6.5,
+      6.5
+    ],
+    "usages": [
+      "retail",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office",
+      "office"
+    ],
+    "column_section": "H-400x400",
+    "beam_x_section": "H-500x200",
+    "beam_y_section": "H-500x200",
+    "material": "SS275",
+    "region": "서울",
+    "site_class": "S3",
+    "importance": "II"
+  },
+  "story_details": [
+    {
+      "story": 1,
+      "height_m": 5.0,
+      "usage": "retail",
+      "dead_load_finish_kNm2": 1.5,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 2,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 3,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 4,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 5,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 6,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 7,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 8,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 9,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 10,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 11,
+      "height_m": 4.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    }
+  ],
+  "load_cases": {
+    "DL": [
+      {
+        "type": "floor_area",
+        "story": 1,
+        "value": 5.6
+      },
+      {
+        "type": "floor_area",
+        "story": 2,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 3,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 4,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 5,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 6,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 7,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 8,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 9,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 10,
+        "value": 5.1
+      },
+      {
+        "type": "floor_area",
+        "story": 11,
+        "value": 5.1
+      }
+    ],
+    "LL": [
+      {
+        "type": "floor_area",
+        "story": 1,
+        "value": 5.0
+      },
+      {
+        "type": "floor_area",
+        "story": 2,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 3,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 4,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 5,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 6,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 7,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 8,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 9,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 10,
+        "value": 2.5
+      },
+      {
+        "type": "floor_area",
+        "story": 11,
+        "value": 2.5
+      }
+    ],
+    "EQX": [
+      {
+        "type": "lateral_x",
+        "story": 1,
+        "value": 11.67
+      },
+      {
+        "type": "lateral_x",
+        "story": 2,
+        "value": 25.82
+      },
+      {
+        "type": "lateral_x",
+        "story": 3,
+        "value": 45.01
+      },
+      {
+        "type": "lateral_x",
+        "story": 4,
+        "value": 67.5
+      },
+      {
+        "type": "lateral_x",
+        "story": 5,
+        "value": 92.88
+      },
+      {
+        "type": "lateral_x",
+        "story": 6,
+        "value": 120.88
+      },
+      {
+        "type": "lateral_x",
+        "story": 7,
+        "value": 151.26
+      },
+      {
+        "type": "lateral_x",
+        "story": 8,
+        "value": 183.87
+      },
+      {
+        "type": "lateral_x",
+        "story": 9,
+        "value": 218.56
+      },
+      {
+        "type": "lateral_x",
+        "story": 10,
+        "value": 255.23
+      },
+      {
+        "type": "lateral_x",
+        "story": 11,
+        "value": 293.77
+      }
+    ],
+    "EQY": [
+      {
+        "type": "lateral_y",
+        "story": 1,
+        "value": 11.67
+      },
+      {
+        "type": "lateral_y",
+        "story": 2,
+        "value": 25.82
+      },
+      {
+        "type": "lateral_y",
+        "story": 3,
+        "value": 45.01
+      },
+      {
+        "type": "lateral_y",
+        "story": 4,
+        "value": 67.5
+      },
+      {
+        "type": "lateral_y",
+        "story": 5,
+        "value": 92.88
+      },
+      {
+        "type": "lateral_y",
+        "story": 6,
+        "value": 120.88
+      },
+      {
+        "type": "lateral_y",
+        "story": 7,
+        "value": 151.26
+      },
+      {
+        "type": "lateral_y",
+        "story": 8,
+        "value": 183.87
+      },
+      {
+        "type": "lateral_y",
+        "story": 9,
+        "value": 218.56
+      },
+      {
+        "type": "lateral_y",
+        "story": 10,
+        "value": 255.23
+      },
+      {
+        "type": "lateral_y",
+        "story": 11,
+        "value": 293.77
+      }
+    ],
+    "WX": [
+      {
+        "type": "lateral_x",
+        "story": 1,
+        "value": 146.45
+      },
+      {
+        "type": "lateral_x",
+        "story": 2,
+        "value": 134.99
+      },
+      {
+        "type": "lateral_x",
+        "story": 3,
+        "value": 163.28
+      },
+      {
+        "type": "lateral_x",
+        "story": 4,
+        "value": 186.06
+      },
+      {
+        "type": "lateral_x",
+        "story": 5,
+        "value": 205.54
+      },
+      {
+        "type": "lateral_x",
+        "story": 6,
+        "value": 222.75
+      },
+      {
+        "type": "lateral_x",
+        "story": 7,
+        "value": 238.31
+      },
+      {
+        "type": "lateral_x",
+        "story": 8,
+        "value": 252.58
+      },
+      {
+        "type": "lateral_x",
+        "story": 9,
+        "value": 265.83
+      },
+      {
+        "type": "lateral_x",
+        "story": 10,
+        "value": 278.22
+      },
+      {
+        "type": "lateral_x",
+        "story": 11,
+        "value": 289.9
+      }
+    ],
+    "WY": [
+      {
+        "type": "lateral_y",
+        "story": 1,
+        "value": 146.45
+      },
+      {
+        "type": "lateral_y",
+        "story": 2,
+        "value": 134.99
+      },
+      {
+        "type": "lateral_y",
+        "story": 3,
+        "value": 163.28
+      },
+      {
+        "type": "lateral_y",
+        "story": 4,
+        "value": 186.06
+      },
+      {
+        "type": "lateral_y",
+        "story": 5,
+        "value": 205.54
+      },
+      {
+        "type": "lateral_y",
+        "story": 6,
+        "value": 222.75
+      },
+      {
+        "type": "lateral_y",
+        "story": 7,
+        "value": 238.31
+      },
+      {
+        "type": "lateral_y",
+        "story": 8,
+        "value": 252.58
+      },
+      {
+        "type": "lateral_y",
+        "story": 9,
+        "value": 265.83
+      },
+      {
+        "type": "lateral_y",
+        "story": 10,
+        "value": 278.22
+      },
+      {
+        "type": "lateral_y",
+        "story": 11,
+        "value": 289.9
+      }
+    ]
+  },
+  "seismic_report": {
+    "method": "equivalent_lateral_force",
+    "code": "KDS 41 17 00",
+    "region": "서울특별시 강남구 (z=0.11g, 지진구역 I (z=0.11), 실제PGA: 500yr=0.0917g, 2400yr=0.1672g (NEMA 2013 via KS_MAP))",
+    "z": 0.11,
+    "z_effective": 0.11,
+    "IE": 1.0,
+    "site_class": "S3",
+    "Fa": 1.5,
+    "Fv": 1.6,
+    "SDS": 0.4125,
+    "SD1": 0.176,
+    "seismic_system": "ordinary_moment_frame",
+    "R": 3.5,
+    "omega_0": 3.0,
+    "Cd": 3.0,
+    "Ct": 0.0724,
+    "x": 0.8,
+    "hn_m": 45.0,
+    "Ta_sec": 1.5216,
+    "Cu": 1.5,
+    "T_sec": 1.5216,
+    "k": 1.51,
+    "Cs": 0.033047,
+    "Cs_min": 0.01815,
+    "Cs_max": 0.033047,
+    "W_kN": 44374.4,
+    "V_kN": 1466.45
+  },
+  "wind_report": {
+    "method": "simplified_wind",
+    "code": "KDS 41 12 00 §5",
+    "region": "서울",
+    "V0_ms": 30,
+    "exposure": "B",
+    "Kzt": 1.0,
+    "Gf": 2.2,
+    "Cp_total": 1.3,
+    "Bx_m": 28.0,
+    "By_m": 28.0,
+    "total_Fx_kN": 2383.91,
+    "total_Fy_kN": 2383.91
+  },
+  "combinations": {
+    "1.4DL": {
+      "DL": 1.4
+    },
+    "1.2DL+1.6LL": {
+      "DL": 1.2,
+      "LL": 1.6
+    },
+    "1.2DL+1.0LL+1.0EQX": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "EQX": 1.0
+    },
+    "1.2DL+1.0LL-1.0EQX": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "EQX": -1.0
+    },
+    "0.9DL+1.0EQX": {
+      "DL": 0.9,
+      "EQX": 1.0
+    },
+    "0.9DL-1.0EQX": {
+      "DL": 0.9,
+      "EQX": -1.0
+    },
+    "1.2DL+1.0LL+1.0EQY": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "EQY": 1.0
+    },
+    "1.2DL+1.0LL-1.0EQY": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "EQY": -1.0
+    },
+    "0.9DL+1.0EQY": {
+      "DL": 0.9,
+      "EQY": 1.0
+    },
+    "0.9DL-1.0EQY": {
+      "DL": 0.9,
+      "EQY": -1.0
+    },
+    "1.2DL+1.0LL+1.0WX": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "WX": 1.0
+    },
+    "1.2DL+1.0LL-1.0WX": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "WX": -1.0
+    },
+    "0.9DL+1.0WX": {
+      "DL": 0.9,
+      "WX": 1.0
+    },
+    "0.9DL-1.0WX": {
+      "DL": 0.9,
+      "WX": -1.0
+    },
+    "1.2DL+1.0LL+1.0WY": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "WY": 1.0
+    },
+    "1.2DL+1.0LL-1.0WY": {
+      "DL": 1.2,
+      "LL": 1.0,
+      "WY": -1.0
+    },
+    "0.9DL+1.0WY": {
+      "DL": 0.9,
+      "WY": 1.0
+    },
+    "0.9DL-1.0WY": {
+      "DL": 0.9,
+      "WY": -1.0
+    }
+  },
+  "seismic_story_forces": [
+    {
+      "story": 1,
+      "weight_kN": 4390.4,
+      "height_m": 5.0,
+      "Cvx": 0.008,
+      "Fx_kN": 11.67
+    },
+    {
+      "story": 2,
+      "weight_kN": 3998.4,
+      "height_m": 9.0,
+      "Cvx": 0.0176,
+      "Fx_kN": 25.82
+    },
+    {
+      "story": 3,
+      "weight_kN": 3998.4,
+      "height_m": 13.0,
+      "Cvx": 0.0307,
+      "Fx_kN": 45.01
+    },
+    {
+      "story": 4,
+      "weight_kN": 3998.4,
+      "height_m": 17.0,
+      "Cvx": 0.046,
+      "Fx_kN": 67.5
+    },
+    {
+      "story": 5,
+      "weight_kN": 3998.4,
+      "height_m": 21.0,
+      "Cvx": 0.0633,
+      "Fx_kN": 92.88
+    },
+    {
+      "story": 6,
+      "weight_kN": 3998.4,
+      "height_m": 25.0,
+      "Cvx": 0.0824,
+      "Fx_kN": 120.88
+    },
+    {
+      "story": 7,
+      "weight_kN": 3998.4,
+      "height_m": 29.0,
+      "Cvx": 0.1031,
+      "Fx_kN": 151.26
+    },
+    {
+      "story": 8,
+      "weight_kN": 3998.4,
+      "height_m": 33.0,
+      "Cvx": 0.1254,
+      "Fx_kN": 183.87
+    },
+    {
+      "story": 9,
+      "weight_kN": 3998.4,
+      "height_m": 37.0,
+      "Cvx": 0.149,
+      "Fx_kN": 218.56
+    },
+    {
+      "story": 10,
+      "weight_kN": 3998.4,
+      "height_m": 41.0,
+      "Cvx": 0.174,
+      "Fx_kN": 255.23
+    },
+    {
+      "story": 11,
+      "weight_kN": 3998.4,
+      "height_m": 45.0,
+      "Cvx": 0.2003,
+      "Fx_kN": 293.77
+    }
+  ]
+}

@@ -1,0 +1,1296 @@
+{
+  "mode": "dry_run",
+  "timestamp": "2026-02-27T01:05:39.468598+00:00",
+  "total_records": 45,
+  "operations": [
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "50yr_functional",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (50년 - 기능수행)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 50년",
+          "내진성능수준: 기능수행",
+          "required_grade=내진II등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "100yr_functional",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (100년 - 기능수행)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 100년",
+          "내진성능수준: 기능수행",
+          "required_grade=내진I등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "100yr_immediate_occupancy",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (100년 - 즉시복구)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 100년",
+          "내진성능수준: 즉시복구",
+          "required_grade=내진II등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "200yr_functional",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (200년 - 기능수행)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 200년",
+          "내진성능수준: 기능수행",
+          "required_grade=내진특등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "200yr_immediate_occupancy",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (200년 - 즉시복구)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 200년",
+          "내진성능수준: 즉시복구",
+          "required_grade=내진I등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "200yr_life_safety",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (200년 - 장기복구/인명보호)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 200년",
+          "내진성능수준: 장기복구/인명보호",
+          "required_grade=내진II등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "500yr_immediate_occupancy",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (500년 - 즉시복구)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 500년",
+          "내진성능수준: 즉시복구",
+          "required_grade=내진특등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "500yr_life_safety",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (500년 - 장기복구/인명보호)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 500년",
+          "내진성능수준: 장기복구/인명보호",
+          "required_grade=내진I등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "1000yr_life_safety",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (1000년 - 장기복구/인명보호)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 1,000년",
+          "내진성능수준: 장기복구/인명보호",
+          "required_grade=내진특등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "1000yr_collapse_prevention",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (1000년 - 붕괴방지)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 1,000년",
+          "내진성능수준: 붕괴방지",
+          "required_grade=내진I등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "2400yr_collapse_prevention",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (2400년 - 붕괴방지)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 2,400년",
+          "내진성능수준: 붕괴방지",
+          "required_grade=내진특등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "performance_objective",
+        "primary_key": "4800yr_collapse_prevention",
+        "secondary_key": null,
+        "display_name_ko": "최소 내진성능목표 (4800년 - 붕괴방지)",
+        "display_name_en": null,
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 4,800년",
+          "내진성능수준: 붕괴방지",
+          "required_grade=내진특등급"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.1.4",
+        "table_id": "표 4.1-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "seismic_zone",
+        "primary_key": "zone_I_city",
+        "secondary_key": null,
+        "display_name_ko": "지진구역 I - 시",
+        "display_name_en": "Seismic Zone I - Metropolitan Cities",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "지진구역: I",
+          "행정구역: 시",
+          "regions=서울,인천,대전,부산,대구,울산,광주,세종"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "seismic_zone",
+        "primary_key": "zone_I_province",
+        "secondary_key": null,
+        "display_name_ko": "지진구역 I - 도",
+        "display_name_en": "Seismic Zone I - Provinces",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "지진구역: I",
+          "행정구역: 도",
+          "regions=경기,충북,충남,경북,경남,전북,전남,강원 남부"
+        ],
+        "notes": "강원 남부(군, 시): 영월, 정선, 삼척, 강릉, 동해, 원주, 태백",
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "seismic_zone",
+        "primary_key": "zone_II_province",
+        "secondary_key": null,
+        "display_name_ko": "지진구역 II - 도",
+        "display_name_en": "Seismic Zone II - Provinces",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "지진구역: II",
+          "행정구역: 도",
+          "regions=강원 북부,제주"
+        ],
+        "notes": "강원 북부(군, 시): 홍천, 철원, 화천, 횡성, 평창, 양구, 양양, 인제, 고성, 춘천, 속초",
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-1",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "zone_coefficient",
+        "primary_key": "zone_I",
+        "secondary_key": null,
+        "display_name_ko": "지진구역계수 z (구역 I)",
+        "display_name_en": "Seismic Zone Coefficient z (Zone I)",
+        "value": 0.11,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "지진구역: I",
+          "평균재현주기: 500년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-2",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "zone_coefficient",
+        "primary_key": "zone_II",
+        "secondary_key": null,
+        "display_name_ko": "지진구역계수 z (구역 II)",
+        "display_name_en": "Seismic Zone Coefficient z (Zone II)",
+        "value": 0.07,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "지진구역: II",
+          "평균재현주기: 500년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-2",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_50yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 50년)",
+        "display_name_en": "Risk Coefficient I (50-year return period)",
+        "value": 0.4,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 50년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_100yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 100년)",
+        "display_name_en": "Risk Coefficient I (100-year return period)",
+        "value": 0.57,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 100년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_200yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 200년)",
+        "display_name_en": "Risk Coefficient I (200-year return period)",
+        "value": 0.73,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 200년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_500yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 500년)",
+        "display_name_en": "Risk Coefficient I (500-year return period)",
+        "value": 1.0,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 500년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_1000yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 1000년)",
+        "display_name_en": "Risk Coefficient I (1000-year return period)",
+        "value": 1.4,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 1,000년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_2400yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 2400년)",
+        "display_name_en": "Risk Coefficient I (2400-year return period)",
+        "value": 2.0,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 2,400년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "risk_coefficient",
+        "primary_key": "return_4800yr",
+        "secondary_key": null,
+        "display_name_ko": "위험도계수 I (재현주기 4800년)",
+        "display_name_en": "Risk Coefficient I (4800-year return period)",
+        "value": 2.6,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "평균재현주기: 4,800년"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.1",
+        "table_id": "표 4.2-3",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "site_classification",
+        "primary_key": "S1",
+        "secondary_key": null,
+        "display_name_ko": "지반종류 S1 - 암반 지반",
+        "display_name_en": "Site Class S1 - Rock",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "기반암 깊이 H: 1 미만(m)",
+          "토층평균전단파속도 Vs,30: -"
+        ],
+        "notes": "기반암 = 전단파속도 760m/s 이상인 지층",
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.2",
+        "table_id": "표 4.2-4",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "site_classification",
+        "primary_key": "S2",
+        "secondary_key": null,
+        "display_name_ko": "지반종류 S2 - 얕고 단단한 지반",
+        "display_name_en": "Site Class S2 - Shallow and Stiff Soil",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "기반암 깊이 H: 120 이하(m)",
+          "토층평균전단파속도 Vs,30: 260 이상(m/s)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.2",
+        "table_id": "표 4.2-4",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "site_classification",
+        "primary_key": "S3",
+        "secondary_key": null,
+        "display_name_ko": "지반종류 S3 - 얕고 연약한 지반",
+        "display_name_en": "Site Class S3 - Shallow and Soft Soil",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "기반암 깊이 H: 120 이하(m)",
+          "토층평균전단파속도 Vs,30: 260 미만(m/s)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.2",
+        "table_id": "표 4.2-4",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "site_classification",
+        "primary_key": "S4",
+        "secondary_key": null,
+        "display_name_ko": "지반종류 S4 - 깊고 단단한 지반",
+        "display_name_en": "Site Class S4 - Deep and Stiff Soil",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "기반암 깊이 H: 20 초과(m)",
+          "토층평균전단파속도 Vs,30: 180 이상(m/s)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.2",
+        "table_id": "표 4.2-4",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "site_classification",
+        "primary_key": "S5",
+        "secondary_key": null,
+        "display_name_ko": "지반종류 S5 - 깊고 연약한 지반",
+        "display_name_en": "Site Class S5 - Deep and Soft Soil",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "기반암 깊이 H: 20 초과(m)",
+          "토층평균전단파속도 Vs,30: 180 미만(m/s)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.2",
+        "table_id": "표 4.2-4",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_parameter",
+        "primary_key": "alpha_4",
+        "secondary_key": "horizontal",
+        "display_name_ko": "단주기스펙트럼 증폭계수 α₄ (수평)",
+        "display_name_en": "Short-period Spectral Amplification Factor α₄ (Horizontal)",
+        "value": 2.8,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "수평성분",
+          "암반지반(S1)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-5",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_parameter",
+        "primary_key": "T0",
+        "secondary_key": "horizontal",
+        "display_name_ko": "전이주기 T₀ (수평)",
+        "display_name_en": "Transition Period T₀ (Horizontal)",
+        "value": 0.06,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "수평성분",
+          "암반지반(S1)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-5",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_parameter",
+        "primary_key": "Ts",
+        "secondary_key": "horizontal",
+        "display_name_ko": "전이주기 Ts (수평)",
+        "display_name_en": "Transition Period Ts (Horizontal)",
+        "value": 0.3,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "수평성분",
+          "암반지반(S1)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-5",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_parameter",
+        "primary_key": "TL",
+        "secondary_key": "horizontal",
+        "display_name_ko": "전이주기 TL (수평)",
+        "display_name_en": "Transition Period TL (Horizontal)",
+        "value": 3.0,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "수평성분",
+          "암반지반(S1)"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-5",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_acceleration_formula",
+        "primary_key": "Sa_period_1",
+        "secondary_key": "0_to_T0",
+        "display_name_ko": "설계스펙트럼가속도 (0 ≤ T ≤ T₀)",
+        "display_name_en": "Design Spectral Acceleration (0 ≤ T ≤ T₀)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "주기: 0 ≤ T ≤ T₀",
+          "S = 유효수평지반가속도",
+          "formula=Sa = (1 + 30T) × S"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-6",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_acceleration_formula",
+        "primary_key": "Sa_period_2",
+        "secondary_key": "T0_to_Ts",
+        "display_name_ko": "설계스펙트럼가속도 (T₀ ≤ T ≤ Ts)",
+        "display_name_en": "Design Spectral Acceleration (T₀ ≤ T ≤ Ts)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "주기: T₀ ≤ T ≤ Ts",
+          "S = 유효수평지반가속도",
+          "formula=Sa = 2.8S"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-6",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_acceleration_formula",
+        "primary_key": "Sa_period_3",
+        "secondary_key": "Ts_to_TL",
+        "display_name_ko": "설계스펙트럼가속도 (Ts ≤ T ≤ TL)",
+        "display_name_en": "Design Spectral Acceleration (Ts ≤ T ≤ TL)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "주기: Ts ≤ T ≤ TL",
+          "S = 유효수평지반가속도",
+          "formula=Sa = (0.84/T) × S"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-6",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "spectral_acceleration_formula",
+        "primary_key": "Sa_period_4",
+        "secondary_key": "TL_and_above",
+        "display_name_ko": "설계스펙트럼가속도 (TL ≤ T)",
+        "display_name_en": "Design Spectral Acceleration (TL ≤ T)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "g",
+        "conditions": [
+          "주기: TL ≤ T",
+          "S = 유효수평지반가속도",
+          "formula=Sa = (2.52/T²) × S"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-6",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "damping_correction",
+        "primary_key": "Cd_T0",
+        "secondary_key": null,
+        "display_name_ko": "감쇠보정계수 Cd (T=0)",
+        "display_name_en": "Damping Correction Factor Cd (T=0)",
+        "value": 1.0,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "주기: T=0",
+          "모든 감쇠비에 대해 1.0"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-7",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "damping_correction",
+        "primary_key": "Cd_T0_to_Ts",
+        "secondary_key": null,
+        "display_name_ko": "감쇠보정계수 Cd (0 ≤ T ≤ Ts)",
+        "display_name_en": "Damping Correction Factor Cd (0 ≤ T ≤ Ts)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "주기: 0 ≤ T ≤ Ts",
+          "ξ: 감쇠비(%)",
+          "formula=T=0일 때 1.0, T=Ts일 때 [6.42/(1.42+ξ)]^0.5, 그 사이는 직선보간"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-7",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "damping_correction",
+        "primary_key": "Cd_Ts_and_above",
+        "secondary_key": null,
+        "display_name_ko": "감쇠보정계수 Cd (Ts ≤ T)",
+        "display_name_en": "Damping Correction Factor Cd (Ts ≤ T)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "",
+        "conditions": [
+          "주기: Ts ≤ T",
+          "ξ: 감쇠비(%)",
+          "감쇠비가 0.5% 보다 작은 경우에는 적용하지 않고 시간이력해석을 권장",
+          "formula=[6.42/(1.42+ξ)]^0.5"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-7",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "envelope_duration",
+        "primary_key": "M_7.0_7.5",
+        "secondary_key": null,
+        "display_name_ko": "포락함수 지속시간 (규모 7.0~7.5 미만)",
+        "display_name_en": "Envelope Duration (M 7.0-7.5)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "지진규모: 7.0 이상~7.5 미만",
+          "tr=2.0",
+          "tm=12.5",
+          "td=13.5"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-9",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "envelope_duration",
+        "primary_key": "M_6.5_7.0",
+        "secondary_key": null,
+        "display_name_ko": "포락함수 지속시간 (규모 6.5~7.0 미만)",
+        "display_name_en": "Envelope Duration (M 6.5-7.0)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "지진규모: 6.5 이상~7.0 미만",
+          "tr=1.5",
+          "tm=9.0",
+          "td=10.5"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-9",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "envelope_duration",
+        "primary_key": "M_6.0_6.5",
+        "secondary_key": null,
+        "display_name_ko": "포락함수 지속시간 (규모 6.0~6.5 미만)",
+        "display_name_en": "Envelope Duration (M 6.0-6.5)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "지진규모: 6.0 이상~6.5 미만",
+          "tr=1.0",
+          "tm=7.0",
+          "td=9.0"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-9",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "envelope_duration",
+        "primary_key": "M_5.5_6.0",
+        "secondary_key": null,
+        "display_name_ko": "포락함수 지속시간 (규모 5.5~6.0 미만)",
+        "display_name_en": "Envelope Duration (M 5.5-6.0)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "지진규모: 5.5 이상~6.0 미만",
+          "tr=1.0",
+          "tm=5.5",
+          "td=8.0"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-9",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    },
+    {
+      "operation": "upsert",
+      "table": "load_params",
+      "data": {
+        "param_type": "seismic_design",
+        "param_subtype": "envelope_duration",
+        "primary_key": "M_5.0_5.5",
+        "secondary_key": null,
+        "display_name_ko": "포락함수 지속시간 (규모 5.0~5.5 미만)",
+        "display_name_en": "Envelope Duration (M 5.0-5.5)",
+        "value": null,
+        "value_min": null,
+        "value_max": null,
+        "unit": "sec",
+        "conditions": [
+          "지진규모: 5.0 이상~5.5 미만",
+          "tr=1.0",
+          "tm=5.0",
+          "td=7.5"
+        ],
+        "notes": null,
+        "code_id": "KDS 17 10 00",
+        "code_version": "2024-01-25",
+        "clause_id": "4.2.1.4",
+        "table_id": "표 4.2-9",
+        "confidence": 1.0,
+        "needs_review": false,
+        "created_by": "agent_team_pipeline"
+      }
+    }
+  ],
+  "summary": {
+    "upsert": 45,
+    "skip": 0
+  }
+}

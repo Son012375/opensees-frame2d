@@ -1,0 +1,127 @@
+{
+  "input_summary": {
+    "building": "MVP-3D",
+    "floors": 2,
+    "combo_id": "ULS3",
+    "param_subtype": "uls",
+    "code": "KDS 41 12 00 (2022-10-11)"
+  },
+  "load_cases_global": {
+    "DL": 5.0,
+    "SDL": 1.0,
+    "LL": 2.5,
+    "RLL": 0.0,
+    "SNOW": 0.8,
+    "WIND": 1.2,
+    "EQ": 0.7
+  },
+  "ll_source": "local_db",
+  "combo_source": "example_json",
+  "applied_factors": {
+    "DL": 1.2,
+    "RLL": 0.0,
+    "SNOW": 1.6,
+    "LL": 0.5,
+    "WIND": 0.0
+  },
+  "total_effect": 8.53,
+  "combo_summary": {
+    "alt_groups": {
+      "roof_or_snow": {
+        "policy": "max_effect",
+        "candidates": {
+          "RLL": {
+            "factor": 1.6,
+            "load": 0.0,
+            "effect": 0.0
+          },
+          "SNOW": {
+            "factor": 1.6,
+            "load": 0.8,
+            "effect": 1.2800000000000002
+          }
+        },
+        "selected": [
+          "SNOW"
+        ],
+        "reason": "effect(SNOW)=1.28 is max"
+      },
+      "live_or_wind": {
+        "policy": "max_effect",
+        "candidates": {
+          "LL": {
+            "factor": 1.0,
+            "load": 2.5,
+            "effect": 2.5
+          },
+          "WIND": {
+            "factor": 0.5,
+            "load": 1.2,
+            "effect": 0.6
+          }
+        },
+        "selected": [
+          "LL"
+        ],
+        "reason": "effect(LL)=2.5 is max"
+      }
+    },
+    "reductions": [
+      {
+        "target": "LL",
+        "allowed": true,
+        "original_factor": 1.0,
+        "reduction_factor": 0.5,
+        "applied": true,
+        "condition_ko": "기본등분포활하중 ≤5.0kN/m² (주차장·공공집회 제외)",
+        "ref": "live_reduction",
+        "new_factor": 0.5,
+        "reason": "LL: 1.0 -> 0.5"
+      }
+    ],
+    "direction_expansion": {
+      "expanded_keys": {
+        "WIND": {
+          "original_value": 1.2,
+          "directions": {
+            "WIND_X_POS": 1.2,
+            "WIND_X_NEG": 1.2,
+            "WIND_Y_POS": 1.2,
+            "WIND_Y_NEG": 1.2
+          }
+        },
+        "EQ": {
+          "original_value": 0.7,
+          "directions": {
+            "EQ_X": 0.7,
+            "EQ_Y": 0.7
+          }
+        }
+      }
+    }
+  },
+  "opensees_result": {
+    "success": true,
+    "num_nodes": 12,
+    "num_elements": 16,
+    "max_disp_z_mm": -6.3073,
+    "max_disp_x_mm": -4.13,
+    "max_disp_y_mm": -4.13,
+    "max_disp_z_node": 9,
+    "applied_load_total_kN": 6824.0,
+    "reaction_total_kN": 6824.0,
+    "equilibrium_error_pct": 0.0,
+    "column_axial_kN": {
+      "1": 3411.9555,
+      "2": 1706.0,
+      "3": 0.0445,
+      "4": 1706.0,
+      "5": 1705.9734,
+      "6": 853.0,
+      "7": 0.0266,
+      "8": 853.0
+    },
+    "errors": []
+  },
+  "errors": []
+}

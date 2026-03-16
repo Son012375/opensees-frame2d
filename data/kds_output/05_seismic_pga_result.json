@@ -1,0 +1,59 @@
+{
+  "mode": "upsert",
+  "timestamp": "2026-02-27T01:42:45.794052+00:00",
+  "pga_records": 1603,
+  "pga_inserted": 1603,
+  "zone_updated": 229,
+  "stats": {
+    "seismic_pga_0050": {
+      "count": 229,
+      "fallback": 3,
+      "min": 1.0,
+      "max": 4.0,
+      "mean": 3.0
+    },
+    "seismic_pga_0100": {
+      "count": 229,
+      "fallback": 1,
+      "min": 1.0,
+      "max": 5.0,
+      "mean": 4.29
+    },
+    "seismic_pga_0200": {
+      "count": 229,
+      "fallback": 2,
+      "min": 2.0,
+      "max": 7.0,
+      "mean": 5.95
+    },
+    "seismic_pga_0500": {
+      "count": 229,
+      "fallback": 1,
+      "min": 3.38,
+      "max": 11.0,
+      "mean": 9.03
+    },
+    "seismic_pga_1000": {
+      "count": 229,
+      "fallback": 1,
+      "min": 5.61,
+      "max": 14.0,
+      "mean": 11.99
+    },
+    "seismic_pga_2400": {
+      "count": 229,
+      "fallback": 1,
+      "min": 9.46,
+      "max": 19.0,
+      "mean": 17.11
+    },
+    "seismic_pga_4800": {
+      "count": 229,
+      "fallback": 8,
+      "min": 14.75,
+      "max": 23.0,
+      "mean": 21.82
+    }
+  },
+  "errors": null
+}

@@ -1,0 +1,377 @@
+{
+  "table_source": "KDS 41 17 00",
+  "tables": ["7.1-1", "7.2-1", "8.2-1"],
+  "extraction_date": "2026-02-26",
+  "extraction_notes": [
+    "표 7.1-1: 내진설계범주 D에 대한 해석법 (pages 34-35)",
+    "표 7.2-1: 주기상한계수 Cu (page 37)",
+    "§7.2.4: 근사고유주기 계수 Ct, x (page 37)",
+    "표 8.2-1: 허용층간변위 (page 51)"
+  ],
+  "records": [
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "analysis_method_D",
+      "primary_key": "light_frame_low_rise",
+      "secondary_key": null,
+      "display_name_ko": "1,3층 이하 경량골조구조 및 유연격막 2층 이하 기타구조 (내진등급 III)",
+      "value": null,
+      "unit": "",
+      "description": "1,3층 이하인 경량골조구조와 각 층에서 유연한 격막을 갖는 2층 이하인 기타 구조로서 내진등급 III의 구조물",
+      "analysis_method": "등가정적해석법 또는 동적해석법",
+      "permitted_methods": ["등가정적해석법", "동적해석법"],
+      "conditions": [
+        "경량골조구조: 3층 이하",
+        "유연한 격막을 갖는 기타 구조: 2층 이하",
+        "내진등급 III"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.1.3",
+        "table_id": "표 7.1-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "analysis_method_D",
+      "primary_key": "regular_below_70m",
+      "secondary_key": null,
+      "display_name_ko": "높이 70m 미만의 정형구조물 (상기 1항 이외)",
+      "value": null,
+      "unit": "",
+      "description": "상기 1항 이외의 높이 70m 미만의 정형구조물",
+      "analysis_method": "등가정적해석법 또는 동적해석법",
+      "permitted_methods": ["등가정적해석법", "동적해석법"],
+      "conditions": [
+        "높이 70m 미만",
+        "정형구조물",
+        "1항에 해당하지 않는 구조물"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.1.3",
+        "table_id": "표 7.1-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "analysis_method_D",
+      "primary_key": "minor_irregularity_low_rise",
+      "secondary_key": null,
+      "display_name_ko": "경미한 비정형성을 가진 5층/20m 이하 구조물",
+      "value": null,
+      "unit": "",
+      "description": "표 5.3-2에서 유형 1, 2, 3을 제외한 수직비정형성 또는 표 5.3-1의 유형 1을 제외한 평면비정형성을 가지면서 높이가 5층 또는 20m를 초과하지 않는 구조물",
+      "analysis_method": "등가정적해석법 또는 동적해석법",
+      "permitted_methods": ["등가정적해석법", "동적해석법"],
+      "conditions": [
+        "수직비정형성: 표 5.3-2 유형 1,2,3 제외",
+        "평면비정형성: 표 5.3-1 유형 1 제외",
+        "높이 5층 또는 20m 이하"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.1.3",
+        "table_id": "표 7.1-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "analysis_method_D",
+      "primary_key": "irregular_or_tall",
+      "secondary_key": null,
+      "display_name_ko": "비정형 기타구조물 또는 70m 초과 정형구조물",
+      "value": null,
+      "unit": "",
+      "description": "평면 또는 수직 비정형성을 가지는 기타 구조물 또는 높이가 70m를 초과하는 정형구조물",
+      "analysis_method": "동적해석법",
+      "permitted_methods": ["동적해석법"],
+      "conditions": [
+        "평면 또는 수직 비정형성을 가지는 기타 구조물",
+        "또는 높이 70m 초과 정형구조물"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.1.3",
+        "table_id": "표 7.1-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "period_upper_limit_Cu",
+      "primary_key": "Sd1_ge_0.4",
+      "secondary_key": null,
+      "display_name_ko": "주기상한계수 Cu (Sd1 >= 0.4)",
+      "value": 1.4,
+      "unit": "",
+      "conditions": [
+        "설계스펙트럼가속도 Sd1 >= 0.4"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2",
+        "table_id": "표 7.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "period_upper_limit_Cu",
+      "primary_key": "Sd1_0.3",
+      "secondary_key": null,
+      "display_name_ko": "주기상한계수 Cu (Sd1 = 0.3)",
+      "value": 1.4,
+      "unit": "",
+      "conditions": [
+        "설계스펙트럼가속도 Sd1 = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2",
+        "table_id": "표 7.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "period_upper_limit_Cu",
+      "primary_key": "Sd1_0.2",
+      "secondary_key": null,
+      "display_name_ko": "주기상한계수 Cu (Sd1 = 0.2)",
+      "value": 1.5,
+      "unit": "",
+      "conditions": [
+        "설계스펙트럼가속도 Sd1 = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2",
+        "table_id": "표 7.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "period_upper_limit_Cu",
+      "primary_key": "Sd1_0.15",
+      "secondary_key": null,
+      "display_name_ko": "주기상한계수 Cu (Sd1 = 0.15)",
+      "value": 1.6,
+      "unit": "",
+      "conditions": [
+        "설계스펙트럼가속도 Sd1 = 0.15"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2",
+        "table_id": "표 7.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "period_upper_limit_Cu",
+      "primary_key": "Sd1_le_0.1",
+      "secondary_key": null,
+      "display_name_ko": "주기상한계수 Cu (Sd1 <= 0.1)",
+      "value": 1.7,
+      "unit": "",
+      "conditions": [
+        "설계스펙트럼가속도 Sd1 <= 0.1"
+      ],
+      "note": "Sd1의 중간값에 해당할 경우 주기상한계수 Cu는 직선보간한다",
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2",
+        "table_id": "표 7.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "approximate_period_Ct",
+      "primary_key": "rc_moment_frame",
+      "secondary_key": null,
+      "display_name_ko": "철근콘크리트모멘트골조",
+      "value": null,
+      "unit": "",
+      "Ct": 0.0466,
+      "x": 0.9,
+      "formula": "Ta = Ct * hn^x",
+      "formula_id": "7.2-6",
+      "conditions": [
+        "철근콘크리트모멘트골조",
+        "hn: 건축물 밑면으로부터 최상층까지의 전체높이(m)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2.4",
+        "table_id": null
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "approximate_period_Ct",
+      "primary_key": "steel_moment_frame",
+      "secondary_key": null,
+      "display_name_ko": "철골모멘트골조",
+      "value": null,
+      "unit": "",
+      "Ct": 0.0724,
+      "x": 0.8,
+      "formula": "Ta = Ct * hn^x",
+      "formula_id": "7.2-6",
+      "conditions": [
+        "철골모멘트골조",
+        "hn: 건축물 밑면으로부터 최상층까지의 전체높이(m)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2.4",
+        "table_id": null
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "approximate_period_Ct",
+      "primary_key": "steel_braced_frame",
+      "secondary_key": null,
+      "display_name_ko": "철골 편심가새골조 및 철골 좌굴방지가새골조",
+      "value": null,
+      "unit": "",
+      "Ct": 0.0731,
+      "x": 0.75,
+      "formula": "Ta = Ct * hn^x",
+      "formula_id": "7.2-6",
+      "conditions": [
+        "철골 편심가새골조 및 철골 좌굴방지가새골조",
+        "hn: 건축물 밑면으로부터 최상층까지의 전체높이(m)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2.4",
+        "table_id": null
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "approximate_period_Ct",
+      "primary_key": "rc_shear_wall",
+      "secondary_key": null,
+      "display_name_ko": "철근콘크리트전단벽구조, 기타골조",
+      "value": null,
+      "unit": "",
+      "Ct": 0.0488,
+      "x": 0.75,
+      "formula": "Ta = Ct * hn^x",
+      "formula_id": "7.2-6",
+      "conditions": [
+        "철근콘크리트전단벽구조 및 기타골조",
+        "hn: 건축물 밑면으로부터 최상층까지의 전체높이(m)"
+      ],
+      "note": "강성에 영향을 줄 수 있는 비보강채움벽이 있는 철근콘크리트모멘트골조, 철골모멘트골조의 주기는 상기식에 2/3를 곱하여 산정한다. 콘크리트 전단벽체가 주요 횡저항 시스템인 경우에는 기타골조의 주기식을 적용한다.",
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "7.2.4",
+        "table_id": null
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "allowable_drift",
+      "primary_key": "allowable_story_drift",
+      "secondary_key": "special",
+      "display_name_ko": "허용층간변위 (내진등급 특)",
+      "value": 0.010,
+      "unit": "hsx",
+      "conditions": [
+        "내진등급: 특",
+        "설계층간변위는 어느 층에서도 허용층간변위를 초과할 수 없음"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "8.2.3",
+        "table_id": "표 8.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "allowable_drift",
+      "primary_key": "allowable_story_drift",
+      "secondary_key": "grade_I",
+      "display_name_ko": "허용층간변위 (내진등급 I)",
+      "value": 0.015,
+      "unit": "hsx",
+      "conditions": [
+        "내진등급: I",
+        "설계층간변위는 어느 층에서도 허용층간변위를 초과할 수 없음"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "8.2.3",
+        "table_id": "표 8.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "allowable_drift",
+      "primary_key": "allowable_story_drift",
+      "secondary_key": "grade_II",
+      "display_name_ko": "허용층간변위 (내진등급 II)",
+      "value": 0.020,
+      "unit": "hsx",
+      "conditions": [
+        "내진등급: II",
+        "설계층간변위는 어느 층에서도 허용층간변위를 초과할 수 없음"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "8.2.3",
+        "table_id": "표 8.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    }
+  ]
+}

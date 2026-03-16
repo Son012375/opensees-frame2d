@@ -1,0 +1,154 @@
+{
+  "office": {
+    "ko": ["사무실", "업무시설", "사무소", "오피스", "업무용", "근무시설", "업무공간", "코워킹", "공유오피스"],
+    "en": "Office",
+    "kds_ref": "표 3.1-1"
+  },
+  "residential": {
+    "ko": ["주거", "주택", "아파트", "공동주택", "단독주택", "기숙사", "주거시설"],
+    "en": "Residential",
+    "kds_ref": "표 3.1-1"
+  },
+  "retail": {
+    "ko": ["소매점", "상점", "판매시설", "매장", "점포", "백화점", "상업시설", "상가", "점포시설"],
+    "en": "Retail",
+    "kds_ref": "표 3.1-1"
+  },
+  "assembly": {
+    "ko": ["집회", "집회시설", "공연장", "극장", "강당", "회의실", "집회장"],
+    "en": "Assembly",
+    "kds_ref": "표 3.1-1"
+  },
+  "assembly_fixed_seats": {
+    "ko": ["고정좌석", "고정석", "고정좌석 집회실"],
+    "en": "Assembly (fixed seats)",
+    "kds_ref": "표 3.1-1"
+  },
+  "assembly_movable_seats": {
+    "ko": ["이동좌석", "가동좌석", "이동식좌석 집회실"],
+    "en": "Assembly (movable seats)",
+    "kds_ref": "표 3.1-1"
+  },
+  "storage": {
+    "ko": ["창고", "창고시설", "저장", "물류", "적재", "저장시설"],
+    "en": "Storage",
+    "kds_ref": "표 3.1-1"
+  },
+  "storage_light": {
+    "ko": ["경량창고", "경량 저장", "경량물품 창고"],
+    "en": "Light Storage",
+    "kds_ref": "표 3.1-1"
+  },
+  "storage_heavy": {
+    "ko": ["중량창고", "중량 저장", "중량물품 창고"],
+    "en": "Heavy Storage",
+    "kds_ref": "표 3.1-1"
+  },
+  "parking": {
+    "ko": ["주차장", "주차시설", "주차", "차고", "주차공간", "필로티", "지하주차장", "자주식주차장"],
+    "en": "Parking",
+    "kds_ref": "표 3.1-1"
+  },
+  "parking_passenger": {
+    "ko": ["승용차 주차장", "승용차 전용", "일반 주차장"],
+    "en": "Passenger Car Parking",
+    "kds_ref": "표 3.1-1"
+  },
+  "hospital": {
+    "ko": ["병원", "의료시설", "병실", "진료", "수술실", "의료"],
+    "en": "Hospital",
+    "kds_ref": "표 3.1-1"
+  },
+  "hospital_ward": {
+    "ko": ["병실", "입원실", "환자실"],
+    "en": "Hospital Ward",
+    "kds_ref": "표 3.1-1"
+  },
+  "hospital_operating": {
+    "ko": ["수술실", "처치실"],
+    "en": "Operating Room",
+    "kds_ref": "표 3.1-1"
+  },
+  "school": {
+    "ko": ["학교", "교육시설", "학원", "강의실", "교실", "교육"],
+    "en": "School",
+    "kds_ref": "표 3.1-1"
+  },
+  "restaurant": {
+    "ko": ["식당", "음식점", "식음료", "주방", "레스토랑", "음식점시설"],
+    "en": "Restaurant",
+    "kds_ref": "표 3.1-1"
+  },
+  "library": {
+    "ko": ["도서관", "열람실", "서고", "도서실"],
+    "en": "Library",
+    "kds_ref": "표 3.1-1"
+  },
+  "library_reading": {
+    "ko": ["열람실", "독서실", "일반열람실"],
+    "en": "Library Reading Room",
+    "kds_ref": "표 3.1-1"
+  },
+  "library_stack": {
+    "ko": ["서고", "서가실", "도서보관실"],
+    "en": "Library Stack Room",
+    "kds_ref": "표 3.1-1"
+  },
+  "corridor": {
+    "ko": ["복도", "계단", "통로", "로비", "계단실", "현관홀", "비상계단", "피난계단", "엘리베이터홀"],
+    "en": "Corridor/Stairs",
+    "kds_ref": "표 3.1-1"
+  },
+  "balcony": {
+    "ko": ["발코니", "옥상", "테라스", "옥외"],
+    "en": "Balcony/Rooftop",
+    "kds_ref": "표 3.1-1"
+  },
+  "roof": {
+    "ko": ["지붕", "옥상", "루프", "옥탑", "옥탑층", "펜트하우스", "옥상층"],
+    "en": "Roof",
+    "kds_ref": "표 3.1-1"
+  },
+  "factory": {
+    "ko": ["공장", "제조시설", "생산시설", "공장시설"],
+    "en": "Factory",
+    "kds_ref": "표 3.1-1"
+  },
+  "factory_light": {
+    "ko": ["경공업 공장", "경량 제조"],
+    "en": "Light Factory",
+    "kds_ref": "표 3.1-1"
+  },
+  "factory_heavy": {
+    "ko": ["중공업 공장", "중량 제조"],
+    "en": "Heavy Factory",
+    "kds_ref": "표 3.1-1"
+  },
+  "hotel": {
+    "ko": ["호텔", "숙박시설", "여관", "모텔", "숙박"],
+    "en": "Hotel",
+    "kds_ref": "표 3.1-1"
+  },
+  "gym": {
+    "ko": ["체육관", "운동시설", "헬스장", "스포츠시설"],
+    "en": "Gymnasium",
+    "kds_ref": "표 3.1-1"
+  },
+  "stage": {
+    "ko": ["무대", "스테이지"],
+    "en": "Stage",
+    "kds_ref": "표 3.1-1"
+  },
+  "mechanical_room": {
+    "ko": ["기계실", "전기실", "공조실", "기계설비실", "장비실", "EPS", "MPS"],
+    "en": "Mechanical Room",
+    "kds_ref": "표 3.2-1"
+  },
+  "neighborhood_living": {
+    "ko": ["근린생활시설", "근생", "제1종근린생활시설", "제2종근린생활시설", "1종근생", "2종근생", "근린상업"],
+    "en": "Neighborhood Living Facility",
+    "kds_ref": "표 3.1-1",
+    "maps_to": "retail",
+    "note": "건축법상 용도분류. 구조하중 산정 시 retail(소매점) 활하중 적용"
+  }
+}

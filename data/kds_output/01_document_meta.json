@@ -1,0 +1,63 @@
+{
+  "code_id": "KDS 41 12 00",
+  "code_title": "건축물 설계하중",
+  "version_date": "2022-10-11",
+  "effective_date": null,
+  "author": "국토교통부",
+  "reviewer": null,
+  "total_pages": 147,
+  "sections": [
+    {"id": "1", "title": "일반", "level": 1, "page": 1},
+    {"id": "1.1", "title": "목적", "level": 2, "page": 1},
+    {"id": "1.2", "title": "적용범위", "level": 2, "page": 1},
+    {"id": "1.3", "title": "참고 기준", "level": 2, "page": 1},
+    {"id": "1.4", "title": "용어의 정의", "level": 2, "page": 1},
+    {"id": "1.6", "title": "설계하중의 종류", "level": 2, "page": 15},
+    {"id": "1.7", "title": "하중조합", "level": 2, "page": 16},
+    {"id": "1.7.1", "title": "강도설계법 또는 한계상태설계법의 하중조합", "level": 3, "page": 17},
+    {"id": "1.7.2", "title": "허용응력설계법 또는 허용강도설계법의 하중조합", "level": 3, "page": 18},
+    {"id": "1.7.3", "title": "돌발하중에 대한 하중조합", "level": 3, "page": 18},
+    {"id": "2", "title": "고정하중", "level": 1, "page": 19},
+    {"id": "2.1", "title": "일반", "level": 2, "page": 19},
+    {"id": "2.2", "title": "기본방침", "level": 2, "page": 19},
+    {"id": "3", "title": "활하중", "level": 1, "page": 19},
+    {"id": "3.1", "title": "일반", "level": 2, "page": 19},
+    {"id": "3.2", "title": "등분포활하중", "level": 2, "page": 19},
+    {"id": "3.2.1", "title": "기본등분포활하중", "level": 3, "page": 19},
+    {"id": "3.2.2", "title": "진동, 충격에 의한 증가", "level": 3, "page": 23},
+    {"id": "3.2.3", "title": "칸막이벽 하중", "level": 3, "page": 23},
+    {"id": "3.3", "title": "집중활하중", "level": 2, "page": 23},
+    {"id": "3.3.1", "title": "기본집중활하중", "level": 3, "page": 23},
+    {"id": "3.3.2", "title": "적용점", "level": 3, "page": 25},
+    {"id": "3.3.3", "title": "하중접촉면", "level": 3, "page": 25},
+    {"id": "3.4", "title": "중량차량 활하중", "level": 2, "page": 25},
+    {"id": "4", "title": "설하중", "level": 1, "page": 30},
+    {"id": "4.1", "title": "일반", "level": 2, "page": 30},
+    {"id": "4.2", "title": "지상설하중", "level": 2, "page": 30},
+    {"id": "4.3", "title": "평지붕설하중", "level": 2, "page": 31},
+    {"id": "4.5", "title": "지붕의 불균형설하중", "level": 2, "page": 35},
+    {"id": "5", "title": "풍하중", "level": 1, "page": 39},
+    {"id": "5.1", "title": "일반사항", "level": 2, "page": 39},
+    {"id": "5.1.2", "title": "기본방침", "level": 3, "page": 40},
+    {"id": "5.2", "title": "주골조설계용 수평풍하중", "level": 2, "page": 46}
+  ],
+  "tables": [
+    {"table_id": "표 3.2-1", "title": "기본등분포활하중", "page_start": 20, "page_end": 23, "section_id": "3.2.1", "data_type": "live_load_distributed", "unit": "kN/m²"},
+    {"table_id": "표 3.3-1", "title": "기본집중활하중", "page_start": 23, "page_end": 25, "section_id": "3.3.1", "data_type": "live_load_concentrated", "unit": "kN"}
+  ],
+  "figures": [
+    {"figure_id": "그림 4.2-1", "title": "기본지상설하중", "page": 31, "section_id": "4.2", "data_type": "snow_load", "note": "등고선 지도 형식 - 표 형태 아님"},
+    {"figure_id": "그림 5.5-1", "title": "기본풍속", "page": null, "section_id": "5.5", "data_type": "wind_speed", "note": "등고선 지도 형식 - 표 형태 아님"}
+  ],
+  "formulas": [
+    {"formula_id": "1.7-1~1.7-7", "title": "강도설계법 하중조합", "page": 17, "section_id": "1.7.1"},
+    {"formula_id": "1.7-8~1.7-17", "title": "허용응력설계법 하중조합", "page": 18, "section_id": "1.7.2"}
+  ],
+  "extraction_notes": [
+    "이 문서는 별도의 표지/목차 페이지 없이 Section 1부터 바로 시작 (KDS 웹 포맷 PDF)",
+    "version_date는 일반적으로 2022-10-11 (KDS 41 12 00 개정판)",
+    "설하중(그림 4.2-1)과 풍속(그림 5.5-1)은 등고선 지도 형식이라 표 추출 불가 - 별도 처리 필요",
+    "하중조합은 수식(formula) 형태로 제공됨",
+    "주요 추출 대상 표: 표 3.2-1(등분포활하중), 표 3.3-1(집중활하중)"
+  ]
+}

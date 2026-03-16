@@ -1,0 +1,10 @@
+{
+  "mode": "upsert",
+  "timestamp": "2026-02-10T06:34:02.165059+00:00",
+  "total_records": 19,
+  "summary": {
+    "inserted": 19,
+    "errors": 0
+  },
+  "errors": null
+}

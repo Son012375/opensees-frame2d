@@ -1,0 +1,1058 @@
+{
+  "table_source": "KDS 41 17 00",
+  "extraction_date": "2026-02-26",
+  "tables": ["2.2-1", "2.4-1", "2.4-2", "4.2-1", "4.2-2"],
+  "records": [
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "importance_factor",
+      "primary_key": "special",
+      "secondary_key": null,
+      "display_name_ko": "내진등급 특 - 중요도계수(IE)",
+      "value": 1.5,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 중요도: 중요도(특)",
+        "내진등급: 특"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.2",
+        "table_id": "표 2.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "importance_factor",
+      "primary_key": "grade_I",
+      "secondary_key": null,
+      "display_name_ko": "내진등급 I - 중요도계수(IE)",
+      "value": 1.2,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 중요도: 중요도(1)",
+        "내진등급: I"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.2",
+        "table_id": "표 2.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "importance_factor",
+      "primary_key": "grade_II",
+      "secondary_key": null,
+      "display_name_ko": "내진등급 II - 중요도계수(IE)",
+      "value": 1.0,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 중요도: 중요도(2), (3)",
+        "내진등급: II"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.2",
+        "table_id": "표 2.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_level",
+      "primary_key": "functional",
+      "secondary_key": null,
+      "display_name_ko": "기능수행 성능수준",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 성능수준: 기능수행",
+        "구조요소의 성능수준: 거주가능",
+        "비구조요소의 성능수준: 기능수행"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_level",
+      "primary_key": "immediate_occupancy",
+      "secondary_key": null,
+      "display_name_ko": "즉시복구 성능수준",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 성능수준: 즉시복구",
+        "구조요소의 성능수준: 거주가능",
+        "비구조요소의 성능수준: 위치유지"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_level",
+      "primary_key": "life_safety",
+      "secondary_key": null,
+      "display_name_ko": "인명보호 성능수준",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 성능수준: 인명보호",
+        "구조요소의 성능수준: 인명안전",
+        "비구조요소의 성능수준: 인명안전"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_level",
+      "primary_key": "collapse_prevention",
+      "secondary_key": null,
+      "display_name_ko": "붕괴방지 성능수준",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "건축물의 성능수준: 붕괴방지",
+        "구조요소의 성능수준: 붕괴방지",
+        "비구조요소의 성능수준: -"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "special_life_safety",
+      "secondary_key": "return_2400",
+      "display_name_ko": "내진등급 특 - 인명보호 (재현주기 2400년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: 특",
+        "재현주기: 2400년",
+        "성능수준: 인명보호",
+        "설계지진: 기본설계지진 x 중요도계수(IE)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "special_functional",
+      "secondary_key": "return_1000",
+      "display_name_ko": "내진등급 특 - 기능수행 (재현주기 1000년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: 특",
+        "재현주기: 1000년",
+        "성능수준: 기능수행",
+        "설계지진: -"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "grade_I_collapse_prevention",
+      "secondary_key": "return_2400",
+      "display_name_ko": "내진등급 I - 붕괴방지 (재현주기 2400년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: I",
+        "재현주기: 2400년",
+        "성능수준: 붕괴방지",
+        "설계지진: -"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "grade_I_life_safety",
+      "secondary_key": "return_1400",
+      "display_name_ko": "내진등급 I - 인명보호 (재현주기 1400년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: I",
+        "재현주기: 1400년",
+        "성능수준: 인명보호",
+        "설계지진: 기본설계지진 x 중요도계수(IE)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "grade_II_collapse_prevention",
+      "secondary_key": "return_2400",
+      "display_name_ko": "내진등급 II - 붕괴방지 (재현주기 2400년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: II",
+        "재현주기: 2400년",
+        "성능수준: 붕괴방지",
+        "설계지진: -"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "performance_objective",
+      "primary_key": "grade_II_life_safety",
+      "secondary_key": "return_1000",
+      "display_name_ko": "내진등급 II - 인명보호 (재현주기 1000년)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "내진등급: II",
+        "재현주기: 1000년",
+        "성능수준: 인명보호",
+        "설계지진: 기본설계지진 x 중요도계수(IE)"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "2.4",
+        "table_id": "표 2.4-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S1",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S1, z<=0.1",
+      "value": 1.12,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S1",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S1, z=0.2",
+      "value": 1.12,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S1",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S1, z=0.3",
+      "value": 1.12,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S2",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S2, z<=0.1",
+      "value": 1.4,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S2",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S2, z=0.2",
+      "value": 1.4,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S2",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S2, z=0.3",
+      "value": 1.3,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S3",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S3, z<=0.1",
+      "value": 1.7,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S3",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S3, z=0.2",
+      "value": 1.5,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S3",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S3, z=0.3",
+      "value": 1.3,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S4",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S4, z<=0.1",
+      "value": 1.6,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S4",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S4, z=0.2",
+      "value": 1.4,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S4",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S4, z=0.3",
+      "value": 1.2,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S5",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S5, z<=0.1",
+      "value": 1.8,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S5",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S5, z=0.2",
+      "value": 1.3,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S5",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S5, z=0.3",
+      "value": 1.3,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fa",
+      "primary_key": "S6",
+      "secondary_key": null,
+      "display_name_ko": "단주기 지반증폭계수 Fa - 지반종류 S6 (부지 고유 특성 조사 및 지반응답해석 수행)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S6",
+        "부지 고유의 특성을 고려한 지반응답해석 수행 필요"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-1"
+      },
+      "confidence": 1.0,
+      "needs_review": true
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S1",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S1, z<=0.1",
+      "value": 0.84,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S1",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S1, z=0.2",
+      "value": 0.84,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S1",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S1, z=0.3",
+      "value": 0.84,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S1 (암반)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S2",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S2, z<=0.1",
+      "value": 1.5,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S2",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S2, z=0.2",
+      "value": 1.4,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S2",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S2, z=0.3",
+      "value": 1.3,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S2 (보통암)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S3",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S3, z<=0.1",
+      "value": 1.7,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S3",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S3, z=0.2",
+      "value": 1.6,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S3",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S3, z=0.3",
+      "value": 1.5,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S3 (풍화암)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S4",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S4, z<=0.1",
+      "value": 2.2,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S4",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S4, z=0.2",
+      "value": 2.0,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S4",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S4, z=0.3",
+      "value": 1.8,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S4 (단단한 토사)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S5",
+      "secondary_key": "z_le_0.1",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S5, z<=0.1",
+      "value": 3.0,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z <= 0.1"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S5",
+      "secondary_key": "z_0.2",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S5, z=0.2",
+      "value": 2.7,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z = 0.2"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S5",
+      "secondary_key": "z_0.3",
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S5, z=0.3",
+      "value": 2.4,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S5 (연약한 토사)",
+        "지진지역: z = 0.3"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "site_coefficient_Fv",
+      "primary_key": "S6",
+      "secondary_key": null,
+      "display_name_ko": "1초주기 지반증폭계수 Fv - 지반종류 S6 (부지 고유 특성 조사 및 지반응답해석 수행)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "",
+      "conditions": [
+        "지반종류: S6",
+        "부지 고유의 특성을 고려한 지반응답해석 수행 필요"
+      ],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "4.2.3",
+        "table_id": "표 4.2-2"
+      },
+      "confidence": 1.0,
+      "needs_review": true
+    }
+  ]
+}

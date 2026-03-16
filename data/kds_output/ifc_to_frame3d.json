@@ -1,0 +1,77 @@
+{
+  "source": "IFC -> BuildingModel -> frame3d_kwargs",
+  "ifc_file": "2차시도_260121.ifc",
+  "model_summary": {
+    "num_stories": 3,
+    "total_height_m": 9.0,
+    "total_width_x_m": 12.0,
+    "total_width_y_m": 10.0,
+    "floor_area_m2": 120.0,
+    "bays_x": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "bays_y": [
+      5.0,
+      5.0
+    ],
+    "usages": [
+      "retail",
+      "office",
+      "office"
+    ],
+    "column_section": "H-300x300",
+    "beam_x_section": "H-400x200",
+    "beam_y_section": "H-400x200",
+    "material": "SS275",
+    "region": "서울",
+    "site_class": "S3",
+    "importance": "II"
+  },
+  "story_details": [
+    {
+      "story": 1,
+      "height_m": 3.0,
+      "usage": "retail",
+      "dead_load_finish_kNm2": 1.5,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 2,
+      "height_m": 3.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 1.0,
+      "slab_thickness_m": 0.15
+    },
+    {
+      "story": 3,
+      "height_m": 3.0,
+      "usage": "office",
+      "dead_load_finish_kNm2": 0.5,
+      "slab_thickness_m": 0.1398
+    }
+  ],
+  "frame3d_kwargs": {
+    "stories": [
+      3.0,
+      3.0,
+      3.0
+    ],
+    "bays_x": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "bays_y": [
+      5.0,
+      5.0
+    ],
+    "supports": "fixed",
+    "column_section": "H-300x300",
+    "beam_x_section": "H-400x200",
+    "beam_y_section": "H-400x200",
+    "material_name": "SS275",
+    "num_elements_per_member": 4
+  }
+}

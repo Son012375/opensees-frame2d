@@ -1,0 +1,83 @@
+{
+  "section_id": "3.5+3.6",
+  "title": "활하중의 저감 / 지붕활하중의 저감",
+  "source": {
+    "code_id": "KDS 41 12 00",
+    "code_version": "2022-10-11",
+    "pages": [26, 27, 28]
+  },
+  "extraction_notes": [
+    "3.5 활하중의 저감: 조문+수식 형태 (표 아님)",
+    "3.6 지붕활하중의 저감: 조문+수식 형태 (표 아님)",
+    "수치 파라미터와 수식을 모두 구조화하여 추출"
+  ],
+  "parameters": {
+    "3.5_general": {
+      "formula": "C = 0.3 + 4.2/sqrt(A)",
+      "formula_id": "3.5-1",
+      "variables": {
+        "C": "활하중저감계수",
+        "A": "영향면적(m²), A ≥ 36"
+      },
+      "min_influence_area_m2": 36,
+      "scope": "지붕활하중을 제외한 등분포활하중"
+    },
+    "3.5_influence_area": {
+      "column_foundation": {"multiplier": 4, "description": "기둥 및 기초: 부하면적 × 4"},
+      "beam_wall": {"multiplier": 2, "description": "보 또는 벽체: 부하면적 × 2"},
+      "slab": {"multiplier": 1, "description": "슬래브: 부하면적 × 1"},
+      "cantilever_note": "캔틸레버 부분은 4배 또는 2배를 적용하지 않고 영향면적에 단순 합산",
+      "one_way_slab": "영향면적 = 슬래브 경간 × 슬래브 폭 (폭 ≤ 1.5 × 경간)"
+    },
+    "3.5_limits": {
+      "single_floor": {"C_min": 0.5, "description": "1개 층 지지 부재"},
+      "multi_floor": {"C_min": 0.4, "description": "2개 층 이상 지지 부재"}
+    },
+    "3.5_exceptions": [
+      {
+        "rule": "heavy_load",
+        "description": "5kN/m² 초과 활하중은 저감 불가",
+        "exception": "2개 층 이상 지지 시 C ≥ 0.8 적용 가능",
+        "threshold_kN_m2": 5.0
+      },
+      {
+        "rule": "assembly_no_reduction",
+        "description": "활하중 5kN/m² 이하의 공중집회 용도는 저감 불가",
+        "occupancy": ["assembly"],
+        "threshold_kN_m2": 5.0
+      },
+      {
+        "rule": "parking_no_reduction",
+        "description": "승용차 전용 주차장 활하중은 저감 불가",
+        "exception": "2개 층 이상 지지 시 C ≥ 0.8 적용 가능",
+        "occupancy": ["parking_passenger"]
+      }
+    ],
+    "3.6_roof": {
+      "formula": "L = Lo × R1 × R2",
+      "formula_id": "3.6-1",
+      "bounds": {"min": 0.6, "max": 1.0},
+      "variables": {
+        "L": "저감된 지붕활하중(kN/m²)",
+        "Lo": "수평투영면적에 대한 지붕활하중(kN/m²)",
+        "R1": "부하면적에 따른 저감계수",
+        "R2": "물매에 따른 저감계수"
+      },
+      "R1": [
+        {"condition": "At ≤ 20.0m²", "value": 1.0},
+        {"condition": "20.0m² < At < 60.0m²", "formula": "R1 = 1.2 - 0.01 × At"},
+        {"condition": "At ≥ 60.0m²", "value": 0.6}
+      ],
+      "R2": [
+        {"condition": "F ≤ 1/3", "value": 1.0},
+        {"condition": "1/3 < F < 1", "formula": "R2 = 1.2 - 0.6 × F"},
+        {"condition": "F ≥ 1", "value": 0.6}
+      ],
+      "R2_note": "F = 경사지붕의 물매, 아치 및 돔: 높이/(경간×8/3)"
+    },
+    "3.6_occupancy_exception": {
+      "description": "지붕을 장원 및 집회 등의 용도로 점유·사용하는 경우 3.5(활하중의 저감) 적용"
+    }
+  },
+  "extraction_confidence": 0.95
+}

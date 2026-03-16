@@ -1,0 +1,98 @@
+{
+  "_comment": "similar_live_load view 레코드 예시 — 유사활하중 (절 3.7~3.8)",
+  "view": "public.similar_live_load",
+  "filter": "param_type='similar_live_load'",
+
+  "records": [
+    {
+      "param_type": "similar_live_load",
+      "param_subtype": "railing",
+      "primary_key": "railing_point_load",
+      "secondary_key": null,
+      "value": 0.9,
+      "unit": "kN",
+      "conditions": [
+        {"location": ["지붕", "발코니", "계단"], "direction": "임의의 방향", "application": "난간 손스침 부분"}
+      ],
+      "notes": "지붕, 발코니, 계단 등의 난간 손스침 부분에 임의의 방향으로 적용",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.7.1"
+    },
+    {
+      "param_type": "similar_live_load",
+      "param_subtype": "railing",
+      "primary_key": "railing_line_load",
+      "secondary_key": "other",
+      "value": 0.8,
+      "unit": "kN/m",
+      "conditions": [
+        {"occupancy": "other", "constraint": "2세대 이하 주거용 외 모든 구조물", "direction": "임의의 방향"}
+      ],
+      "notes": "기타 구조물 난간 등분포 선하중",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.7.1"
+    },
+    {
+      "param_type": "similar_live_load",
+      "param_subtype": "partition_wall",
+      "primary_key": "partition_lateral_load",
+      "secondary_key": null,
+      "value": 0.25,
+      "unit": "kN/m²",
+      "conditions": [
+        {"wall_height_min_m": 1.8, "direction": "벽면 직각방향", "load_type": "등분포하중"},
+        {"exception": "이동성 경량칸막이벽 및 이와 유사한 것은 제외"}
+      ],
+      "notes": "높이 1.8m 이상 내벽에 벽면 직각방향으로 적용. 이동성 경량칸막이벽 제외",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.7.2"
+    },
+    {
+      "param_type": "similar_live_load",
+      "param_subtype": "vehicle_barrier",
+      "primary_key": "vehicle_barrier_load",
+      "secondary_key": "passenger_car",
+      "value": 30,
+      "unit": "kN",
+      "conditions": [
+        {"direction": "임의의 수평방향"},
+        {"height_range_m": {"min": 0.45, "max": 0.70}, "note": "바닥면으로부터 0.45~0.70m 사이 최대 효과 높이"},
+        {"contact_area_m": {"width": 0.3, "height": 0.3}, "note": "하중접촉면 0.3m × 0.3m 이하"}
+      ],
+      "notes": "수평방향 30kN 집중하중. 바닥면에서 0.45~0.70m 높이, 접촉면 0.3m×0.3m 이하",
+      "code_id": "KDS 41 12 00",
+      "clause_id": "3.8.1"
+    }
+  ],
+
+  "load_application_spec": {
+    "_comment": "unit 필드에 따른 구조 모델 적용 방식",
+    "kN": {
+      "type": "집중하중 (point load)",
+      "method": "지정 절점에 직접 적용",
+      "examples_in_this_view": ["railing_point_load (0.9kN)", "vehicle_barrier_load (30kN)"]
+    },
+    "kN/m": {
+      "type": "선하중 (line load)",
+      "method": "부재 길이에 비례 분배 → 등가 절점하중",
+      "examples_in_this_view": ["railing_line_load (0.8kN/m)"]
+    },
+    "kN/m²": {
+      "type": "면하중 (area load)",
+      "method": "부하면적에 비례 분배 → 등가 절점하중",
+      "examples_in_this_view": ["partition_lateral_load (0.25kN/m²)"]
+    },
+    "concurrent_rule": "같은 부재에 면하중+집중하중이 모두 정의된 경우, 불리한 쪽 하나만 적용 (동시 재하 아님)"
+  },
+
+  "usage_example": {
+    "scenario": "상업건물 3층 발코니 난간 설계",
+    "steps": [
+      {"step": "하중 유형 판별", "result": "발코니 난간 → param_subtype='railing'"},
+      {"step": "건물 유형 확인", "result": "상업건물 → secondary_key='other' (2세대 이하 주거 아님)"},
+      {"step": "선하중 조회", "query": "primary_key='railing_line_load' AND secondary_key='other'", "result": "0.8 kN/m"},
+      {"step": "집중하중 조회", "query": "primary_key='railing_point_load'", "result": "0.9 kN"},
+      {"step": "적용", "result": "난간 손스침부에 0.8 kN/m 등분포 또는 0.9 kN 집중하중 중 불리한 것 적용"}
+    ]
+  }
+}

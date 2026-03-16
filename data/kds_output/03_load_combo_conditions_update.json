@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "source_document": "KDS 41 12 00",
+    "version": "2022-10-11",
+    "normalized_at": "2026-02-10T18:00:00+09:00",
+    "total_records": 20,
+    "description": "load_combo conditions 구조화 업데이트 (UPDATE only, 변경 대상 20건)"
+  },
+  "records": [
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"RLL","secondary_key":"ULS2","display_name_ko":"ULS2 지붕활하중(Lr) 계수","display_name_en":"ULS2 Roof live load factor","value":0.5,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2(D+F+T)+1.6(L+H)+0.5(Lr or S or R) (식 1.7-2)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-2"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"SNOW","secondary_key":"ULS2","display_name_ko":"ULS2 설하중(S) 계수","display_name_en":"ULS2 Snow load factor","value":0.5,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2(D+F+T)+1.6(L+H)+0.5(Lr or S or R) (식 1.7-2)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-2"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"RLL","secondary_key":"ULS3","display_name_ko":"ULS3 지붕활하중(Lr) 계수","display_name_en":"ULS3 Roof live load factor","value":1.6,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2D+1.6(Lr or S or R)+(1.0L or 0.5W) (식 1.7-3)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-3"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"SNOW","secondary_key":"ULS3","display_name_ko":"ULS3 설하중(S) 계수","display_name_en":"ULS3 Snow load factor","value":1.6,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2D+1.6(Lr or S or R)+(1.0L or 0.5W) (식 1.7-3)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-3"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"LL","secondary_key":"ULS3","display_name_ko":"ULS3 활하중(L) 계수","display_name_en":"ULS3 Live load factor","value":1.0,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"live_or_wind","candidates":["LL","WIND"],"choose":1,"policy":"max_effect"},{"kind":"reduction","target":"LL","allowed":true,"factor":0.5,"ref":"live_reduction","condition_ko":"기본등분포활하중 ≤5.0kN/m² (주차장·공공집회 제외)"}],
+     "notes":"1.2D+1.6(Lr or S or R)+(1.0L or 0.5W) (식 1.7-3)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-3"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"WIND","secondary_key":"ULS3","display_name_ko":"ULS3 풍하중(W) 계수","display_name_en":"ULS3 Wind load factor","value":0.5,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"live_or_wind","candidates":["LL","WIND"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2D+1.6(Lr or S or R)+(1.0L or 0.5W) (식 1.7-3)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-3"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"LL","secondary_key":"ULS4","display_name_ko":"ULS4 활하중(L) 계수","display_name_en":"ULS4 Live load factor","value":1.0,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"reduction","target":"LL","allowed":true,"factor":0.5,"ref":"live_reduction","condition_ko":"기본등분포활하중 ≤5.0kN/m² (주차장·공공집회 제외)"}],
+     "notes":"1.2D+1.0W+1.0L+0.5(Lr or S or R) (식 1.7-4)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-4"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"RLL","secondary_key":"ULS4","display_name_ko":"ULS4 지붕활하중(Lr) 계수","display_name_en":"ULS4 Roof live load factor","value":0.5,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2D+1.0W+1.0L+0.5(Lr or S or R) (식 1.7-4)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-4"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"SNOW","secondary_key":"ULS4","display_name_ko":"ULS4 설하중(S) 계수","display_name_en":"ULS4 Snow load factor","value":0.5,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"1.2D+1.0W+1.0L+0.5(Lr or S or R) (식 1.7-4)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-4"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"uls","primary_key":"LL","secondary_key":"ULS5","display_name_ko":"ULS5 활하중(L) 계수","display_name_en":"ULS5 Live load factor","value":1.0,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"reduction","target":"LL","allowed":true,"factor":0.5,"ref":"live_reduction","condition_ko":"기본등분포활하중 ≤5.0kN/m² (주차장·공공집회 제외)"}],
+     "notes":"1.2D+1.0E+1.0L+0.2S (식 1.7-5)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.1","formula_id":"1.7-5"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"RLL","secondary_key":"SLS3","display_name_ko":"SLS3 지붕활하중(Lr) 계수","display_name_en":"SLS3 Roof live load factor","value":1.0,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+(Lr or S or R) (식 1.7-10)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-10"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"SNOW","secondary_key":"SLS3","display_name_ko":"SLS3 설하중(S) 계수","display_name_en":"SLS3 Snow load factor","value":1.0,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+(Lr or S or R) (식 1.7-10)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-10"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"RLL","secondary_key":"SLS4","display_name_ko":"SLS4 지붕활하중(Lr) 계수","display_name_en":"SLS4 Roof live load factor","value":0.75,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+0.75(L+T)+0.75(Lr or S or R) (식 1.7-11)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-11"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"SNOW","secondary_key":"SLS4","display_name_ko":"SLS4 설하중(S) 계수","display_name_en":"SLS4 Snow load factor","value":0.75,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+0.75(L+T)+0.75(Lr or S or R) (식 1.7-11)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-11"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"WIND","secondary_key":"SLS5","display_name_ko":"SLS5 풍하중(W) 계수","display_name_en":"SLS5 Wind load factor","value":0.6,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"wind_or_eq","candidates":["WIND","EQ"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+(0.6W or 0.7E) (식 1.7-12)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-12"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"EQ","secondary_key":"SLS5","display_name_ko":"SLS5 지진하중(E) 계수","display_name_en":"SLS5 Earthquake load factor","value":0.7,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"wind_or_eq","candidates":["WIND","EQ"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+(0.6W or 0.7E) (식 1.7-12)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-12"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"WIND","secondary_key":"SLS6","display_name_ko":"SLS6 풍하중(W) 계수","display_name_en":"SLS6 Wind load factor","value":0.45,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"wind_or_eq","candidates":["WIND","EQ"],"choose":1,"policy":"max_effect"},{"kind":"derived","expression":"0.75*0.6","base_factors":[0.75,0.6]}],
+     "notes":"D+F+0.75(0.6W or 0.7E)+0.75L+0.75(Lr or S or R) (식 1.7-13)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-13"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"EQ","secondary_key":"SLS6","display_name_ko":"SLS6 지진하중(E) 계수","display_name_en":"SLS6 Earthquake load factor","value":0.525,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"wind_or_eq","candidates":["WIND","EQ"],"choose":1,"policy":"max_effect"},{"kind":"derived","expression":"0.75*0.7","base_factors":[0.75,0.7]}],
+     "notes":"D+F+0.75(0.6W or 0.7E)+0.75L+0.75(Lr or S or R) (식 1.7-13)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-13"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"RLL","secondary_key":"SLS6","display_name_ko":"SLS6 지붕활하중(Lr) 계수","display_name_en":"SLS6 Roof live load factor","value":0.75,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+0.75(0.6W or 0.7E)+0.75L+0.75(Lr or S or R) (식 1.7-13)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-13"},"confidence":0.95,"needs_review":false},
+
+    {"record_type":"load_combo","param_subtype":"sls","primary_key":"SNOW","secondary_key":"SLS6","display_name_ko":"SLS6 설하중(S) 계수","display_name_en":"SLS6 Snow load factor","value":0.75,"value_min":null,"value_max":null,"unit":"-",
+     "conditions":[{"kind":"alt","group":"roof_or_snow","candidates":["RLL","SNOW"],"choose":1,"policy":"max_effect"}],
+     "notes":"D+F+0.75(0.6W or 0.7E)+0.75L+0.75(Lr or S or R) (식 1.7-13)","source":{"code_id":"KDS 41 12 00","code_version":"2022-10-11","clause_id":"1.7.2","formula_id":"1.7-13"},"confidence":0.95,"needs_review":false}
+  ]
+}

@@ -1,0 +1,1191 @@
+{
+  "table_source": "KDS 41 17 00",
+  "tables": ["18.3-1", "18.4-1"],
+  "extraction_date": "2026-02-26",
+  "notes": {
+    "table_18.3-1": "건축비구조요소의 설계계수 (Architectural nonstructural component design coefficients). Columns: ap (증폭계수), Rp (반응수정계수), omega_0p (초과강도계수). Footnote a: ap=1 for rigidly attached, ap=2.5 for flexibly attached. Footnote b: omega_0p applies when concrete/masonry uses non-ductile anchors.",
+    "table_18.4-1": "기계 및 전기비구조요소의 설계계수 (Mechanical and electrical nonstructural component design coefficients). Columns: ap (증폭계수), Rp (반응수정계수), omega_0p (초과강도계수). Footnote a: ap=1 for rigidly attached, ap=2.5 for flexibly attached. Footnote b: For power generation equipment, if vibration isolators included, clearance >6mm requires 2x values. Footnote c: omega_0p applies when concrete/masonry uses non-ductile anchors."
+  },
+  "records": [
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "unreinforced_masonry_interior_wall_partition",
+      "display_name_ko": "내부 비구조벽체 및 칸막이벽 - 비보강조적벽",
+      "category_ko": "내부 비구조벽체 및 칸막이벽",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 1.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "other_wall_partition",
+      "display_name_ko": "내부 비구조벽체 및 칸막이벽 - 그밖의 벽과 칸막이",
+      "category_ko": "내부 비구조벽체 및 칸막이벽",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cantilever_parapet_interior_nonstructural_wall",
+      "display_name_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우) - 파라펫 및 내부 캔틸레버 비구조벽체",
+      "category_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우)",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cantilever_chimney_stack_vertical_truss",
+      "display_name_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우) - 굴뚝 및 골조구조에 지지된 수직 배기구",
+      "category_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우)",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cantilever_other_vertical_element",
+      "display_name_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우) - 기타 캔틸레버형 수직구조물",
+      "category_ko": "캔틸레버 부재(힝지지되어 있지 않거나 질량중심 아래에서 구조체에 힝지지된 경우)",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cantilever_hinged_parapet",
+      "display_name_ko": "캔틸레버 부재(질량중심 위에서 구조체에 힝지지된 경우) - 파라펫",
+      "category_ko": "캔틸레버 부재(질량중심 위에서 구조체에 힝지지된 경우)",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cantilever_hinged_chimney",
+      "display_name_ko": "캔틸레버 부재(질량중심 위에서 구조체에 힝지지된 경우) - 굴뚝",
+      "category_ko": "캔틸레버 부재(질량중심 위에서 구조체에 힝지지된 경우)",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "exterior_nonstructural_wall",
+      "display_name_ko": "외측 비구조벽체",
+      "category_ko": "외측 비구조벽체",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "exterior_wall_element",
+      "display_name_ko": "외측 비구조벽체 부재 및 접합부 - 벽체 부재",
+      "category_ko": "외측 비구조벽체 부재 및 접합부",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": "NA",
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "exterior_wall_panel_body",
+      "display_name_ko": "외측 비구조벽체 부재 및 접합부 - 벽체패널 접합부의 몸체",
+      "category_ko": "외측 비구조벽체 부재 및 접합부",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": "NA",
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "exterior_wall_connection_system",
+      "display_name_ko": "외측 비구조벽체 부재 및 접합부 - 연결시스템의 조임구",
+      "category_ko": "외측 비구조벽체 부재 및 접합부",
+      "ap": 1.25,
+      "Rp": 1,
+      "omega_0p": 1,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "veneer_deformation_limited",
+      "display_name_ko": "표면 마감재 - 변형이 제한된 부재 및 부착물",
+      "category_ko": "표면 마감재",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "veneer_low_deformability",
+      "display_name_ko": "표면 마감재 - 변형성능이 낮은 부재 및 부착물",
+      "category_ko": "표면 마감재",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "penthouse",
+      "display_name_ko": "옥탑(건물골조가 연장된 골조의 경우 제외)",
+      "category_ko": "",
+      "ap": 2.5,
+      "Rp": 3.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "ceiling_all",
+      "display_name_ko": "천장 - 전체",
+      "category_ko": "천장",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "cabinet_floor_mounted_over_1800mm",
+      "display_name_ko": "캐비닛 - 바닥판에 영구적으로 지지된 높이가 1,800 mm 이상인 캐비닛",
+      "category_ko": "캐비닛",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "bookshelf_floor_mounted_over_1800mm",
+      "display_name_ko": "캐비닛 - 바닥판에 영구적으로 지지된 높이가 1,800 mm 이상인 책장",
+      "category_ko": "캐비닛",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "laboratory_equipment",
+      "display_name_ko": "캐비닛 - 실험실 장비",
+      "category_ko": "캐비닛",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "access_floor_special",
+      "display_name_ko": "이중바닥 - 특수 이중바닥 (18.3.6.2를 만족하는 경우)",
+      "category_ko": "이중바닥",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["18.3.6.2를 만족하는 경우"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "access_floor_other",
+      "display_name_ko": "이중바닥 - 그밖의 모든 것",
+      "category_ko": "이중바닥",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 1.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "appendage_ornament",
+      "display_name_ko": "부속 장치 및 장식물",
+      "category_ko": "",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "sign",
+      "display_name_ko": "간판",
+      "category_ko": "",
+      "ap": 2.5,
+      "Rp": 3,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "rigid_comp_large_deformable",
+      "display_name_ko": "기타 강체요소 - 대변형이 가능한 부재 및 부착물",
+      "category_ko": "기타 강체요소",
+      "ap": 1,
+      "Rp": 3.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "rigid_comp_deformation_limited",
+      "display_name_ko": "기타 강체요소 - 변형이 제한된 부재 및 부착물",
+      "category_ko": "기타 강체요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "rigid_comp_low_deformability",
+      "display_name_ko": "기타 강체요소 - 변형성능이 낮은 재료 및 부착물",
+      "category_ko": "기타 강체요소",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 1.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "flexible_comp_large_deformable",
+      "display_name_ko": "그밖의 유연한 비구조요소 - 대변형이 가능한 부재 및 부착물",
+      "category_ko": "그밖의 유연한 비구조요소",
+      "ap": 2.5,
+      "Rp": 3.5,
+      "omega_0p": 2.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "flexible_comp_deformation_limited",
+      "display_name_ko": "그밖의 유연한 비구조요소 - 변형이 제한된 부재 및 부착물",
+      "category_ko": "그밖의 유연한 비구조요소",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "flexible_comp_low_deformability",
+      "display_name_ko": "그밖의 유연한 비구조요소 - 변형성능이 낮은 재료 및 부착물",
+      "category_ko": "그밖의 유연한 비구조요소",
+      "ap": 2.5,
+      "Rp": 1.5,
+      "omega_0p": 1.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "egress_stair_not_in_system",
+      "display_name_ko": "건물의 지진력저항시스템에 포함되지 않은 출구 계단",
+      "category_ko": "",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_arch_coeff",
+      "primary_key": "egress_stair_ramp_attachment",
+      "display_name_ko": "출구 계단 및 램프 체결 장치 및 부착 장치",
+      "category_ko": "",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.3",
+        "table_id": "표 18.3-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "hvac_fan_air_handler_sheet_metal",
+      "display_name_ko": "기계 및 전기 비구조요소 - 건기측 HVACR, 팬, 공조기, 냉난방장치, 캐비닛히터, 공기분배기 및 금속판금으로 이루어진 기타 기계요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "hvac_boiler_high_deformability",
+      "display_name_ko": "기계 및 전기 비구조요소 - 습기측 HVACR, 보일러, 용광로, 공기탱크, 칠러, 온열기, 열교환기, 증발기, 공기분리기, 제조장비, 고변형성 재료로 구성된 기계요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "air_cooler_fin_fan_sheet_metal_support",
+      "display_name_ko": "기계 및 전기 비구조요소 - 에어 쿨러 (핀 팬), 공냉식 열교환기, 응축기, 건식쿨러, 원격 라디에이터 및 일체형 구조강 또는 판금지지부를 가진 기계요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 2.5,
+      "Rp": 3,
+      "omega_0p": 1.5,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "engine_turbine_pump_compressor_skirt_supported",
+      "display_name_ko": "기계 및 전기 비구조요소 - 스커트지지로 지지되지 않고 19장에 포함되지 않은 엔진, 터빈, 펌프, 압축기 및 압력 용기",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "pressure_vessel_skirt_supported",
+      "display_name_ko": "기계 및 전기 비구조요소 - 19장에 포함되지 않으면서 스커트지지로 지지되는 압력용기",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "elevator_escalator",
+      "display_name_ko": "기계 및 전기 비구조요소 - 엘리베이터 및 에스컬레이터 구성품",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "generator_battery_inverter_transformer",
+      "display_name_ko": "기계 및 전기 비구조요소 - 발전기, 배터리, 인버터, 모터, 변압기 및 고변형재료로 구성된 전기요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "motor_control_center_panel_board",
+      "display_name_ko": "기계 및 전기 비구조요소 - 모터 컨트롤 센터, 패널 보드, 스위치 기어, 계기 캐비닛 및 그 밖의 금속판금으로 이루어진 유사한 비구조요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "communication_computer_instrumentation",
+      "display_name_ko": "기계 및 전기 비구조요소 - 통신 장비, 컴퓨터, 계측기 및 제어 장치",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "roof_mounted_chimney_tower_mast_below_cg",
+      "display_name_ko": "기계 및 전기 비구조요소 - 질량중심 아래에서 횡지지된 냉각 및 전기타워, 지붕에 설치된 굴뚝",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 2.5,
+      "Rp": 3,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "roof_mounted_chimney_tower_mast_above_cg",
+      "display_name_ko": "기계 및 전기 비구조요소 - 질량중심 위에서 횡지지된 냉각 및 전기타워, 지붕에 설치된 굴뚝",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "lighting_fixture",
+      "display_name_ko": "기계 및 전기 비구조요소 - 조명기구",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "other_mep_component",
+      "display_name_ko": "기계 및 전기 비구조요소 - 기타 기계 또는 전기 비구조요소",
+      "category_ko": "기계 및 전기 비구조요소",
+      "ap": 1,
+      "Rp": 1.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "vibration_isolated_elastomeric_neoprene",
+      "display_name_ko": "진동격리된 부품 및 시스템 - 탄성중합체 완충장치 또는 탄성주변정지장치를 가진 네오프렌 요소 및 네오프렌 격리층으로 격리된 요소 및 시스템",
+      "category_ko": "진동격리된 부품 및 시스템",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "vibration_isolated_spring_snubber",
+      "display_name_ko": "진동격리된 부품 및 시스템 - 탄성중합체 완충장치 또는 탄성주변정지장치를 가진 스프링 격리장치 및 진동격리 바닥으로 격리된 요소 및 시스템",
+      "category_ko": "진동격리된 부품 및 시스템",
+      "ap": 2.5,
+      "Rp": 2,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "vibration_isolated_internally",
+      "display_name_ko": "진동격리된 부품 및 시스템 - 내부적으로 격리된 요소 및 시스템",
+      "category_ko": "진동격리된 부품 및 시스템",
+      "ap": 2.5,
+      "Rp": 2,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "vibration_isolated_suspended_snubber",
+      "display_name_ko": "진동격리된 부품 및 시스템 - 매달림 형태의 진동방지장치를 가진 덕트 및 요소",
+      "category_ko": "진동격리된 부품 및 시스템",
+      "ap": 2.5,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_welded_brazed_code_compliant",
+      "display_name_ko": "배관시스템 - 관련전문기준에 따른 파이프로 용접 또는 남땜을 사용한 접합부를 가진 경우",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 12,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["관련전문기준에 따른 파이프"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_code_compliant_deformable_limited_joint",
+      "display_name_ko": "배관시스템 - 관련전문기준에 따른 파이프로 대변형이 가능한 재료 혹은 변형이 제한된 재료로 이루어져 있으면서 나사, 본드, 압축커플링, 그루브 커플링의 접합부를 가진 경우",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["관련전문기준에 따른 파이프", "대변형이 가능한 재료 혹은 변형이 제한된 재료"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_non_code_welded_brazed",
+      "display_name_ko": "배관시스템 - 관련전문기준을 따르지 않는 파이프 및 튜브로 대변형이 가능한 재료이거나 있으면서 용접 또는 남땜을 사용한 접합부를 가진 경우",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 9,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["관련전문기준을 따르지 않는 파이프 및 튜브", "대변형이 가능한 재료"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_non_code_deformable_limited_joint",
+      "display_name_ko": "배관시스템 - 관련전문기준을 따르지 않는 파이프 및 튜브로 대변형이 가능한 재료 혹은 변형이 제한된 재료로 이루어져 있으면서 나사, 본드, 압축커플링, 그루브 커플링의 접합부를 가진 경우",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 4.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["관련전문기준을 따르지 않는 파이프 및 튜브", "대변형이 가능한 재료 혹은 변형이 제한된 재료"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_cast_iron_glass_low_deformability",
+      "display_name_ko": "배관시스템 - 주철, 유리 및 비연성 플라스틱과 같이 변형이 적은 재료로 제작된 파이프 및 튜브",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 3,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["주철, 유리 및 비연성 플라스틱 등 변형이 적은 재료"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_deformable_welded_brazed_duct",
+      "display_name_ko": "배관시스템 - 대변형이 가능한 재료로 이루어져 있으면서 용접 또는 남땜 접합부를 가진 덕트",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 9,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["대변형이 가능한 재료", "용접 또는 남땜 접합부"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_deformable_limited_non_brazed_duct",
+      "display_name_ko": "배관시스템 - 대변형이 가능한 재료 혹은 변형이 제한된 재료로 이루어져 있으면서 용접 또는 남땜이 아닌 형식의 접합부를 가진 덕트",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["대변형이 가능한 재료 혹은 변형이 제한된 재료", "용접/남땜이 아닌 접합부"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "piping_low_deformability_duct",
+      "display_name_ko": "배관시스템 - 주철, 유리 및 비연성 플라스틱 등의 변형이 적은 재료로 제작된 덕트",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 3,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": ["주철, 유리 및 비연성 플라스틱 등 변형이 적은 재료"],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "electrical_cable_tray",
+      "display_name_ko": "배관시스템 - 전기 전선 및 케이블 트레이",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "bus_duct",
+      "display_name_ko": "배관시스템 - 버스 덕트",
+      "category_ko": "배관시스템",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "plumbing",
+      "display_name_ko": "배관시스템 - 급배수 배관",
+      "category_ko": "배관시스템",
+      "ap": 1,
+      "Rp": 2.5,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    },
+    {
+      "param_type": "seismic_design",
+      "param_subtype": "nonstructural_mep_coeff",
+      "primary_key": "pneumatic_tube_system",
+      "display_name_ko": "배관시스템 - 공압 튜브 수송 시스템",
+      "category_ko": "배관시스템",
+      "ap": 2.5,
+      "Rp": 6,
+      "omega_0p": 2,
+      "unit": "",
+      "conditions": [],
+      "source": {
+        "code_id": "KDS 41 17 00",
+        "code_version": "2019-11-18",
+        "clause_id": "18.4",
+        "table_id": "표 18.4-1"
+      },
+      "confidence": 1.0,
+      "needs_review": false
+    }
+  ]
+}

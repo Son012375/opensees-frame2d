@@ -1,0 +1,225 @@
+{
+  "metadata": {
+    "source_document": "KDS 41 12 00",
+    "version": "2022-10-11",
+    "normalized_at": "2026-02-26T09:30:00+09:00",
+    "total_records": 8,
+    "description": "§3.4 중량차량 활하중 파라미터 4건 + review 확정 4건 (기계실, 광장, 발코니, 복도)",
+    "notes": [
+      "§3.4는 표가 아닌 텍스트 기반 규정으로 핵심 수치 파라미터만 추출",
+      "review 4건은 04_validation_report.json 검토 후 확정 (needs_review: false로 변경)",
+      "mechanical_room, plaza: primary_key 확인 완료, confidence 0.70→0.90",
+      "balcony: formula-based (value=null, value_max=5.0), confidence 0.80→0.85",
+      "corridor_upper_floors: reference-based (value=null), confidence 0.80→0.85"
+    ]
+  },
+  "records": [
+    {
+      "record_id": "kds-41-12-00-heavy-001",
+      "record_type": "live_load",
+      "param_subtype": "heavy_vehicle",
+      "primary_key": "heavy_vehicle_general",
+      "secondary_key": null,
+      "display_name_ko": "중량차량 활하중 - 총중량 180kN 초과 차량 (일반)",
+      "display_name_en": "Heavy vehicle live load - Vehicles exceeding 180kN gross weight (general)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "kN",
+      "conditions": [
+        "총중량 180kN 초과 시 적용",
+        "도로교설계기준 활하중 규정에 따라 산정",
+        "충격 및 피로를 고려하여 적용"
+      ],
+      "notes": "총중량 180kN을 초과하는 중량차량이 통행하는 바닥의 활하중은 도로교설계기준의 활하중 규정에 따라 산정하며, 충격 및 피로를 고려하여야 한다. 실제 값은 도로교설계기준 참조.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.4.1",
+        "table_id": null
+      },
+      "confidence": 0.95,
+      "mapping_method": "manual",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-heavy-002",
+      "record_type": "live_load",
+      "param_subtype": "heavy_vehicle",
+      "primary_key": "fire_truck",
+      "secondary_key": null,
+      "display_name_ko": "소방차량 및 응급차량의 활하중",
+      "display_name_en": "Fire truck and emergency vehicle live load",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "kN",
+      "conditions": [
+        "실제 차동하중과 §3.4.1 활하중 중 큰 값 적용",
+        "외부안전장치 접촉면 반력 포함"
+      ],
+      "notes": "소방차량 및 응급차량 통행이 예상되는 바닥은 (1) 차량 외부안전장치 접촉면 반력을 포함한 실제 차동하중, (2) §3.4.1 도로교설계기준 활하중 중 큰 값 적용.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.4.2",
+        "table_id": null
+      },
+      "confidence": 0.90,
+      "mapping_method": "manual",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-heavy-003",
+      "record_type": "live_load",
+      "param_subtype": "heavy_vehicle",
+      "primary_key": "parking_over_180kn",
+      "secondary_key": null,
+      "display_name_ko": "중량차량 주차장 활하중 (최소 5.0 kN/m²)",
+      "display_name_en": "Heavy vehicle parking live load (minimum 5.0 kN/m²)",
+      "value": 5.0,
+      "value_min": 5.0,
+      "value_max": null,
+      "unit": "kN/m²",
+      "conditions": [
+        "총중량 180kN 초과 차량 주차장",
+        "충격 및 피로 고려 불필요",
+        "활하중 저감(§3.5) 적용 불가"
+      ],
+      "notes": "중량차량 주차장은 §3.4.1에 따르되 충격·피로 고려 불필요. 실제 차량하중으로 산정 가능하나 최소 5.0 kN/m² 이상이어야 하며 활하중 저감(§3.5) 적용 불가.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.4.3",
+        "table_id": null
+      },
+      "confidence": 0.95,
+      "mapping_method": "manual",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-heavy-004",
+      "record_type": "live_load",
+      "param_subtype": "heavy_vehicle",
+      "primary_key": "forklift",
+      "secondary_key": "impact_factor",
+      "display_name_ko": "지게차 및 이동장비 충격하중 계수 (전체하중의 30%)",
+      "display_name_en": "Forklift and mobile equipment impact factor (30% of total load)",
+      "value": 0.30,
+      "value_min": null,
+      "value_max": null,
+      "unit": "ratio",
+      "conditions": [
+        "지게차 및 유사 이동장비에 적용",
+        "차량 전체하중 또는 바퀴하중의 30%",
+        "충격 및 피로 고려 필요"
+      ],
+      "notes": "지게차 및 이동장비를 지지하는 바닥은 전체 하중과 바퀴하중에 대해 설계. 충격하중은 차량 전체하중 또는 바퀴하중의 30%로 산정.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.4.4",
+        "table_id": null
+      },
+      "confidence": 0.95,
+      "mapping_method": "manual",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-046",
+      "record_type": "live_load",
+      "param_subtype": "distributed",
+      "primary_key": "mechanical_room",
+      "secondary_key": null,
+      "display_name_ko": "기계실 - 공조실, 전기실, 기계실 등",
+      "display_name_en": "Mechanical room - HVAC room, electrical room, mechanical room, etc.",
+      "value": 5.0,
+      "value_min": null,
+      "value_max": null,
+      "unit": "kN/m²",
+      "conditions": ["주2) 참조: 장비 자체의 고정하중을 포함하지 않는다"],
+      "notes": "장비 자체의 고정하중을 포함하지 않는다. primary_key 'mechanical_room' 수동 확인 완료.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.2.1",
+        "table_id": "표 3.2-1"
+      },
+      "confidence": 0.90,
+      "mapping_method": "manual_confirmed",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-047",
+      "record_type": "live_load",
+      "param_subtype": "distributed",
+      "primary_key": "plaza",
+      "secondary_key": null,
+      "display_name_ko": "광장 - 옥외광장",
+      "display_name_en": "Plaza - Outdoor plaza",
+      "value": 12.0,
+      "value_min": null,
+      "value_max": null,
+      "unit": "kN/m²",
+      "conditions": [],
+      "notes": "primary_key 'plaza' 수동 확인 완료.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.2.1",
+        "table_id": "표 3.2-1"
+      },
+      "confidence": 0.90,
+      "mapping_method": "manual_confirmed",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-048",
+      "record_type": "live_load",
+      "param_subtype": "distributed",
+      "primary_key": "balcony",
+      "secondary_key": null,
+      "display_name_ko": "발코니 - 출입 바닥 활하중의 1.5배 (최대 5.0kN/m²)",
+      "display_name_en": "Balcony - 1.5 times the adjacent floor live load (max 5.0 kN/m²)",
+      "value": null,
+      "value_min": null,
+      "value_max": 5.0,
+      "unit": "kN/m²",
+      "conditions": ["최대 5.0kN/m²"],
+      "notes": "Formula-based: 출입 바닥 활하중 × 1.5, 최대 5.0 kN/m². 소비 애플리케이션은 인접 용도 활하중을 조회하여 계산해야 함. 수동 검토 후 확정.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.2.1",
+        "table_id": "표 3.2-1"
+      },
+      "confidence": 0.85,
+      "mapping_method": "exact",
+      "needs_review": false
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-050",
+      "record_type": "live_load",
+      "param_subtype": "distributed",
+      "primary_key": "corridor",
+      "secondary_key": "corridor_upper_floors",
+      "display_name_ko": "로비 및 복도 - 1층 외의 모든 층 복도",
+      "display_name_en": "Corridor - Corridors above first floor (hospital, office, school, assembly, library have separate provisions)",
+      "value": null,
+      "value_min": null,
+      "value_max": null,
+      "unit": "kN/m²",
+      "conditions": ["병원, 사무실, 학교, 집회 및 유흥장, 도서관은 별도 규정"],
+      "notes": "Reference-based: 인접 바닥 활하중과 동일. 병원, 사무실, 학교, 집회, 도서관 복도는 각 용도 규정에 따름. 소비 애플리케이션은 인접 용도를 조회하여 결정해야 함. 수동 검토 후 확정.",
+      "source": {
+        "code_id": "KDS 41 12 00",
+        "code_version": "2022-10-11",
+        "clause_id": "3.2.1",
+        "table_id": "표 3.2-1"
+      },
+      "confidence": 0.85,
+      "mapping_method": "exact",
+      "needs_review": false
+    }
+  ]
+}

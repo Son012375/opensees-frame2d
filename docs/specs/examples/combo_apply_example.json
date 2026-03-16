@@ -1,0 +1,102 @@
+{
+  "_comment": "ULS3 조합 적용 예시 — alt(roof_or_snow, live_or_wind) + LL reduction",
+  "scenario": {
+    "description": "3층 사무실 건물, 기둥 설계, 영향면적 72m², 설하중 없음",
+    "code_id": "KDS 41 12 00",
+    "code_version": "2022-10-11",
+    "combo_id": "ULS3",
+    "occupancy": "office",
+    "base_LL_kN_m2": 2.5,
+    "LL_reducible": true,
+    "LL_reducible_reason": "기본등분포활하중 2.5 ≤ 5.0kN/m², 사무실(주차장·집회 아님)"
+  },
+
+  "step_6_combo_records": [
+    {
+      "primary_key": "DL",
+      "value": 1.2,
+      "conditions": []
+    },
+    {
+      "primary_key": "RLL",
+      "value": 1.6,
+      "conditions": [
+        {"kind": "alt", "group": "roof_or_snow", "candidates": ["RLL", "SNOW"], "choose": 1, "policy": "max_effect"}
+      ]
+    },
+    {
+      "primary_key": "SNOW",
+      "value": 1.6,
+      "conditions": [
+        {"kind": "alt", "group": "roof_or_snow", "candidates": ["RLL", "SNOW"], "choose": 1, "policy": "max_effect"}
+      ]
+    },
+    {
+      "primary_key": "LL",
+      "value": 1.0,
+      "conditions": [
+        {"kind": "alt", "group": "live_or_wind", "candidates": ["LL", "WIND"], "choose": 1, "policy": "max_effect"},
+        {"kind": "reduction", "target": "LL", "allowed": true, "factor": 0.5, "ref": "live_reduction", "condition_ko": "기본등분포활하중 ≤5.0kN/m² (주차장·공공집회 제외)"}
+      ]
+    },
+    {
+      "primary_key": "WIND",
+      "value": 0.5,
+      "conditions": [
+        {"kind": "alt", "group": "live_or_wind", "candidates": ["LL", "WIND"], "choose": 1, "policy": "max_effect"}
+      ]
+    }
+  ],
+
+  "resolution": {
+    "step_1_alt_roof_or_snow": {
+      "group": "roof_or_snow",
+      "policy": "max_effect",
+      "candidates": {"RLL": 1.6, "SNOW": 1.6},
+      "load_cases": {"RLL": 1.0, "SNOW": 0.0},
+      "effect": {
+        "RLL": {"formula": "factor × load = 1.6 × 1.0", "value": 1.6},
+        "SNOW": {"formula": "factor × load = 1.6 × 0.0", "value": 0.0}
+      },
+      "selected": "RLL",
+      "reason": "effect(RLL)=1.6 > effect(SNOW)=0.0 → RLL 채택, SNOW 계수→0"
+    },
+    "step_2_alt_live_or_wind": {
+      "group": "live_or_wind",
+      "policy": "max_effect",
+      "candidates": {"LL": 1.0, "WIND": 0.5},
+      "load_cases": {"LL": 2.5, "WIND": 1.2},
+      "effect": {
+        "LL": {"formula": "factor × load = 1.0 × 2.5", "value": 2.5},
+        "WIND": {"formula": "factor × load = 0.5 × 1.2", "value": 0.6}
+      },
+      "selected": "LL",
+      "reason": "effect(LL)=2.5 > effect(WIND)=0.6 → LL 채택, WIND 계수→0"
+    },
+    "step_3_reduction": {
+      "target": "LL",
+      "original_factor": 1.0,
+      "condition_met": true,
+      "applied_factor": 0.5,
+      "reason": "사무실(2.5kN/m²≤5.0) → 저감 적용 → LL 계수 1.0→0.5"
+    },
+    "step_4_final_factors": {
+      "DL": 1.2,
+      "RLL": 1.6,
+      "LL": 0.5,
+      "SNOW": 0,
+      "WIND": 0
+    }
+  },
+
+  "calculation": {
+    "load_cases_kN_m2": {"DL": 5.0, "LL": 2.5, "RLL": 1.0, "SNOW": 0.0, "WIND": 0.0},
+    "factored": {
+      "DL": "1.2 × 5.0 = 6.0",
+      "RLL": "1.6 × 1.0 = 1.6",
+      "LL": "0.5 × 2.5 = 1.25"
+    },
+    "total_ULS3": "6.0 + 1.6 + 1.25 = 8.85 kN/m²",
+    "formula_ref": "1.2D + 1.6Lr + 0.5L (식 1.7-3, LL 저감 적용)"
+  }
+}

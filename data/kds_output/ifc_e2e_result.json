@@ -1,0 +1,49 @@
+{
+  "source_ifc": "2차시도_260121.ifc",
+  "model_summary": {
+    "num_stories": 3,
+    "total_height_m": 9.0,
+    "total_width_x_m": 12.0,
+    "total_width_y_m": 10.0,
+    "floor_area_m2": 120.0,
+    "bays_x": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "bays_y": [
+      5.0,
+      5.0
+    ],
+    "usages": [
+      "retail",
+      "office",
+      "office"
+    ],
+    "column_section": "H-300x300",
+    "beam_x_section": "H-400x200",
+    "beam_y_section": "H-400x200",
+    "material": "SS275",
+    "region": "서울",
+    "site_class": "S3",
+    "importance": "II"
+  },
+  "load_summary": {
+    "cases": [
+      "DL",
+      "LL",
+      "EQX",
+      "EQY",
+      "WX",
+      "WY"
+    ],
+    "num_combinations": 18,
+    "seismic_V_kN": 212.99,
+    "wind_Fx_kN": 99.98,
+    "wind_Fy_kN": 119.99
+  },
+  "analysis_summary": {
+    "num_nodes": 48,
+    "num_elements": 348
+  }
+}

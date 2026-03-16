@@ -1,0 +1,116 @@
+{
+  "validation_date": "2026-02-10T15:30:00+09:00",
+  "summary": {
+    "total_records": 75,
+    "passed": 71,
+    "failed": 0,
+    "needs_review": 4,
+    "errors": 0,
+    "warnings": 0,
+    "infos": 4
+  },
+  "issues": [
+    {
+      "severity": "info",
+      "issue_type": "low_confidence",
+      "record_id": "kds-41-12-00-live-dist-046",
+      "field": "confidence",
+      "description": "Record has confidence 0.70 with mapping_method 'unknown'. The primary_key 'mechanical_room' was not matched via exact or alias mapping. Already flagged needs_review: true.",
+      "suggested_action": "Manual review required to confirm 'mechanical_room' is the correct standardized key for '기계실 - 공조실, 전기실, 기계실 등'."
+    },
+    {
+      "severity": "info",
+      "issue_type": "low_confidence",
+      "record_id": "kds-41-12-00-live-dist-047",
+      "field": "confidence",
+      "description": "Record has confidence 0.70 with mapping_method 'unknown'. The primary_key 'plaza' was not matched via exact or alias mapping. Already flagged needs_review: true.",
+      "suggested_action": "Manual review required to confirm 'plaza' is the correct standardized key for '광장 - 옥외광장'."
+    },
+    {
+      "severity": "info",
+      "issue_type": "low_confidence",
+      "record_id": "kds-41-12-00-live-dist-048",
+      "field": "value",
+      "description": "Record has null value (formula-based: '출입 바닥 활하중 × 1.5, 최대 5.0 kN/m²'). Confidence is 0.80. Value depends on adjacent floor occupancy and cannot be stored as a fixed number. Already flagged needs_review: true.",
+      "suggested_action": "Acceptable as formula-based record. Ensure consuming applications handle null value with formula lookup logic. Consider adding value_max=5.0 as the upper bound reference."
+    },
+    {
+      "severity": "info",
+      "issue_type": "low_confidence",
+      "record_id": "kds-41-12-00-live-dist-050",
+      "field": "value",
+      "description": "Record has null value (reference-based: corridor load equals adjacent floor live load). Confidence is 0.80. Hospital, office, school, assembly, and library corridors above 1st floor are governed by their respective category provisions. Already flagged needs_review: true.",
+      "suggested_action": "Acceptable as reference-based record. Consuming applications must resolve corridor_upper_floors load by looking up the adjacent occupancy category's corridor provision."
+    }
+  ],
+  "review_list": [
+    {
+      "record_id": "kds-41-12-00-live-dist-046",
+      "reason": "confidence 0.70 with mapping_method 'unknown'",
+      "primary_key": "mechanical_room",
+      "display_name_ko": "기계실 - 공조실, 전기실, 기계실 등"
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-047",
+      "reason": "confidence 0.70 with mapping_method 'unknown'",
+      "primary_key": "plaza",
+      "display_name_ko": "광장 - 옥외광장"
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-048",
+      "reason": "null value (formula-based), confidence 0.80",
+      "primary_key": "balcony",
+      "display_name_ko": "발코니 - 출입 바닥 활하중의 1.5배 (최대 5.0kN/m²)"
+    },
+    {
+      "record_id": "kds-41-12-00-live-dist-050",
+      "reason": "null value (reference-based), confidence 0.80",
+      "primary_key": "corridor",
+      "display_name_ko": "로비 및 복도 - 1층 외의 모든 층 복도"
+    }
+  ],
+  "consistency_checks": [
+    {
+      "check": "storage_heavy > storage_light",
+      "result": "PASS",
+      "values": {
+        "storage_heavy": 12.0,
+        "storage_light": 6.0
+      }
+    },
+    {
+      "check": "factory_heavy > factory_light",
+      "result": "PASS",
+      "values": {
+        "factory_heavy": 12.0,
+        "factory_light": 6.0
+      }
+    },
+    {
+      "check": "library_stack > library_reading",
+      "result": "PASS",
+      "values": {
+        "library_stack": 7.5,
+        "library_reading": 3.0
+      }
+    },
+    {
+      "check": "assembly_movable_seats >= assembly_fixed_seats",
+      "result": "PASS",
+      "values": {
+        "assembly_movable_seats": 5.0,
+        "assembly_fixed_seats": 4.0
+      }
+    },
+    {
+      "check": "hospital_operating > hospital_ward",
+      "result": "PASS",
+      "values": {
+        "hospital_operating": 3.0,
+        "hospital_ward": 2.0
+      }
+    }
+  ],
+  "validated_records_count": 75,
+  "loadable_records_count": 75
+}
