@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
 
 # Virtual environments
 venv/
@@ -58,3 +59,22 @@ AUX
 *.html
 !webapp/backend/templates/*.html
 !webapp/backend/templates/**/*.html
+
+# Large data — KDS PDF images (138MB, derived from PDFs)
+data/kds_images/
+
+# Generated test output HTML reports
+mcp-server/test_output/
+mcp-server/*.html
+mcp-server/*.png
+
+# Claude local settings
+.claude/settings.local.json
+.claude/skills/
+
+# Binary / presentation files
+*.pptx
+
+# Temporary working files
+gpt용 md/
+opensees-mcp-copy.md

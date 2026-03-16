@@ -1,208 +1,319 @@
-# OpenSees-MCP
+# OpenSees-MCP: LLM-Integrated Structural Analysis System
 
-OpenSeesPy 기반 구조해석 웹 플랫폼 - Claude AI 자연어 입력 지원
+자연어 기반 구조해석 시스템 — IFC/자연어 입력 → OpenSeesPy 해석 → KDS 설계검토 → 3D 시각화
 
-[![Deploy to Render](https://img.shields.io/badge/Deploy-Render-46E3B7?logo=render)](https://render.com)
-[![Python 3.8](https://img.shields.io/badge/Python-3.8-blue?logo=python)](https://www.python.org/)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue?logo=python)](https://www.python.org/)
 [![OpenSeesPy](https://img.shields.io/badge/Engine-OpenSeesPy-orange)](https://openseespydoc.readthedocs.io/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Claude AI](https://img.shields.io/badge/AI-Claude_API-8B5CF6)](https://www.anthropic.com/)
+[![Supabase](https://img.shields.io/badge/DB-Supabase-3ECF8E?logo=supabase)](https://supabase.com/)
 
-## 개요
+---
 
-OpenSees-MCP는 구조공학용 해석 플랫폼으로, 사용자가 한국어 자연어로 구조물을 설명하면 Claude AI가 이를 파싱하여 OpenSeesPy로 해석을 수행하고 결과를 시각화합니다.
+## 1. Project Overview
 
-## 지원 해석 유형
+### 1.1 Research Goal
 
-| 해석 유형 | 상태 | 주요 기능 |
-|-----------|------|-----------|
-| **단순보 (Simple Beam)** | ✅ Ready | 단순지지/캔틸레버/고정단, 분포/집중/조합하중 |
-| **연속보 (Continuous Beam)** | ✅ Ready | 다경간, 내부 힌지, 다양한 하중 패턴 |
-| **2D 골조 (Frame 2D)** | ✅ Ready | 다층/다경간, 하중조합, 층간변위, Envelope |
-| **3D 골조 (Frame 3D)** | 🚧 Coming Soon | 3차원 해석, 비틀림 |
+사용자가 **한국어 자연어** 또는 **IFC 파일**로 건물 정보를 입력하면,
+LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석을 수행하여
+**KDS 기준 설계검토 결과**를 자연어로 피드백하는 End-to-End 시스템.
 
-## 주요 기능
+```
+[자연어/IFC 입력] → [LLM 파싱] → [Config 생성] → [OpenSeesPy 해석]
+    → [KDS/AISC 설계검토] → [3D 시각화 + HTML 리포트] → [자연어 해석 피드백]
+```
 
-### 해석 기능
-- **다양한 하중 유형**: 분포하중, 집중하중, 모멘트, 횡하중(EQ)
-- **하중 조합**: DL, LL, EQ 등 하중케이스 선형조합
-- **Envelope 분석**: 모든 케이스에서 최대/최소 부재력 추출
-- **층간변위 검토**: 사용자 정의 허용기준 (1/200, 1/400 등)
+### 1.2 System Pipeline
 
-### 시각화
-- **변형도**: 원본/변형 형상 중첩, 변위 스케일 조절
-- **부재력 다이어그램**: N (축력), V (전단력), M (모멘트)
-- **SFD/BMD**: 교과서 부호규약 적용 (V>0: 좌측면 상향, M>0: sagging)
-- **Story Response**: 층변위/층전단력 프로파일, 반력/요소 기반 이중검증
+| 단계 | 구성요소 | 설명 |
+|------|----------|------|
+| 입력 | NL Resolver / IFC Parser | 자연어 또는 IFC → BuildingConfig 변환 |
+| 하중생성 | Load Generator | KDS 41 12 00 기반 DL/LL/EQ/Wind 자동생성 |
+| 해석 | OpenSeesPy (2D/3D) | 정적/동적 해석, P-Delta, 고유치 |
+| 검토 | Design Check | KDS 층간변위 + AISC 360 부재강도 |
+| 시각화 | 3D Editor + HTML Report | Three.js 인터랙티브 뷰 + 독립 HTML 리포트 |
+| 피드백 | Result Interpreter | 심각도/진단/제안 자연어 해석 |
 
-### 입출력
-- **자연어 입력**: Claude AI가 한국어 설명을 구조해석 입력으로 변환
-- **폼 입력**: 직접 파라미터 입력 지원
-- **CSV Export**: 노드, 반력, 부재력, 층데이터
-- **PNG Export**: 각 다이어그램 이미지 저장
-- **PDF Report**: Print 기능으로 전체 리포트 출력
+---
 
-## 프로젝트 구조
+## 2. Supported Analysis Types
+
+| 해석 유형 | 상태 | DOF | 핵심 기능 |
+|-----------|------|-----|-----------|
+| Simple Beam | Ready | 3 | 단순지지/캔틸레버/고정단, 분포/집중/조합하중 |
+| Continuous Beam | Ready | 3 | 다경간, 내부 힌지, SFD 불연속 처리 |
+| 2D Frame | Ready | 3 | 다층/다경간, 릴리즈, P-Delta, Envelope |
+| 3D Frame | Ready | 6 | 양방향 경간, Corotational 비선형, Rigid Diaphragm |
+| Building Pipeline | Ready | 6 | IFC/JSON → 자동하중 → 3D해석 → 설계검토 |
+
+---
+
+## 3. Key Features
+
+### 3.1 Natural Language Input (NL Resolver)
+- 한국어 자연어 → Claude API → BuildingIntent 추출 → Config 변환
+- 30개 용도 매핑 (한국어 별칭 → canonical key)
+- 복합용도 자동 분리 ("근생" → retail)
+- 지역/중요도/층고/경간 자동 추론
+
+### 3.2 IFC Integration
+- IFC 파일 업로드 → 벽/기둥 기반 자동 파싱
+- 3D 와이어프레임 미리보기 (Three.js)
+- 3단계 위자드: Upload → Geometry Preview → Config → Analyze
+
+### 3.3 KDS-Based Auto Load Generation
+- **고정하중(DL)**: 슬래브 자중 + 마감 + 설비
+- **활하중(LL)**: 용도별 KDS 41 12 00 매핑 (712건 DB)
+- **지진하중(EQ)**: 등가정적, KDS 17 10 00 설계응답스펙트럼
+- **풍하중(Wind)**: qz x Gf x Cp 프로파일
+- **하중조합**: KDS 41 17 00 자동 18개 조합 생성
+
+### 3.4 Geometric Nonlinearity
+- **2D**: P-Delta (geomTransf 'PDelta') + Newton solver (10단계, fallback)
+- **3D**: Corotational (geomTransf 'Corotational')
+- Midas Gen과 비교 검증 완료 (drift < 0.25%에서 ~0.03% 차이)
+
+### 3.5 Design Check (KDS + AISC)
+- **층간변위**: KDS 41 17 00 (inelastic drift = Cd x delta / IE)
+- **부재강도**: AISC 360 (압축 E3, 휨 F2, 전단 G2, 상관 H1)
+- OK/NG 판정 + 최대 interaction ratio
+
+### 3.6 3D Building Editor (Web UI)
+- Three.js 기반 인터랙티브 3D 뷰어
+- 부재 클릭 선택 + 속성 패널
+- 설계검토 결과 색상 오버레이 (DC Colors)
+- 라이트/다크 테마 전환
+- Manual / NL / IFC 3개 입력 탭
+
+### 3.7 Midas Gen Benchmark Verification
+- 5개 벤치마크 케이스, 112개 메트릭
+- 100 OK, 12 CHECK (3D 요소 정식화 차이 ~3%)
+- 선형/비선형 모두 우수한 일치 확인
+
+---
+
+## 4. Project Structure
 
 ```
 opensees-MCP/
-├── mcp-server/                    # 구조해석 엔진
-│   ├── core/
-│   │   ├── simple_beam.py         # 단순보 해석
-│   │   ├── continuous_beam.py     # 연속보 해석
-│   │   ├── frame_2d.py            # 2D 프레임 해석
-│   │   ├── visualization.py       # 결과 시각화 (HTML 리포트)
-│   │   ├── sign_convention.py     # 부호규약 변환
-│   │   └── verification.py        # 수치 검증
-│   ├── tools/
-│   │   └── opensees_tools.py      # MCP 도구 정의
-│   └── tests/
-│       └── test_sign_convention.py
+├── mcp-server/                        # MCP 구조해석 서버
+│   ├── server.py                      # MCP tool 정의 (14개 도구)
+│   └── core/                          # 해석 엔진 모듈 (20개)
+│       ├── simple_beam.py             # 단순보 해석
+│       ├── continuous_beam.py         # 연속보 해석
+│       ├── frame_2d.py                # 2D 프레임 (릴리즈 + P-Delta)
+│       ├── frame_3d.py                # 3D 프레임 (6-DOF + Corotational)
+│       ├── building_model.py          # BuildingModel IR
+│       ├── load_generator.py          # KDS 자동 하중 생성
+│       ├── ifc_parser.py              # IFC → BuildingModel 파싱
+│       ├── nl_resolver.py             # 자연어 → Config 변환
+│       ├── design_check.py            # KDS 층간변위 + AISC 부재강도
+│       ├── design_spectrum.py         # KDS 17 10 00 Sa(T) 곡선
+│       ├── visualization.py           # 2D HTML 리포트 (~3800줄)
+│       ├── visualization_3d.py        # 3D HTML 리포트 (~1400줄)
+│       ├── result_interpreter.py      # 심각도/진단/제안 해석
+│       ├── assumption_tracker.py      # 가정 확인 모듈
+│       ├── section_3d.py              # 3D 단면 물성 (A, Ix, Iy, J)
+│       ├── sign_convention.py         # 부호규약 변환
+│       ├── ops_compat.py              # OpenSeesPy 호환 (3.8/3.12+)
+│       ├── kds_loads.py               # KDS 하중 파라미터
+│       └── verification.py            # 수치 검증
 │
-└── webapp/                        # 웹 애플리케이션
-    └── backend/
-        ├── app/
-        │   └── main_simple.py     # FastAPI 앱
-        ├── templates/             # Jinja2 템플릿
-        │   ├── home.html          # 메인 페이지
-        │   ├── simple_beam.html   # 단순보 입력
-        │   ├── continuous_beam.html
-        │   └── index.html         # Frame 2D 입력
-        └── static/
-            ├── css/style.css
-            └── js/main.js
+├── webapp/                            # 웹 애플리케이션
+│   └── backend/
+│       ├── app/
+│       │   ├── main_simple.py         # FastAPI 앱 (Building API 포함)
+│       │   └── core/
+│       │       ├── claude_service.py   # Claude API 서비스
+│       │       └── config.py
+│       ├── templates/
+│       │   ├── editor.html            # 3D Building Editor
+│       │   ├── home.html              # 메인 페이지
+│       │   └── base.html              # 베이스 템플릿
+│       └── static/
+│           ├── js/editor3d.js         # Three.js 3D 뷰어 (~1650줄)
+│           └── css/editor.css         # 테마 시스템 (~960줄)
+│
+├── tests/                             # 테스트 스위트
+│   ├── test_nl_resolver.py            # NL 변환 (38 tests)
+│   ├── test_design_check.py           # 설계검토 (16 tests)
+│   ├── test_stage5_metadata.py        # 메타데이터 (29 tests)
+│   ├── test_stage6_building_nonlinear.py  # 건물 비선형 (33 tests)
+│   ├── test_result_interpreter.py     # 결과 해석
+│   └── benchmark/                     # Midas Gen 비교 (5 cases, 112 metrics)
+│       ├── cases.py
+│       ├── compare.py
+│       └── run_benchmarks.py
+│
+├── data/                              # 데이터
+│   ├── mapping/occupancy.json         # 30개 용도 매핑
+│   └── kds_output/                    # KDS 추출/정규화 데이터
+│       ├── 03_*_normalized.json       # 정규화 데이터셋 (16종)
+│       └── midas_input_reference.json # Midas 비교 참조값
+│
+├── scripts/                           # 유틸리티 스크립트
+│   ├── supabase_loader.py             # Supabase DB 적재
+│   ├── load_hazard_regions.py         # 지역 위험도 적재
+│   ├── load_seismic_pga.py            # 지진 PGA 적재
+│   ├── pdf_to_images.py               # PDF → 이미지 변환
+│   └── normalize_*.py                 # KDS 데이터 정규화
+│
+├── docs/                              # 프로젝트 문서
+├── adapters/                          # 어댑터 모듈
+├── agents/                            # AI 에이전트
+├── pipeline/                          # 데이터 파이프라인
+├── streamlit_app/                     # Streamlit UI 프로토타입
+└── opensees-ai-agent/                 # VIKTOR 기반 에이전트
 ```
 
-## 기술 스택
+---
 
-| 구분 | 기술 |
-|------|------|
-| **Backend** | FastAPI, Python 3.8 |
-| **Analysis Engine** | OpenSeesPy (elasticBeamColumn) |
-| **Frontend** | Jinja2, HTMX, Plotly.js |
-| **AI** | Claude API (Anthropic) |
-| **Database** | Supabase (KS 표준 단면/재료 DB) |
-| **Deployment** | Render |
+## 5. Technical Stack
 
-## 부호규약 (Sign Convention)
+| 구분 | 기술 | 버전/비고 |
+|------|------|-----------|
+| Language | Python | 3.12+ |
+| Analysis Engine | OpenSeesPy | opensees 0.1.x (3.12+) |
+| Web Framework | FastAPI | uvicorn ASGI |
+| AI/LLM | Claude API (Anthropic) | claude-sonnet |
+| Frontend | Three.js + Vanilla JS | 3D 인터랙티브 뷰어 |
+| Database | Supabase (PostgreSQL) | 712건 load_params + 2290건 hazard |
+| Design Code | KDS 41 12 00, 41 17 00, 17 10 00 | 한국건설기준 |
+| Design Standard | AISC 360 | 강구조 부재강도 |
+| IFC Parser | ifcopenshell | 0.8.4+ |
+| Protocol | MCP (Model Context Protocol) | 14개 도구 등록 |
+
+---
+
+## 6. Sign Convention
 
 시각화에는 **교과서/MIDAS 부호규약**이 적용됩니다:
 
 | 구분 | 규약 | 설명 |
 |------|------|------|
-| 전단력 V | V > 0 | 좌측 절단면에서 상향 (↑) |
+| 전단력 V | V > 0 | 좌측 절단면에서 상향 |
 | 모멘트 M | M > 0 | Sagging (하부 인장) |
 | 축력 N | N > 0 | 인장 (+), 압축 (-) |
 
-**변환 규칙** (OpenSees → 교과서):
-```python
-V_textbook = -V_opensees
-M_textbook = -M_opensees
+변환: `V_textbook = -V_opensees`, `M_textbook = -M_opensees`
+
+---
+
+## 7. KDS Database (Supabase)
+
+| 테이블 | 건수 | 내용 |
+|--------|------|------|
+| load_params | 712 | DL 234, LL 79, Seismic 258, Wind 49, Snow 17, Combo 46 |
+| hazard_region_values | 2,290 | 229개 시군구 x 10종 (snow, wind, seismic, PGA) |
+
+### KDS Agent Team Pipeline
+```
+[PDF] → pdf_to_images.py → [PNG Images]
+     → Document Analyst → Table Extractor → Normalizer → Validator → DB Loader
+     → Supabase (load_params / hazard_region_values)
 ```
 
-## 설치 및 실행
+---
 
-### 1. 환경 설정
+## 8. Benchmark Results (vs Midas Gen)
 
+| Case | 모델 | 메트릭 | 결과 |
+|------|------|--------|------|
+| 1 | 1-bay 2D Linear | 20 | ALL OK |
+| 2 | 2-bay 3-story 2D | 24 | ALL OK |
+| 3 | 2D P-Delta | 16 | ALL OK |
+| 4 | 3D Linear | 12/12 OK, 12 CHECK | 요소 정식화 차이 ~3% |
+| 5 | 5-story 3D P-Delta | 40 | ALL OK (max diff 0.05%) |
+
+**Total: 112 metrics — 100 OK, 12 CHECK** (선형/비선형 모두 우수한 일치)
+
+---
+
+## 9. Installation & Run
+
+### Prerequisites
 ```bash
-# Conda 환경 생성 (Python 3.8 필수 - OpenSeesPy 요구사항)
-conda create -n opensees38 python=3.8
-conda activate opensees38
+# Python 3.12+ 환경
+conda create -n opensees python=3.12
+conda activate opensees
+```
 
+### Install
+```bash
 # 의존성 설치
 cd webapp/backend
 pip install -r requirements.txt
+
+# MCP 서버 의존성
+cd ../../mcp-server
+pip install -r requirements.txt
 ```
 
-### 2. 환경 변수 설정
-
+### Environment Variables
 ```bash
-# Windows
-set ANTHROPIC_API_KEY=your-api-key
-set SUPABASE_URL=your-supabase-url
-set SUPABASE_KEY=your-supabase-key
-
-# Linux/Mac
-export ANTHROPIC_API_KEY=your-api-key
-export SUPABASE_URL=your-supabase-url
-export SUPABASE_KEY=your-supabase-key
+# .env 파일 생성
+ANTHROPIC_API_KEY=your-api-key
+SUPABASE_URL=your-supabase-url
+SUPABASE_KEY=your-supabase-key
 ```
 
-### 3. 서버 실행
-
+### Run
 ```bash
 cd webapp/backend
 python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
 ```
 
-또는 Windows:
-```bash
-cd webapp
-start_server.bat
-```
+접속: http://localhost:8001
 
-### 4. 접속
+---
 
-- 로컬: http://localhost:8001
-
-## API 엔드포인트
+## 10. API Endpoints
 
 | Method | Endpoint | 설명 |
 |--------|----------|------|
 | GET | `/` | 메인 페이지 |
-| GET | `/simple-beam` | 단순보 입력 페이지 |
-| GET | `/continuous-beam` | 연속보 입력 페이지 |
-| GET | `/frame2d` | 2D 골조 입력 페이지 |
-| POST | `/api/jobs` | 2D Frame 해석 Job 생성 |
-| POST | `/api/simple-beam/jobs` | 단순보 해석 Job 생성 |
-| POST | `/api/continuous-beam/jobs` | 연속보 해석 Job 생성 |
-| GET | `/api/jobs/{job_id}/report` | 해석 결과 리포트 |
-| POST | `/api/claude/parse` | 자연어 → 입력 파싱 |
+| GET | `/editor` | 3D Building Editor |
+| POST | `/api/building/analyze` | 빌딩 해석 (3D) |
+| POST | `/api/building/parse-ifc` | IFC 파싱 |
+| POST | `/api/building/sections` | 단면 목록 조회 |
+| POST | `/api/building/materials` | 재료 목록 조회 |
+| POST | `/api/claude/parse-building` | 자연어 → BuildingIntent |
+| POST | `/api/claude/resolve-config` | Intent → Config 변환 |
+| GET | `/api/jobs/{job_id}/report` | HTML 리포트 |
+| POST | `/api/jobs` | 2D Frame 해석 |
+| POST | `/api/simple-beam/jobs` | 단순보 해석 |
+| POST | `/api/continuous-beam/jobs` | 연속보 해석 |
 
-## 배포 (Render)
+---
 
-1. GitHub 저장소 연결
-2. Environment Variables 설정:
-   - `ANTHROPIC_API_KEY`
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
-3. Build Command: `pip install -r webapp/backend/requirements.txt`
-4. Start Command: `cd webapp/backend && python -m uvicorn app.main_simple:app --host 0.0.0.0 --port $PORT`
+## 11. Implementation Stages
 
-## 개발 현황
+| Stage | 내용 | 테스트 |
+|-------|------|--------|
+| 1 | 리포트 품질 (warnings, envelope, equilibrium) | - |
+| 2 | 가정 확인 (Assumption Confirmation) | - |
+| 3 | 부재 릴리즈 (2D `-release` / 3D `equalDOF`) | 29/29 |
+| 4 | P-Delta (2D PDelta / 3D Corotational) | 40/40 |
+| 5 | 메타데이터 + 리포트 명확성 개선 | 29/29 |
+| 6 | 3D 전역 응답 검증 + 건물 파이프라인 | 33/33 |
+| 7 | Midas Gen 벤치마크 (5 cases, 112 metrics) | 112/112 |
+| Phase 1 | 자연어 → Config (NL Resolver) | 38/38 |
+| Phase 2 | 설계검토 (Design Check) | 16/16 |
+| Phase 3 | 3D Building Editor (Web UI) | Manual |
 
-### 완료된 기능
-- [x] 단순보 해석 (다양한 지지조건, 하중유형)
-- [x] 연속보 해석 (다경간, SFD 불연속 처리)
-- [x] 2D Frame 해석 (다층/다경간)
-- [x] 하중 조합 및 Envelope 분석
-- [x] 층간변위 검토 (사용자 정의 허용기준)
-- [x] Story Shear 이중검증 (반력/요소 기반)
-- [x] 부호규약 통일 (교과서 규약)
-- [x] CSV/PNG/PDF Export
-- [x] Claude AI 자연어 입력
+---
 
-### 진행 예정
-- [ ] 3D Frame 해석
-- [ ] 부재 단부 릴리즈 (힌지)
-- [ ] Rigid offset
-- [ ] P-Delta 해석
-- [ ] 자중 자동 적용
-- [ ] 전단변형 (Timoshenko beam)
-
-## 제한사항
-
-현재 버전에서 **지원되지 않는** 기능:
-- End release (힌지 조인트)
-- Rigid offset
-- Shear deformation (Timoshenko beam)
-- P-Delta (기하비선형)
-- Self-weight 자동 계산
-
-## 라이선스
+## 12. License
 
 MIT License
 
-## 관련 문서
+---
+
+## 13. References
 
 - [OpenSeesPy Documentation](https://openseespydoc.readthedocs.io/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Plotly.js Documentation](https://plotly.com/javascript/)
+- [KDS 한국건설기준](https://www.kcsc.re.kr/)
+- [AISC 360 — Specification for Structural Steel Buildings](https://www.aisc.org/)
+- [Three.js Documentation](https://threejs.org/docs/)
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
