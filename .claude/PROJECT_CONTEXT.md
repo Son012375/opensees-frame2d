@@ -1,6 +1,6 @@
 # OpenSees-MCP 프로젝트 통합 문서
 
-> **최종 업데이트:** 2026-02-10
+> **최종 업데이트:** 2026-03-11
 > **목적:** 새 세션에서 컨텍스트 유지를 위한 통합 레퍼런스
 
 ---
@@ -22,14 +22,15 @@
 | **Simple Beam** | ✅ Ready | 단순지지/캔틸레버/고정단, 분포/집중하중 |
 | **Continuous Beam** | ✅ Ready | 다경간, 내부힌지, SFD 불연속 처리 |
 | **Frame 2D** | ✅ Ready | 다층/다경간, 하중조합, Envelope, 층간변위 |
-| **Frame 3D** | 🚧 Planned | 3차원 해석, 비틀림 (장기 목표) |
+| **Frame 3D** | ✅ Ready | 3차원 해석, 6-DOF, X/Y 양방향 층간변위 |
+| **Building Pipeline** | ✅ Ready | IFC/JSON → 자동하중 → 3D해석 (E2E 검증 완료) |
 
 ### 1.3 기술 스택
 
 | 구분 | 기술 |
 |------|------|
-| Backend | FastAPI, Python 3.8 |
-| Analysis | OpenSeesPy (elasticBeamColumn) |
+| Backend | FastAPI, Python 3.12+ |
+| Analysis | OpenSeesPy (elasticBeamColumn, 2D/3D) |
 | Frontend | Jinja2, HTMX, Plotly.js |
 | AI | Claude API (Anthropic) |
 | Database | Supabase (KS 표준 단면/재료 DB) |
@@ -47,8 +48,18 @@ opensees-MCP/
 │   │   ├── simple_beam.py         # 단순보 해석
 │   │   ├── continuous_beam.py     # 연속보 해석
 │   │   ├── frame_2d.py            # 2D 프레임 해석 (~1200줄)
+│   │   ├── frame_3d.py            # 3D 프레임 해석 (~700줄)
+│   │   ├── building_model.py      # BuildingModel IR (IFC/JSON → 해석)
+│   │   ├── load_generator.py      # 자동 하중 생성 (DL/LL/EQ/Wind)
+│   │   ├── ifc_parser.py          # IFC → 그리드 감지 (ifcopenshell)
+│   │   ├── design_spectrum.py     # KDS 설계응답스펙트럼
+│   │   ├── kds_loads.py           # KDS 하중 DB 조회
+│   │   ├── ops_compat.py          # OpenSeesPy 호환 레이어
+│   │   ├── section_3d.py          # 3D 단면 물성
 │   │   ├── visualization.py       # HTML 리포트 생성 (~3500줄)
 │   │   ├── sign_convention.py     # 부호규약 변환
+│   │   ├── nl_resolver.py         # 자연어→Config 변환 (NL Resolver)
+│   │   ├── assumption_tracker.py  # 가정 확인 모듈
 │   │   └── verification.py        # 수치 검증
 │   ├── tools/
 │   │   └── opensees_tools.py      # MCP Tool 정의
@@ -224,6 +235,12 @@ Frame2DResult(
 - [x] 단순보 해석 (다양한 지지조건, 하중유형)
 - [x] 연속보 해석 (다경간, SFD 불연속 처리)
 - [x] 2D Frame 해석 (다층/다경간)
+- [x] 3D Frame 해석 (6-DOF, X/Y 양방향 층간변위)
+- [x] 건물 자동 해석 파이프라인 (IFC/JSON → 하중자동생성 → 3D해석)
+- [x] IFC 파싱 (벽 기반 + 기둥 기반 건물 모두 지원)
+- [x] KDS 하중 자동 생성 (DL/LL/EQ/Wind/조합 18개)
+- [x] 설계응답스펙트럼 (KDS 17 10 00)
+- [x] KDS 하중 DB 조회 (Supabase, 712건 + 2290건)
 - [x] 하중 조합 및 Envelope 분석
 - [x] 층간변위 검토 (사용자 정의 허용기준)
 - [x] Story Shear 이중검증 (반력/요소 기반)
@@ -231,24 +248,29 @@ Frame2DResult(
 - [x] CSV/PNG/PDF Export
 - [x] Claude AI 자연어 입력
 - [x] Model 탭 Capabilities 매트릭스
+- [x] 부재 릴리즈 (2D release / 3D equalDOF)
+- [x] P-Delta (2D PDelta / 3D Corotational)
+- [x] 해석 메타데이터 + 리포트 명확성
+- [x] 3D 전역 응답 검증 + 건물 파이프라인 비선형 통합
+- [x] Midas Gen 벤치마크 검증 (5 cases, 112 metrics)
+- [x] 자연어 → Config 변환 (NL Resolver, resolve_building_config)
 
 ### 6.2 진행 예정
 
-- [ ] 3D Frame 해석 (장기)
-- [ ] 부재 단부 릴리즈 (힌지)
+- [ ] 3.2.2 빌딩 프레임 해석 노션 문서화
+- [ ] Phase 3 방향 재검토 (NL 결과 해석 or KDS 준거 검토)
+- [ ] 고유치해석 결과 통합
 - [ ] Rigid offset
-- [ ] P-Delta 해석
-- [ ] 자중 자동 적용
 - [ ] 전단변형 (Timoshenko beam)
 
 ### 6.3 제한사항 (Model 탭에 표시됨)
 
 | 기능 | 상태 |
 |------|------|
-| End release (힌지) | Not supported |
+| End release (힌지) | ✅ Supported (2D release / 3D equalDOF) |
 | Rigid offset | Not supported |
 | Shear deformation (Timoshenko) | Not supported |
-| P-Delta (기하비선형) | Not supported |
+| P-Delta (기하비선형) | ✅ Supported (2D PDelta / 3D Corotational) |
 | Self-weight 자동 계산 | Not supported |
 
 ---
@@ -287,27 +309,61 @@ Frame2DResult(
 | `analyze_simple_beam` | 단순보 해석 |
 | `analyze_continuous_beam` | 연속보 해석 |
 | `analyze_frame_2d` | 2D 프레임 해석 |
+| `analyze_frame_3d` | 3D 프레임 해석 |
+| `analyze_building` | 건물 자동 해석 (IFC/JSON → 하중 → 3D 해석) |
 | `get_section_properties` | 단면 정보 조회 |
 | `get_material_properties` | 재료 정보 조회 |
 | `list_available_sections` | 사용 가능한 단면 목록 |
 | `list_available_materials` | 사용 가능한 재료 목록 |
+| `get_design_loads` | KDS 설계하중 조회 |
+| `get_load_combinations` | KDS 하중조합 조회 |
+| `get_hazard_values` | 지역별 위험도 조회 (지진/풍/설) |
+| `get_design_spectrum` | 설계응답스펙트럼 생성 |
+| `resolve_building_config` | 자연어 의도 → 검증된 건물 해석 Config 변환 |
 
 ---
 
-## 9. 설치 및 실행
+## 9. Frame 3D 상세
 
-### 9.1 환경 설정
+### 9.1 입력/출력
+- **좌표계:** X=bay_x, Y=bay_y, Z=높이(up)
+- **단위계:** mm, N (OpenSees 내부), 결과는 kN/m 단위로 반환
+- **하중유형:** floor, floor_area, lateral_x, lateral_y, nodal
+- **출력:** 6-DOF 변위, 12성분 요소력, X/Y 양방향 층간변위
+
+### 9.2 Building Pipeline
+```
+[IFC 파일] or [JSON Config]
+    → BuildingModel (building_model.py)
+    → LoadGenerator (load_generator.py)
+        → DL/LL/EQX/EQY/WX/WY + 18개 조합
+    → frame_3d.analyze_frame_3d_multi()
+    → 결과 (반력, 부재력, 층간변위, envelope)
+```
+
+### 9.3 IFC 파서 (ifc_parser.py)
+- IfcColumn 위치 + IfcWall 위치/방향으로 그리드 자동 감지
+- 벽 방향: placement rotation matrix로 전역 방향 판별
+- 층 필터링: 음수 elevation, 기초/참조 레벨 자동 제거
+- 슬래브 두께: IfcSlab → IfcExtrudedAreaSolid.Depth
+- 검증: 2차시도 (3층 벽구조) + 4차시도 (10층 골조) E2E PASS
+
+---
+
+## 10. 설치 및 실행
+
+### 10.1 환경 설정
 
 ```bash
-# Python 3.8 필수 (OpenSeesPy 요구사항)
-conda create -n opensees38 python=3.8
-conda activate opensees38
+# Python 3.12+ (opensees 패키지)
+conda create -n opensees python=3.12
+conda activate opensees
 
 cd webapp/backend
 pip install -r requirements.txt
 ```
 
-### 9.2 환경 변수
+### 10.2 환경 변수
 
 ```bash
 set ANTHROPIC_API_KEY=your-api-key
@@ -315,7 +371,7 @@ set SUPABASE_URL=your-supabase-url
 set SUPABASE_KEY=your-supabase-key
 ```
 
-### 9.3 서버 실행
+### 10.3 서버 실행
 
 ```bash
 cd webapp/backend
@@ -326,9 +382,9 @@ python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
 
 ---
 
-## 10. OpenSeesPy 핵심 명령어 (Quick Reference)
+## 11. OpenSeesPy 핵심 명령어 (Quick Reference)
 
-### 10.1 모델 정의
+### 11.1 모델 정의
 
 ```python
 ops.wipe()
@@ -338,14 +394,14 @@ ops.fix(nodeTag, 1, 1, 1)  # Ux, Uy, Rz 고정
 ops.geomTransf('Linear', transfTag)
 ```
 
-### 10.2 요소 정의
+### 11.2 요소 정의
 
 ```python
 # 탄성 보-기둥 요소
 ops.element('elasticBeamColumn', eleTag, ni, nj, A, E, Iz, transfTag)
 ```
 
-### 10.3 하중
+### 11.3 하중
 
 ```python
 ops.timeSeries('Constant', tsTag)
@@ -354,7 +410,7 @@ ops.load(nodeTag, Fx, Fy, Mz)
 ops.eleLoad('-ele', eleTag, '-type', '-beamUniform', wy)
 ```
 
-### 10.4 해석
+### 11.4 해석
 
 ```python
 ops.constraints('Transformation')
@@ -367,7 +423,7 @@ ops.analysis('Static')
 ops.analyze(1)
 ```
 
-### 10.5 결과 출력
+### 11.5 결과 출력
 
 ```python
 ops.nodeDisp(nodeTag, dof)      # 변위
@@ -377,10 +433,15 @@ ops.eleForce(eleTag)            # [N_i, V_i, M_i, N_j, V_j, M_j]
 
 ---
 
-## 11. 변경 이력
+## 12. 변경 이력
 
 | 날짜 | 내용 |
 |------|------|
+| 2026-03-11 | Phase 1 NL Resolver 완료 (resolve_building_config MCP tool, 38 tests, E2E 검증) |
+| 2026-03-09 | Stage 3~7 완료 (릴리즈, P-Delta, 메타데이터, 전역검증, Midas 벤치마크) |
+| 2026-03-03 | IFC 파서 실제 파일 검증 (2차시도/4차시도), E2E 파이프라인 완료 |
+| 2026-02-27 | 3D Frame 해석, 건물 자동 해석 파이프라인, 설계응답스펙트럼 |
+| 2026-02-25 | KDS DB 적재 (712건 load_params, 2290건 hazard_region_values) |
 | 2026-02-10 | 통합 문서 생성, README 갱신 |
 | 2026-02-09 | Phase O: Story Shear 이중검증, Model 탭 Capabilities, Envelope 정렬 |
 | 2026-02-08 | 부호규약 통일 (sign_convention.py) |
@@ -391,7 +452,7 @@ ops.eleForce(eleTag)            # [N_i, V_i, M_i, N_j, V_j, M_j]
 
 ---
 
-## 12. 외부 참조
+## 13. 외부 참조
 
 - [OpenSeesPy Documentation](https://openseespydoc.readthedocs.io/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
