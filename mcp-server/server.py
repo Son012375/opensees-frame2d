@@ -28,8 +28,14 @@ from core.simple_beam import (
 from core.continuous_beam import analyze_continuous_beam
 from core.frame_2d import analyze_frame_2d_multi
 from core.visualization import plot_beam_results, plot_beam_results_interactive, plot_frame_2d_multi_interactive
+from core.visualization_3d import plot_frame_3d_interactive
 from core.verification import verify_frame_equilibrium
 from core.verification import verify_equilibrium
+from core.kds_loads import query_design_loads, query_load_combinations, query_hazard_values
+from core.design_spectrum import compute_design_spectrum
+from core.frame_3d import analyze_frame_3d_multi
+from core.building_model import BuildingModel
+from core.load_generator import generate_all_loads
 
 def _build_enhanced_response(result, input_data, is_continuous=False) -> dict:
     """해석 결과에 input_summary, moment_summary, equilibrium_check, design_check 추가"""
@@ -268,6 +274,8 @@ class Frame2DInput(BaseModel):
     column_section: str = Field(default="H-300x300", description="기둥 단면")
     beam_section: str = Field(default="H-400x200", description="보 단면")
     material_name: str = Field(default="SS275", description="재료 이름")
+    member_releases: dict | None = Field(default=None, description="부재 단부 릴리즈 (힌지). 예: {\"beam\": \"both\"} = 모든 보 양단 핀. 값: \"i\"(시작단), \"j\"(끝단), \"both\"(양단), null(강절)")
+    geometric_nonlinearity: str = Field(default="linear", description="기하비선형 해석 옵션: \"linear\"(기본, 1차 선형) 또는 \"pdelta\"(P-Delta 2차 효과 포함)")
 
 
 class SectionQueryInput(BaseModel):
@@ -276,6 +284,117 @@ class SectionQueryInput(BaseModel):
 
 class MaterialQueryInput(BaseModel):
     material_name: str = Field(..., description="조회할 재료 이름 (예: SS275)")
+
+
+class DesignLoadInput(BaseModel):
+    param_type: str = Field(..., description="하중 유형: dead_load(고정하중), live_load(활하중), snow_load(설하중), wind_load(풍하중), live_reduction(활하중저감), roof_live_reduction(지붕활하중저감), similar_live_load(유사활하중)")
+    param_subtype: str | None = Field(default=None, description="세부 유형 (예: unit_weight, distributed, concentrated, base_coefficient 등). 생략 시 전체 조회")
+    keyword: str | None = Field(default=None, description="primary_key 검색어 (부분 매칭). 예: 'office'(사무실), 'steel'(강재), 'concrete'(콘크리트)")
+
+
+class LoadCombinationInput(BaseModel):
+    limit_state: str | None = Field(default=None, description="한계상태: 'uls'(극한한계상태) 또는 'sls'(사용한계상태). 생략 시 전체 조회")
+
+
+class HazardValueInput(BaseModel):
+    region_name: str = Field(..., description="지역명 (시/도 또는 시/군/구). 부분 매칭 지원. 예: '서울', '강남구', '부산'")
+    hazard_type: str | None = Field(default=None, description="위험계수 유형: 'snow_sg'(지상적설하중) 또는 'wind_v0'(기본풍속). 생략 시 둘 다 반환")
+
+
+class DesignSpectrumInput(BaseModel):
+    region: str = Field(..., description="지역명 (시/군/구). 예: '종로구', '강남구', '부산', '제주시'")
+    site_class: str = Field(default="S3", description="지반종류: S1(암반), S2(얕고 단단한), S3(깊고 단단한), S4(깊고 연약한), S5(깊고 연약한 특수)")
+    importance_factor: float = Field(default=1.0, description="위험도계수 I. 내진특등급=1.4, I등급=1.2, II등급=1.0")
+    damping_ratio: float = Field(default=0.05, description="감쇠비 (기본 5%=0.05)")
+    period_end: float = Field(default=5.0, description="스펙트럼 계산 끝 주기 (sec)")
+    period_step: float = Field(default=0.01, description="주기 간격 (sec)")
+
+
+class Frame3DInput(BaseModel):
+    stories: list[float] = Field(..., description="각 층의 높이 리스트 (m), 아래에서 위로. 예: [3.5, 3.2] = 2층 건물")
+    bays_x: list[float] = Field(..., description="X방향 경간 폭 리스트 (m). 예: [6.0, 8.0] = 2경간")
+    bays_y: list[float] = Field(..., description="Y방향 경간 폭 리스트 (m). 예: [6.0] = 1경간")
+    load_cases: dict[str, list[dict]] = Field(..., description="하중케이스 딕셔너리. 예: {\"DL\": [{\"type\":\"floor\",\"story\":1,\"value\":15}], \"EQX\": [{\"type\":\"lateral_x\",\"story\":2,\"value\":50}]}")
+    load_combinations: dict[str, dict[str, float]] | None = Field(default=None, description="하중조합. 예: {\"1.2DL+1.0EQX\": {\"DL\":1.2, \"EQX\":1.0}}")
+    supports: Literal["fixed", "pinned"] = Field(default="fixed", description="기초 지점 조건: fixed(고정) 또는 pinned(핀)")
+    column_section: str = Field(default="H-300x300", description="기둥 단면")
+    beam_x_section: str = Field(default="H-400x200", description="X방향 보 단면")
+    beam_y_section: str = Field(default="H-400x200", description="Y방향 보 단면")
+    material_name: str = Field(default="SS275", description="재료 이름")
+    num_elements_per_member: int = Field(default=4, description="부재당 요소 분할 수 (기본 4)")
+    rigid_diaphragm: bool = Field(default=False, description="강체 다이어프램 적용 (층별 수평면 강성 구속)")
+    member_releases: dict | None = Field(default=None, description="부재 단부 릴리즈 (힌지). 예: {\"beam_x\": \"both\"} = X보 양단 핀. 값: \"i\"(시작단), \"j\"(끝단), \"both\"(양단), null(강절)")
+    geometric_nonlinearity: str = Field(default="linear", description="기하비선형 해석 옵션: \"linear\"(기본, 1차 선형) 또는 \"pdelta\"(P-Delta 2차 효과 포함)")
+    modal_analysis: bool = Field(default=False, description="고유치해석 수행 여부. True 시 rigid_diaphragm이 자동 활성화됩니다. 1~3차 고유주기, 지배방향 등을 반환합니다.")
+    story_weights_kN: list[float] | None = Field(default=None, description="층별 중력하중 (kN). 고유치해석 시 질량 산정에 사용. None이면 DL 하중에서 자동 추정.")
+
+
+class BuildingAnalysisInput(BaseModel):
+    config: dict = Field(..., description="""건물 설정 JSON. 필수 키: stories, bays_x, bays_y.
+
+stories 형식: [{"height": 4.0, "usage": "retail", "dead_load_finish": 1.5}, {"height": 3.5, "usage": "office"}]
+  - height (필수): 층고 (m)
+  - usage: 용도 (office, residential, retail, parking, hospital, school, library, corridor, restaurant, hotel, factory, gym, storage, assembly, roof, balcony)
+  - dead_load_finish: 마감재 하중 (kN/m², 기본 1.0)
+  - slab_thickness: 슬래브 두께 (m, 기본 0.15)
+
+bays_x: X방향 경간 폭 리스트 (m). 예: [8.0, 8.0]
+bays_y: Y방향 경간 폭 리스트 (m). 예: [8.0, 8.0]
+
+선택 키:
+  - column_section: 기둥 단면 (기본: H-300x300)
+  - beam_x_section: X보 단면 (기본: H-400x200)
+  - beam_y_section: Y보 단면 (기본: H-400x200)
+  - material_name: 재료명 (기본: SS275)
+  - supports: fixed/pinned (기본: fixed)
+  - region: 지역명 (예: "서울"). 지정 시 지진/풍하중 자동 생성
+  - site_class: 지반종류 S1~S5 (기본: S3)
+  - importance: 중요도 등급 특/I/II (기본: II)
+  - seismic_system: 내진시스템 (기본: ordinary_moment_frame)
+    (special_moment_frame, intermediate_moment_frame, rc_special_moment_frame 등)
+  - exposure_category: 풍하중 노풍도 A/B/C/D (기본: B)
+  - auto_combinations: 자동 하중조합 생성 (기본: true)
+  - rigid_diaphragm: 강체 다이어프램 적용 (기본: false). true면 층별 수평면 강성 구속
+  - geometric_nonlinearity: "linear"(기본) 또는 "pdelta"(P-Delta 2차 효과)""")
+    ifc_path: str | None = Field(default=None, description="IFC 파일 경로 (미구현, 추후 지원 예정)")
+
+
+class ResolveBuildingConfigInput(BaseModel):
+    intent: dict = Field(..., description="""Claude가 자연어에서 추출한 건물 설계 의도 JSON.
+
+필수 키:
+  stories: 층별 용도 의도 리스트.
+    각 항목: {floor_start: int, floor_end: int, usage_raw: str, height: float|null}
+    - floor_start/floor_end: 층 범위 (1-based, inclusive). 단일층이면 동일 값.
+    - usage_raw: 사용자 원문 (한국어). 예: "근린생활시설", "오피스", "기계실"
+    - height: 층고 (m). 미언급 시 null → 1층 4.0m, 기준층 3.5m, 기계실 3.0m 적용
+
+선택 키:
+  num_stories: 총 층수 (stories 범위에서 추론 가능하면 생략)
+  bays_x: X방향 경간 [m] 리스트. 예: [8.0, 8.0]
+  bays_y: Y방향 경간 [m] 리스트
+  num_bays_x: X방향 경간 수 (bays_x 대신 사용 가능)
+  num_bays_y: Y방향 경간 수
+  typical_bay_width: 대표 경간 폭 (m). 기본 8.0
+  region_raw: 지역명 원문. 예: "부산 해운대", "서울 강남"
+  site_class: S1~S5
+  importance: 특/I/II
+  seismic_system: 내진시스템 키 (special_moment_frame, ordinary_moment_frame 등)
+  exposure_category: A/B/C/D
+  column_section, beam_x_section, beam_y_section, material_name, supports
+  rigid_diaphragm, geometric_nonlinearity
+
+예시:
+{
+  "stories": [
+    {"floor_start": 1, "floor_end": 1, "usage_raw": "근린생활시설"},
+    {"floor_start": 2, "floor_end": 5, "usage_raw": "오피스"},
+    {"floor_start": 6, "floor_end": 6, "usage_raw": "기계실"}
+  ],
+  "region_raw": "부산 해운대",
+  "bays_x": [8.0, 8.0],
+  "bays_y": [8.0]
+}""")
 
 
 # Tool 목록 정의
@@ -383,6 +502,179 @@ async def list_tools():
             name="list_available_materials",
             description="사용 가능한 재료 목록을 반환합니다.",
             inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="get_design_loads",
+            description="""KDS 설계하중 파라미터를 조회합니다 (Supabase DB, 454건+).
+
+입력:
+- param_type (필수): 하중 유형
+  - dead_load: 고정하중 (재료 단위중량, 마감재 중량)
+  - live_load: 활하중 (용도별 등분포/집중하중)
+  - snow_load: 설하중 계수 (Cb, Ce, Ct, Is)
+  - wind_load: 풍하중 계수 (외압/내압/풍력계수)
+  - live_reduction: 활하중 저감계수
+  - roof_live_reduction: 지붕활하중 저감계수
+  - similar_live_load: 유사활하중 (난간, 칸막이벽, 차량방호)
+- param_subtype (선택): 세부 유형 필터
+  - dead_load → unit_weight, density, material_weight, finishing_weight 등
+  - live_load → distributed, concentrated, heavy_vehicle
+  - snow_load → Cb, Ce, Ct, Is
+- keyword (선택): primary_key 부분 매칭 검색어 (예: 'office', 'concrete')
+
+출력:
+- 매칭 레코드: display_name_ko, value, unit, conditions, 출처(code_id, clause_id) 등
+
+예시:
+- 사무실 활하중: param_type="live_load", keyword="office"
+- 콘크리트 단위중량: param_type="dead_load", keyword="concrete"
+- 설하중 노출계수: param_type="snow_load", param_subtype="Ce"
+- 풍하중 외압계수: param_type="wind_load", param_subtype="external_pressure_wall" """,
+            inputSchema=DesignLoadInput.model_json_schema(),
+        ),
+        Tool(
+            name="get_load_combinations",
+            description="""KDS 하중조합식을 조회합니다 (KDS 41 12 00 §1.7, 46건).
+
+입력:
+- limit_state (선택): 'uls' (극한한계상태, 23건) 또는 'sls' (사용한계상태, 23건). 생략 시 전체 반환.
+
+출력:
+- 하중조합 목록: combo_id, 한국어/영어 명칭, 적용조건, 출처
+
+예시:
+- 극한한계상태 조합: limit_state="uls"
+- 사용한계상태 조합: limit_state="sls" """,
+            inputSchema=LoadCombinationInput.model_json_schema(),
+        ),
+        Tool(
+            name="get_hazard_values",
+            description="""지역별 지상적설하중(Sg)과 기본풍속(V₀)을 조회합니다 (458건, 229개 시/군/구).
+
+입력:
+- region_name (필수): 지역명. 시/도 또는 시/군/구 이름 (부분 매칭). 예: '서울', '강남구', '부산'
+- hazard_type (선택): 'snow_sg' (지상적설하중, kN/m²) 또는 'wind_v0' (기본풍속, m/s). 생략 시 둘 다.
+
+출력:
+- 매칭 지역별: region_sido, region_sigungu, Sg (kN/m²), V₀ (m/s)
+
+예시:
+- 서울 전체: region_name="서울"
+- 강남구 풍속: region_name="강남구", hazard_type="wind_v0"
+- 부산 적설하중: region_name="부산", hazard_type="snow_sg" """,
+            inputSchema=HazardValueInput.model_json_schema(),
+        ),
+        Tool(
+            name="get_design_spectrum",
+            description="""KDS 17 10 00 설계응답스펙트럼을 계산합니다.
+
+지역명과 지반종류를 입력하면 가속도 표준설계응답스펙트럼 Sa(T) 곡선을 생성합니다.
+Supabase DB에서 구역계수(z), 지반증폭계수(Fa, Fv)를 조회하여 계산합니다.
+
+입력:
+- region (필수): 지역명 (시/군/구). 예: '종로구', '강남구', '부산', '제주시'
+- site_class: 지반종류 S1~S5 (기본 S3)
+- importance_factor: 위험도계수 I (기본 1.0). 내진특등급=1.4, I등급=1.2, II등급=1.0
+- damping_ratio: 감쇠비 (기본 0.05 = 5%)
+- period_end: 스펙트럼 끝 주기 (기본 5.0초)
+- period_step: 주기 간격 (기본 0.01초)
+
+출력:
+- spectrum: {periods, Sa, unit, count} - 스펙트럼 곡선 데이터
+- parameters: {z, Fa, Fv, SDS, SD1, T0, Ts, TL, ...} - 스펙트럼 정의 파라미터
+- pga: 재현주기별 PGA 정보 (있는 경우)
+- opensees_input: OpenSeesPy responseSpectrumAnalysis 입력용 데이터
+
+근거: KDS 17 10 00 §4.2.1.4, 표 4.2-5, 표 4.2-6""",
+            inputSchema=DesignSpectrumInput.model_json_schema(),
+        ),
+        Tool(
+            name="analyze_frame_3d",
+            description="""3D 골조(프레임) 정적 해석을 수행합니다. X/Y 양방향 다경간, 멀티 하중케이스 및 하중조합을 지원합니다.
+
+입력:
+- stories: 각 층 높이 리스트 (m), 아래→위. 예: [3.5, 3.2] = 2층
+- bays_x: X방향 경간 폭 리스트 (m). 예: [6.0, 8.0] = 2경간
+- bays_y: Y방향 경간 폭 리스트 (m). 예: [6.0] = 1경간
+- load_cases (필수): 하중케이스 딕셔너리
+  하중 유형:
+  - floor: 층 보에 등분포하중 (kN/m). story의 모든 보에 적용
+  - floor_area: 바닥 면적하중 (kN/m²). tributary width로 보 선하중 변환
+  - lateral_x: X방향 횡하중 (kN). story 노드에 균등 분배
+  - lateral_y: Y방향 횡하중 (kN). story 노드에 균등 분배
+  - nodal: 절점하중 (node, fx, fy, fz, mx, my, mz)
+  예: {"DL": [{"type":"floor","story":1,"value":15}], "EQX": [{"type":"lateral_x","story":2,"value":100}]}
+- load_combinations: 하중조합 (선형중첩)
+  예: {"1.2DL+1.0EQX": {"DL":1.2, "EQX":1.0}}
+- supports: 기초 조건 ("fixed" 또는 "pinned")
+- column_section: 기둥 단면 (기본: H-300x300)
+- beam_x_section: X방향 보 단면 (기본: H-400x200)
+- beam_y_section: Y방향 보 단면 (기본: H-400x200)
+
+좌표계: X=수평(bay_x), Y=수평(bay_y), Z=수직(높이)
+
+출력:
+- 케이스/조합별: 6-DOF 노드 변위, 12성분 요소력, 6성분 반력
+- X/Y 양방향 층간변위각
+- 부재력 다이어그램 (N, Vy, Vz, T, My, Mz)""",
+            inputSchema=Frame3DInput.model_json_schema(),
+        ),
+        Tool(
+            name="analyze_building",
+            description="""건물 자동 해석: JSON 설정 → 하중 자동 생성 → 3D 프레임 해석.
+
+건물의 기하 정보와 위치/용도를 입력하면:
+1. 층별 용도에 따라 DB에서 설계하중 자동 조회 (KDS 41 12 00)
+2. 지역 정보로 지진하중 자동 계산 (KDS 41 17 00 등가정적해석법)
+3. 기본풍속 조회 + 풍하중 자동 계산 (KDS 41 12 00 §5)
+4. KDS 표준 하중조합 자동 생성 (18개 조합)
+5. OpenSeesPy 3D 프레임 해석 수행
+
+생성되는 하중케이스:
+  - DL: 고정하중 (슬래브 자중 + 마감재 + 설비)
+  - LL: 활하중 (용도별 DB 조회: 사무실 2.5, 소매점 5.0 kN/m² 등)
+  - EQX/EQY: 등가정적 지진하중 (region 지정 시)
+  - WX/WY: 풍하중 (region 지정 시)
+
+예시 config:
+{
+  "stories": [{"height":4.0,"usage":"retail"},{"height":3.5,"usage":"office"},{"height":3.5,"usage":"office"}],
+  "bays_x": [8.0, 8.0],
+  "bays_y": [8.0, 8.0],
+  "region": "서울",
+  "site_class": "S3",
+  "importance": "II"
+}""",
+            inputSchema=BuildingAnalysisInput.model_json_schema(),
+        ),
+        Tool(
+            name="resolve_building_config",
+            description="""자연어 건물 설계 의도 → 구조 해석 config 변환 (검증 포함).
+
+사용자의 자연어 입력에서 Claude가 추출한 건물 설계 의도(BuildingIntent)를
+검증된 analyze_building config로 변환합니다.
+
+주요 기능:
+1. 한국어 용도명 → 표준 occupancy key 매핑 (30개 DB 키 + 확장 별칭)
+   예: "근린생활시설"→retail, "기계실"→mechanical_room, "오피스"→office
+2. 지역명 → Supabase 229개 시군구 fuzzy 매칭
+   예: "부산 해운대"→부산광역시 해운대구
+3. 층 범위 → 개별 층 config 확장
+   예: floor_start=2, floor_end=5 → 4개 개별 층
+4. 미지정 파라미터 기본값 채움 + 가정 추적
+5. 경고 생성 (복합 매핑, 미매핑, 기본값 등)
+
+응답:
+- status: "resolved" (바로 해석 가능) 또는 "needs_clarification" (사용자 확인 필요)
+- config: analyze_building에 전달할 최종 config
+- resolution_report: 매핑/변환 상세
+- warnings: 주의사항
+- clarification_needed: 사용자에게 물어볼 질문 (지역 모호성, 용도 미매핑 등)
+
+2단계 워크플로우:
+  1. resolve_building_config → config 생성 + 사용자 확인
+  2. analyze_building(config) → 해석 실행""",
+            inputSchema=ResolveBuildingConfigInput.model_json_schema(),
         ),
     ]
 
@@ -558,6 +850,8 @@ async def call_tool(name: str, arguments: dict):
                 beam_section=input_data.beam_section,
                 material_name=input_data.material_name,
                 load_combinations=input_data.load_combinations,
+                member_releases=input_data.member_releases,
+                geometric_nonlinearity=input_data.geometric_nonlinearity,
             )
 
             # 평형검증 (케이스별)
@@ -632,6 +926,7 @@ async def call_tool(name: str, arguments: dict):
                 "results_by_case": results_by_case,
                 "results_by_combo": results_by_combo,
                 "equilibrium_check": eq_checks,
+                "analysis_metadata": getattr(multi, 'analysis_metadata', {}),
             }
             if diagram_html and os.path.exists(diagram_html):
                 response["diagram_html"] = diagram_html
@@ -654,6 +949,289 @@ async def call_tool(name: str, arguments: dict):
         elif name == "list_available_materials":
             materials = get_available_materials()
             return [TextContent(type="text", text=json.dumps({"materials": materials}, ensure_ascii=False))]
+
+        elif name == "get_design_loads":
+            input_data = DesignLoadInput(**arguments)
+            result = query_design_loads(
+                param_type=input_data.param_type,
+                param_subtype=input_data.param_subtype,
+                keyword=input_data.keyword,
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "get_load_combinations":
+            input_data = LoadCombinationInput(**arguments)
+            result = query_load_combinations(
+                limit_state=input_data.limit_state,
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "get_hazard_values":
+            input_data = HazardValueInput(**arguments)
+            result = query_hazard_values(
+                region_name=input_data.region_name,
+                hazard_type=input_data.hazard_type,
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "get_design_spectrum":
+            input_data = DesignSpectrumInput(**arguments)
+            result = compute_design_spectrum(
+                region=input_data.region,
+                site_class=input_data.site_class,
+                importance_factor=input_data.importance_factor,
+                damping_ratio=input_data.damping_ratio,
+                period_end=input_data.period_end,
+                period_step=input_data.period_step,
+            )
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "analyze_frame_3d":
+            input_data = Frame3DInput(**arguments)
+
+            multi = analyze_frame_3d_multi(
+                stories=input_data.stories,
+                bays_x=input_data.bays_x,
+                bays_y=input_data.bays_y,
+                load_cases=input_data.load_cases,
+                supports=input_data.supports,
+                column_section=input_data.column_section,
+                beam_x_section=input_data.beam_x_section,
+                beam_y_section=input_data.beam_y_section,
+                material_name=input_data.material_name,
+                num_elements_per_member=input_data.num_elements_per_member,
+                load_combinations=input_data.load_combinations,
+                rigid_diaphragm=input_data.rigid_diaphragm,
+                member_releases=input_data.member_releases,
+                geometric_nonlinearity=input_data.geometric_nonlinearity,
+                modal_analysis=input_data.modal_analysis,
+                story_weights_kN=input_data.story_weights_kN,
+            )
+
+            # 케이스별 결과 요약
+            def _case_summary_3d(cr):
+                return {
+                    "max_displacement_x": f"{cr.max_displacement_x:.3f} mm",
+                    "max_displacement_x_node": cr.max_displacement_x_node,
+                    "max_displacement_y": f"{cr.max_displacement_y:.3f} mm",
+                    "max_displacement_y_node": cr.max_displacement_y_node,
+                    "max_displacement_z": f"{cr.max_displacement_z:.3f} mm",
+                    "max_displacement_z_node": cr.max_displacement_z_node,
+                    "max_drift_x": f"{cr.max_drift_x:.6f} rad",
+                    "max_drift_x_story": cr.max_drift_x_story,
+                    "max_drift_y": f"{cr.max_drift_y:.6f} rad",
+                    "max_drift_y_story": cr.max_drift_y_story,
+                    "max_moment": f"{cr.max_moment:.2f} kN·m",
+                    "max_moment_element": cr.max_moment_element,
+                    "max_axial": f"{cr.max_axial:.2f} kN",
+                    "max_axial_element": cr.max_axial_element,
+                    "max_shear": f"{cr.max_shear:.2f} kN",
+                    "max_shear_element": cr.max_shear_element,
+                    "max_torsion": f"{cr.max_torsion:.2f} kN·m",
+                    "max_torsion_element": cr.max_torsion_element,
+                    "reactions": cr.reactions,
+                    "story_drifts": cr.story_drifts,
+                }
+
+            results_by_case = {}
+            for cn, cr in multi.case_results.items():
+                results_by_case[cn] = _case_summary_3d(cr)
+
+            results_by_combo = {}
+            for cn, cr in multi.combo_results.items():
+                results_by_combo[cn] = _case_summary_3d(cr)
+
+            response = {
+                "status": "success",
+                "input": {
+                    "stories": [f"{s} m" for s in input_data.stories],
+                    "bays_x": [f"{b} m" for b in input_data.bays_x],
+                    "bays_y": [f"{b} m" for b in input_data.bays_y],
+                    "num_stories": multi.num_stories,
+                    "num_bays_x": multi.num_bays_x,
+                    "num_bays_y": multi.num_bays_y,
+                    "column_section": input_data.column_section,
+                    "beam_x_section": input_data.beam_x_section,
+                    "beam_y_section": input_data.beam_y_section,
+                    "material": input_data.material_name,
+                    "supports": input_data.supports,
+                },
+                "geometry": {
+                    "total_height": f"{multi.total_height:.2f} m",
+                    "total_width_x": f"{multi.total_width_x:.2f} m",
+                    "total_width_y": f"{multi.total_width_y:.2f} m",
+                    "num_elements": multi.num_elements,
+                    "coordinate_system": "X=bay_x, Y=bay_y, Z=height(up)",
+                },
+                "sections": {
+                    "column": {
+                        "A_mm2": multi.column_A_mm2,
+                        "Ix_mm4": multi.column_Ix_mm4,
+                        "Iy_mm4": multi.column_Iy_mm4,
+                        "J_mm4": multi.column_J_mm4,
+                    },
+                    "beam_x": {
+                        "A_mm2": multi.beam_x_A_mm2,
+                        "Ix_mm4": multi.beam_x_Ix_mm4,
+                        "Iy_mm4": multi.beam_x_Iy_mm4,
+                        "J_mm4": multi.beam_x_J_mm4,
+                    },
+                    "beam_y": {
+                        "A_mm2": multi.beam_y_A_mm2,
+                        "Ix_mm4": multi.beam_y_Ix_mm4,
+                        "Iy_mm4": multi.beam_y_Iy_mm4,
+                        "J_mm4": multi.beam_y_J_mm4,
+                    },
+                },
+                "load_cases": list(multi.case_results.keys()),
+                "load_combinations": list(multi.combo_results.keys()),
+                "results_by_case": results_by_case,
+                "results_by_combo": results_by_combo,
+                "analysis_metadata": getattr(multi, 'analysis_metadata', {}),
+            }
+
+            # 고유치해석 결과 포함
+            if multi.modal_analysis:
+                response["modal_analysis"] = multi.modal_analysis
+
+            # HTML 리포트 생성
+            try:
+                html_path = plot_frame_3d_interactive(multi)
+                response["html_report_path"] = html_path
+            except Exception:
+                pass
+
+            return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
+
+        elif name == "resolve_building_config":
+            input_data = ResolveBuildingConfigInput(**arguments)
+            from core.nl_resolver import resolve_building_config
+            result = resolve_building_config(input_data.intent)
+            return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+        elif name == "analyze_building":
+            input_data = BuildingAnalysisInput(**arguments)
+
+            # 1. BuildingModel 생성
+            model = BuildingModel.from_json(input_data.config)
+
+            # 2. 하중 자동 생성
+            load_result = generate_all_loads(model)
+
+            # 2.5. 가정 확인 (Assumption Confirmation)
+            from core.assumption_tracker import build_assumption_summary
+            assumptions = build_assumption_summary(
+                model, input_data.config, load_result["summary"]
+            )
+
+            # 3. frame_3d 해석 (모달해석 자동 활성화)
+            kwargs = model.to_frame3d_kwargs()
+            kwargs["load_cases"] = load_result["load_cases"]
+            kwargs["load_combinations"] = load_result["load_combinations"]
+            kwargs["modal_analysis"] = True
+
+            multi = analyze_frame_3d_multi(**kwargs)
+
+            # 4. 결과 요약
+            def _case_summary_bldg(cr):
+                return {
+                    "max_displacement_x_mm": round(cr.max_displacement_x, 3),
+                    "max_displacement_y_mm": round(cr.max_displacement_y, 3),
+                    "max_displacement_z_mm": round(cr.max_displacement_z, 3),
+                    "max_drift_x": round(cr.max_drift_x, 6),
+                    "max_drift_y": round(cr.max_drift_y, 6),
+                    "max_moment_kNm": round(cr.max_moment, 2),
+                    "max_axial_kN": round(cr.max_axial, 2),
+                    "max_shear_kN": round(cr.max_shear, 2),
+                    "story_drifts": cr.story_drifts,
+                }
+
+            results_by_case = {cn: _case_summary_bldg(cr) for cn, cr in multi.case_results.items()}
+            results_by_combo = {cn: _case_summary_bldg(cr) for cn, cr in multi.combo_results.items()}
+
+            # 5. Envelope (최대값 across all combos)
+            env = {"max_dx_mm": 0, "max_dy_mm": 0, "max_dz_mm": 0,
+                   "max_drift_x": 0, "max_drift_y": 0,
+                   "max_moment_kNm": 0, "max_axial_kN": 0, "max_shear_kN": 0,
+                   "governing_combo_drift_x": "", "governing_combo_drift_y": "",
+                   "governing_combo_moment": ""}
+            for cn, cr in multi.combo_results.items():
+                if abs(cr.max_displacement_x) > abs(env["max_dx_mm"]):
+                    env["max_dx_mm"] = round(cr.max_displacement_x, 3)
+                if abs(cr.max_displacement_y) > abs(env["max_dy_mm"]):
+                    env["max_dy_mm"] = round(cr.max_displacement_y, 3)
+                if abs(cr.max_displacement_z) > abs(env["max_dz_mm"]):
+                    env["max_dz_mm"] = round(cr.max_displacement_z, 3)
+                if cr.max_drift_x > env["max_drift_x"]:
+                    env["max_drift_x"] = round(cr.max_drift_x, 6)
+                    env["governing_combo_drift_x"] = cn
+                if cr.max_drift_y > env["max_drift_y"]:
+                    env["max_drift_y"] = round(cr.max_drift_y, 6)
+                    env["governing_combo_drift_y"] = cn
+                if cr.max_moment > env["max_moment_kNm"]:
+                    env["max_moment_kNm"] = round(cr.max_moment, 2)
+                    env["governing_combo_moment"] = cn
+                if cr.max_axial > env["max_axial_kN"]:
+                    env["max_axial_kN"] = round(cr.max_axial, 2)
+                if cr.max_shear > env["max_shear_kN"]:
+                    env["max_shear_kN"] = round(cr.max_shear, 2)
+
+            # Design check
+            try:
+                from core.design_check import run_design_check
+                seismic_rpt = load_result["reports"].get("seismic")
+                dc_result = run_design_check(multi, model, seismic_rpt)
+            except Exception:
+                dc_result = None
+
+            # Result interpretation
+            interpretation = None
+            if dc_result is not None:
+                try:
+                    from core.result_interpreter import interpret_results
+                    interpretation = interpret_results(
+                        dc_result, multi,
+                        modal_analysis=multi.modal_analysis or None,
+                    )
+                except Exception:
+                    pass
+
+            response = {
+                "status": "success",
+                "building": model.summary(),
+                "assumptions": assumptions,
+                "load_generation": {
+                    "summary": load_result["summary"],
+                    "load_cases": list(load_result["load_cases"].keys()),
+                    "load_combinations": list(load_result["load_combinations"].keys()),
+                    "reports": load_result["reports"],
+                },
+                "analysis": {
+                    "num_elements": multi.num_elements,
+                    "results_by_case": results_by_case,
+                    "results_by_combo": results_by_combo,
+                    "envelope": env,
+                    "analysis_metadata": getattr(multi, 'analysis_metadata', {}),
+                },
+            }
+            if dc_result is not None:
+                response["design_check"] = dc_result
+            if interpretation is not None:
+                response["interpretation"] = interpretation
+            if multi.modal_analysis:
+                response["modal_analysis"] = multi.modal_analysis
+
+            # HTML 리포트 생성
+            try:
+                html_path = plot_frame_3d_interactive(
+                    multi, assumptions=assumptions,
+                    design_check=dc_result, interpretation=interpretation,
+                )
+                response["html_report_path"] = html_path
+            except Exception:
+                pass
+
+            return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
 
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]

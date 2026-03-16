@@ -32,7 +32,7 @@ NOTE: The member_forces dict stores OpenSees convention (V_kN, M_kNm arrays).
 from __future__ import annotations
 
 import math
-import openseespy.opensees as ops
+from core.ops_compat import ops
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
@@ -136,6 +136,15 @@ class Frame2DMultiCaseResult:
 
     # 부재력 다이어그램 데이터: {case_name: [member_force_data, ...]}
     member_forces: dict = field(default_factory=dict)
+
+    # 부재 릴리즈 (힌지) 설정
+    member_releases: dict = field(default_factory=dict)
+
+    # 기하비선형 설정
+    geometric_nonlinearity: str = "linear"  # "linear" or "pdelta"
+
+    # 해석 메타데이터 (추적 및 리포트용)
+    analysis_metadata: dict = field(default_factory=dict)
 
     # 하위호환용
     loads_info: list[dict] = field(default_factory=list)
@@ -293,6 +302,51 @@ def generate_frame_geometry(
 
 
 # ============================================================
+# 부재 릴리즈 헬퍼
+# ============================================================
+
+_RELEASE_MAP = {"i": 1, "j": 2, "both": 3}
+
+
+def _get_release_code_2d(elem_type: str, member_releases: dict | None) -> int | None:
+    """부재 유형에 대한 OpenSees release code 반환 (1=i, 2=j, 3=both)."""
+    if not member_releases:
+        return None
+    release_str = member_releases.get(elem_type)
+    if release_str is None:
+        return None
+    return _RELEASE_MAP.get(release_str)
+
+
+def _get_sub_element_release(
+    release_code: int | None, sub_idx: int, total: int
+) -> int | None:
+    """서브요소별 release code 분배.
+
+    i-end(1): 첫 서브요소만 i-release(1)
+    j-end(2): 마지막 서브요소만 j-release(2)
+    both(3): 첫→1, 마지막→2, (단일요소→3)
+    """
+    if release_code is None:
+        return None
+    is_first = sub_idx == 0
+    is_last = sub_idx == total - 1
+    if release_code == 1:
+        return 1 if is_first else None
+    elif release_code == 2:
+        return 2 if is_last else None
+    elif release_code == 3:
+        if total == 1:
+            return 3
+        if is_first:
+            return 1
+        if is_last:
+            return 2
+        return None
+    return None
+
+
+# ============================================================
 # 내부 함수: 모델 빌드, 하중 적용, 해석, 결과 추출
 # ============================================================
 
@@ -307,6 +361,8 @@ def _build_frame_model(
     column_section_name: str,
     beam_section_name: str,
     num_elements_per_member: int,
+    member_releases: dict | None = None,
+    geometric_nonlinearity: str = "linear",
 ) -> tuple[list[Element2D], dict, list[int], int]:
     """
     OpenSees 모델 빌드 (노드, BC, 기하변환, 요소)
@@ -329,8 +385,9 @@ def _build_frame_model(
             ops.fix(bn, 1, 1, 0)
 
     # 기하변환
-    ops.geomTransf('Linear', 1)  # 기둥용
-    ops.geomTransf('Linear', 2)  # 보용
+    transf_type = 'PDelta' if geometric_nonlinearity == "pdelta" else 'Linear'
+    ops.geomTransf(transf_type, 1)  # 기둥용
+    ops.geomTransf(transf_type, 2)  # 보용
 
     # 요소 생성 (부재별 분할)
     elem_id = 0
@@ -355,9 +412,15 @@ def _build_frame_model(
         A = sec.A
         I = sec.I
 
+        # 부재 릴리즈 코드 결정
+        rel_code = _get_release_code_2d(elem_type, member_releases)
+
         if num_elements_per_member == 1:
             elem_id += 1
-            ops.element('elasticBeamColumn', elem_id, ni, nj, A, E, I, transf)
+            args = ['elasticBeamColumn', elem_id, ni, nj, A, E, I, transf]
+            if rel_code is not None:
+                args.extend(['-release', rel_code])
+            ops.element(*args)
             elements_info.append(Element2D(elem_id, ni, nj, elem_type, section_name))
             member_to_elements[member_id].append(elem_id)
         else:
@@ -379,7 +442,11 @@ def _build_frame_model(
 
             for k in range(num_elements_per_member):
                 elem_id += 1
-                ops.element('elasticBeamColumn', elem_id, sub_nodes[k], sub_nodes[k + 1], A, E, I, transf)
+                args = ['elasticBeamColumn', elem_id, sub_nodes[k], sub_nodes[k + 1], A, E, I, transf]
+                sub_rel = _get_sub_element_release(rel_code, k, num_elements_per_member)
+                if sub_rel is not None:
+                    args.extend(['-release', sub_rel])
+                ops.element(*args)
                 elements_info.append(Element2D(elem_id, sub_nodes[k], sub_nodes[k + 1], elem_type, section_name))
                 member_to_elements[member_id].append(elem_id)
 
@@ -422,16 +489,44 @@ def _apply_loads(
             ops.load(node_id, fx, -fy, mz)
 
 
-def _solve():
-    """정적 해석 수행"""
+def _solve(geometric_nonlinearity: str = "linear") -> dict:
+    """정적 해석 수행. 해석 메타데이터 dict 반환."""
     ops.system('BandGen')
     ops.numberer('Plain')
     ops.constraints('Plain')
-    ops.integrator('LoadControl', 1.0)
-    ops.algorithm('Linear')
-    ops.analysis('Static')
-    ops.analyze(1)
+    solver_meta = {
+        "requested_mode": geometric_nonlinearity,
+        "actual_transf": "PDelta" if geometric_nonlinearity == "pdelta" else "Linear",
+        "algorithm": "Linear",
+        "fallback_used": False,
+        "n_steps": 1,
+    }
+    if geometric_nonlinearity == "pdelta":
+        # P-Delta: Newton 알고리즘 + 다단계 하중 적용
+        n_steps = 10
+        ops.test('NormDispIncr', 1.0e-8, 50)
+        ops.integrator('LoadControl', 1.0 / n_steps)
+        ops.algorithm('Newton')
+        ops.analysis('Static')
+        solver_meta["algorithm"] = "Newton"
+        solver_meta["n_steps"] = n_steps
+        ok = ops.analyze(n_steps)
+        if ok != 0:
+            ops.test('NormDispIncr', 1.0e-6, 100)
+            ops.algorithm('ModifiedNewton')
+            n_sub = 50
+            ops.integrator('LoadControl', 1.0 / n_sub)
+            ok = ops.analyze(n_sub)
+            solver_meta["fallback_used"] = True
+            solver_meta["algorithm"] = "ModifiedNewton"
+            solver_meta["n_steps"] = n_sub
+    else:
+        ops.integrator('LoadControl', 1.0)
+        ops.algorithm('Linear')
+        ops.analysis('Static')
+        ops.analyze(1)
     ops.reactions()
+    return solver_meta
 
 
 def _extract_case_results(
@@ -1106,6 +1201,8 @@ def analyze_frame_2d_multi(
     material_name: str = "SS275",
     num_elements_per_member: int = 4,
     load_combinations: Optional[dict[str, dict[str, float]]] = None,
+    member_releases: dict | None = None,
+    geometric_nonlinearity: str = "linear",
 ) -> Frame2DMultiCaseResult:
     """
     멀티 하중케이스 2D 골조 정적 해석
@@ -1123,6 +1220,8 @@ def analyze_frame_2d_multi(
     num_elements_per_member : int
     load_combinations : dict, optional
         하중조합. 예: {"1.0DL+1.0EQX": {"DL": 1.0, "EQX": 1.0}}
+    geometric_nonlinearity : str
+        "linear" (기본) 또는 "pdelta" (P-Delta 기하비선형)
     """
     n_stories = len(stories)
     n_bays = len(bays)
@@ -1173,9 +1272,11 @@ def analyze_frame_2d_multi(
             nodes, connections, base_nodes, supports,
             col_section, beam_sec, E,
             column_section, beam_section, num_elements_per_member,
+            member_releases=member_releases,
+            geometric_nonlinearity=geometric_nonlinearity,
         )
         _apply_loads(case_loads, n_stories, n_bays, n_cols, member_to_elements)
-        _solve()
+        solver_meta = _solve(geometric_nonlinearity=geometric_nonlinearity)
 
         case_results[case_name] = _extract_case_results(
             nodes, elements_info, base_nodes, stories,
@@ -1252,6 +1353,16 @@ def analyze_frame_2d_multi(
         combo_results=combo_results,
         member_forces=all_member_forces,
         loads_info=first_loads,
+        member_releases=member_releases or {},
+        geometric_nonlinearity=geometric_nonlinearity,
+        analysis_metadata={
+            "dimension": "2D",
+            "requested_mode": geometric_nonlinearity,
+            "actual_transf": "PDelta" if geometric_nonlinearity == "pdelta" else "Linear",
+            "solver_algorithm": solver_meta.get("algorithm", "Linear"),
+            "fallback_used": solver_meta.get("fallback_used", False),
+            "n_steps": solver_meta.get("n_steps", 1),
+        },
     )
 
 

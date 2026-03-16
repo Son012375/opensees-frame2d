@@ -2173,7 +2173,7 @@ th {{ background: #f0f0f0; font-weight: 600; text-align: center; }}
     <div class="model-section">
       <h4>Analysis</h4>
       <table class="model-table">
-        <tr><td>Type</td><td>Linear Static</td></tr>
+        <tr><td>Type</td><td>{"Nonlinear Static (2D PDelta)" if getattr(multi_result, 'geometric_nonlinearity', 'linear') == "pdelta" else "Linear Static"}</td></tr>
         <tr><td>Dimension</td><td>2D Frame (3 DOF/node: UX, UY, RZ)</td></tr>
         <tr><td>Element</td><td>Euler&ndash;Bernoulli Beam (elasticBeamColumn)</td></tr>
         <tr><td>Sub-elements/member</td><td id="modelSubElem"></td></tr>
@@ -2205,10 +2205,10 @@ th {{ background: #f0f0f0; font-weight: 600; text-align: center; }}
         <tr><td>Linear superposition (combos)</td><td class="supported">Supported</td></tr>
         <tr><td>Multi-story / multi-bay</td><td class="supported">Supported (up to 10&times;5)</td></tr>
         <tr><td>Fixed / Pinned supports</td><td class="supported">Supported</td></tr>
-        <tr><td>End release (hinge)</td><td class="not-supported">Not supported</td></tr>
+        <tr><td>End release (hinge)</td><td class="supported">Supported</td></tr>
         <tr><td>Rigid offset</td><td class="not-supported">Not supported</td></tr>
         <tr><td>Shear deformation (Timoshenko)</td><td class="not-supported">Not supported</td></tr>
-        <tr><td>P-Delta (geometric nonlinearity)</td><td class="not-supported">Not supported</td></tr>
+        <tr><td>P-Delta (geometric nonlinearity)</td><td class="supported">Supported</td></tr>
         <tr><td>Self-weight auto-load</td><td class="not-supported">Not supported</td></tr>
       </table>
     </div>

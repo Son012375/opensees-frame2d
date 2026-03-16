@@ -25,7 +25,7 @@ NOTE: The BeamResult.moments and BeamResult.shears arrays store OpenSees convent
 """
 from __future__ import annotations
 
-import openseespy.opensees as ops
+from core.ops_compat import ops
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 from supabase import create_client, Client
@@ -211,7 +211,7 @@ def get_material_from_db(material_name: str) -> Optional[Material]:
     """Supabase에서 재료 정보 조회 (두께별 다중 행 중 첫 번째 구간 사용)"""
     try:
         supabase = get_supabase()
-        result = supabase.schema("ks3502").table("materials").select("*").eq("name", material_name).order("t_min").limit(1).execute()
+        result = supabase.table("materials").select("*").eq("name", material_name).order("t_min").limit(1).execute()
         if result.data and len(result.data) > 0:
             row = result.data[0]
             return Material(
@@ -572,7 +572,7 @@ def get_available_materials() -> list[str]:
     """사용 가능한 재료 목록 반환 (중복 제거)"""
     try:
         supabase = get_supabase()
-        result = supabase.schema("ks3502").table("materials").select("name").order("name").execute()
+        result = supabase.table("materials").select("name").order("name").execute()
         if result.data:
             return list(dict.fromkeys([row["name"] for row in result.data]))
     except Exception as e:
@@ -632,7 +632,7 @@ def get_material_properties(material_name: str) -> dict:
     """재료 정보 조회 (두께별 전체 행 반환)"""
     try:
         supabase = get_supabase()
-        result = supabase.schema("ks3502").table("materials").select("*").eq("name", material_name).order("t_min").execute()
+        result = supabase.table("materials").select("*").eq("name", material_name).order("t_min").execute()
         if result.data and len(result.data) > 0:
             rows = []
             for row in result.data:

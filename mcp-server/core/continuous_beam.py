@@ -23,7 +23,7 @@ NOTE: The ContinuousBeamResult.moments and .shears arrays store OpenSees convent
 ===================================================================================
 """
 
-import openseespy.opensees as ops
+from core.ops_compat import ops
 from dataclasses import dataclass, field
 from typing import Optional
 
