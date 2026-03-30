@@ -1,4 +1,4 @@
-# Frame2D Analysis Web App - Python Dependencies
+# OpenSees Structural Analysis Platform - Python Dependencies
 
 # FastAPI & Server
 fastapi>=0.109.0
@@ -11,12 +11,14 @@ pydantic>=2.5.0
 # Jinja2 Templates
 Jinja2>=3.1.0
 
-# OpenSees analysis
-openseespy>=3.5.0
+# OpenSees analysis (Python 3.12+ compatible)
+opensees>=0.1.0
 numpy>=1.24.0
 plotly>=5.18.0
-kaleido>=0.2.1
 matplotlib>=3.7.0
+
+# IFC parsing
+ifcopenshell>=0.8.0
 
 # Claude API
 anthropic>=0.18.0
@@ -26,3 +28,5 @@ supabase>=2.0.0
 
 # Utilities
 python-dateutil>=2.8.0
+python-dotenv>=1.0.0
+scipy>=1.11.0

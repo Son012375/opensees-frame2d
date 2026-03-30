@@ -1,0 +1,20 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# OpenSees Structural Analysis Platform - Demo Deployment
+# Usage: docker compose up --build
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opensees-demo
+    ports:
+      - "8000:8000"
+    environment:
+      - MCP_SERVER_PATH=/app/mcp-server
+      - DEMO_AUTH_TOKEN=${DEMO_AUTH_TOKEN:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped

@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.venv
+venv
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Docs & test data
+docs/
+tests/
+*.md
+!data/**/*.md
+
+# Large data files not needed in container
+data/kds_images/
+data/kds_output/
+data/ifc_samples/
+
+# Environment (secrets injected via env vars)
+.env
+.env.*
+
+# Claude
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Old webapp Dockerfile (using root Dockerfile instead)
+webapp/Dockerfile

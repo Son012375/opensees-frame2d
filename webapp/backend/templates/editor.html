@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <!-- Editor CSS -->
-    <link rel="stylesheet" href="/static/css/editor.css">
+    <link rel="stylesheet" href="/static/css/editor.css?v=16">
 </head>
 <body>
     <!-- Top Bar -->
@@ -70,16 +70,54 @@
                         <button class="btn-add-story" onclick="addStory()">+ 층 추가</button>
                     </div>
 
-                    <!-- Bays -->
+                    <!-- Bays / Zones -->
                     <div class="form-section">
-                        <h4>Bays</h4>
-                        <div class="form-group">
-                            <label>Bays X (widths, m)</label>
-                            <input type="text" id="input-bays-x" value="8.0, 8.0" placeholder="8.0, 8.0">
+                        <h4>
+                            Bays
+                            <label class="toggle-inline" style="margin-left:auto;font-weight:normal;font-size:11px;">
+                                <input type="checkbox" id="irregular-toggle" onchange="toggleIrregular()">
+                                비정형
+                            </label>
+                        </h4>
+                        <p id="irregular-hint" class="form-hint" style="display:none;">
+                            L자형, T자형, Setback 등 비직교 평면을 존(Zone)으로 정의합니다.
+                        </p>
+                        <!-- Regular bays (default) -->
+                        <div id="regular-bays-panel">
+                            <div class="form-group">
+                                <label>Bays X (widths, m)</label>
+                                <input type="text" id="input-bays-x" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('x')">
+                                <div id="bays-x-slider-container" class="bay-slider-group"></div>
+                            </div>
+                            <div class="form-group">
+                                <label>Bays Y (widths, m)</label>
+                                <input type="text" id="input-bays-y" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('y')">
+                                <div id="bays-y-slider-container" class="bay-slider-group"></div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Bays Y (widths, m)</label>
-                            <input type="text" id="input-bays-y" value="8.0, 8.0" placeholder="8.0, 8.0">
+                        <!-- Irregular zones panel -->
+                        <div id="irregular-zones-panel" style="display:none;">
+                            <div class="form-group">
+                                <label>형태 프리셋</label>
+                                <select id="zone-preset" onchange="applyZonePreset()">
+                                    <option value="">-- 선택 --</option>
+                                    <option value="L-shape">&#x2517; L자형 (2존)</option>
+                                    <option value="T-shape">&#x2533; T자형 (2존)</option>
+                                    <option value="setback">&#x25BD; Setback (상층 축소)</option>
+                                </select>
+                            </div>
+                            <div id="zone-list-container">
+                                <!-- Dynamically generated zone rows -->
+                            </div>
+                            <button class="btn-add-story" onclick="addZone()">+ 존 추가</button>
+                            <!-- Zone plan view (2D top-down) -->
+                            <div class="form-group" style="margin-top:10px;">
+                                <label>평면도 (위에서 본 배치)</label>
+                                <canvas id="zone-plan-canvas" width="320" height="260"
+                                        style="width:100%;aspect-ratio:4/3.2;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;"></canvas>
+                            </div>
                         </div>
                     </div>
 
@@ -142,6 +180,29 @@
                                 <option value="I">I (중요)</option>
                                 <option value="특">특 (특수)</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Seismic Method</label>
+                            <select id="input-seismic-method" onchange="document.getElementById('rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                <option value="ELF" selected>ELF (등가정적)</option>
+                                <option value="RSA">RSA (응답스펙트럼)</option>
+                            </select>
+                        </div>
+                        <div id="rsa-options" style="display:none;">
+                            <div class="form-group">
+                                <label>Modal Combination</label>
+                                <select id="input-rsa-combination">
+                                    <option value="CQC" selected>CQC</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Direction Rule</label>
+                                <select id="input-rsa-direction">
+                                    <option value="30pct" selected>30% Rule (KDS)</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -337,6 +398,15 @@
                     <div class="spinner"></div>
                     <p id="loading-text">Analyzing...</p>
                 </div>
+                <!-- Mode shape color legend -->
+                <div id="mode-color-legend" style="display:none;">
+                    <div class="legend-title" id="legend-title">VIBRATION MODE</div>
+                    <div class="legend-bar-wrap">
+                        <div class="legend-bar" id="legend-bar"></div>
+                        <div class="legend-labels" id="legend-labels"></div>
+                    </div>
+                    <div class="legend-info" id="legend-info"></div>
+                </div>
             </div>
         </div>
 
@@ -393,8 +463,32 @@
                         <h4 style="margin:0;">Analysis Results</h4>
                         <span id="model-source-tag" class="model-source-tag"></span>
                     </div>
+                    <div id="case-selector-wrap" style="display:none; margin-bottom:6px;">
+                        <select id="case-selector" onchange="onCaseSelect()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                            <option value="__envelope__">Envelope (전체 조합)</option>
+                        </select>
+                    </div>
                     <table class="prop-table" id="results-table">
                     </table>
+
+                    <!-- ELF vs RSA Comparison -->
+                    <div id="elf-rsa-comparison" style="display:none; margin-top:10px;">
+                        <h4>ELF vs RSA</h4>
+                        <table class="prop-table" id="elf-rsa-table"></table>
+                    </div>
+
+                    <!-- Modal Analysis -->
+                    <div id="modal-section" style="display:none; margin-top:10px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                            <h4 style="margin:0;">Modal Analysis</h4>
+                            <div>
+                                <button id="btn-mode-animate" class="btn-icon" onclick="toggleModeAnimation()" title="애니메이션 재생/정지" style="font-size:14px; background:none; border:none; cursor:pointer; color:var(--text-secondary);">&#9654;</button>
+                            </div>
+                        </div>
+                        <select id="mode-selector" onchange="onModeSelect()" style="width:100%; padding:4px 6px; margin:6px 0; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        </select>
+                        <table class="prop-table" id="modal-table"></table>
+                    </div>
 
                     <!-- Design Check Summary -->
                     <div id="dc-summary" style="display:none; margin-top:10px;">
@@ -449,6 +543,6 @@
         </div>
     </div>
 
-    <script src="/static/js/editor3d.js"></script>
+    <script src="/static/js/editor3d.js?v=16"></script>
 </body>
 </html>

@@ -37,8 +37,6 @@ opensees-mcp/
 # Environment / Secrets
 .env
 .env.local
-*.bat
-!example.bat
 
 # Jobs data (generated)
 webapp/backend/jobs/
@@ -60,7 +58,7 @@ AUX
 !webapp/backend/templates/*.html
 !webapp/backend/templates/**/*.html
 
-# Large data — KDS PDF images (138MB, derived from PDFs)
+# Large data — KDS PDF images (derived from PDFs)
 data/kds_images/
 
 # Generated test output HTML reports
@@ -75,6 +73,25 @@ mcp-server/*.png
 # Binary / presentation files
 *.pptx
 
-# Temporary working files
+# Legacy directories (superseded by mcp-server + webapp)
+/adapters/
+/agents/
+/apply_mvp/
+/core/
+/pipeline/
+/streamlit_app/
+/utils/
+/migrations/
+/opensees-ai-agent/
 gpt용 md/
+
+# Legacy files
 opensees-mcp-copy.md
+openseespy_commands_reference.md
+test_ollama_opensees.py
+test_opensees.py
+conftest.py
+kds_pipeline.py
+render.yaml
+runtime.txt
+.python-version

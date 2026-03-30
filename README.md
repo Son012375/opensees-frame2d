@@ -45,6 +45,7 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 | 2D Frame | Ready | 3 | 다층/다경간, 릴리즈, P-Delta, Envelope |
 | 3D Frame | Ready | 6 | 양방향 경간, Corotational 비선형, Rigid Diaphragm |
 | Building Pipeline | Ready | 6 | IFC/JSON → 자동하중 → 3D해석 → 설계검토 |
+| Response Spectrum | Ready | 6 | KDS 설계응답스펙트럼, CQC/SRSS, RSA/ELF 비교 |
 
 ---
 
@@ -60,11 +61,12 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - IFC 파일 업로드 → 벽/기둥 기반 자동 파싱
 - 3D 와이어프레임 미리보기 (Three.js)
 - 3단계 위자드: Upload → Geometry Preview → Config → Analyze
+- 비정형 건물 지원 (L자형/T자형/Setback, Zone 기반)
 
 ### 3.3 KDS-Based Auto Load Generation
 - **고정하중(DL)**: 슬래브 자중 + 마감 + 설비
 - **활하중(LL)**: 용도별 KDS 41 12 00 매핑 (712건 DB)
-- **지진하중(EQ)**: 등가정적, KDS 17 10 00 설계응답스펙트럼
+- **지진하중(EQ)**: 등가정적 + 응답스펙트럼해석(RSA)
 - **풍하중(Wind)**: qz x Gf x Cp 프로파일
 - **하중조합**: KDS 41 17 00 자동 18개 조합 생성
 
@@ -98,7 +100,7 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 opensees-MCP/
 ├── mcp-server/                        # MCP 구조해석 서버
 │   ├── server.py                      # MCP tool 정의 (14개 도구)
-│   └── core/                          # 해석 엔진 모듈 (20개)
+│   └── core/                          # 해석 엔진 모듈
 │       ├── simple_beam.py             # 단순보 해석
 │       ├── continuous_beam.py         # 연속보 해석
 │       ├── frame_2d.py                # 2D 프레임 (릴리즈 + P-Delta)
@@ -109,61 +111,40 @@ opensees-MCP/
 │       ├── nl_resolver.py             # 자연어 → Config 변환
 │       ├── design_check.py            # KDS 층간변위 + AISC 부재강도
 │       ├── design_spectrum.py         # KDS 17 10 00 Sa(T) 곡선
-│       ├── visualization.py           # 2D HTML 리포트 (~3800줄)
-│       ├── visualization_3d.py        # 3D HTML 리포트 (~1400줄)
+│       ├── response_spectrum_analysis.py  # RSA (CQC/SRSS)
+│       ├── visualization.py           # 2D HTML 리포트
+│       ├── visualization_3d.py        # 3D HTML 리포트
 │       ├── result_interpreter.py      # 심각도/진단/제안 해석
-│       ├── assumption_tracker.py      # 가정 확인 모듈
-│       ├── section_3d.py              # 3D 단면 물성 (A, Ix, Iy, J)
-│       ├── sign_convention.py         # 부호규약 변환
-│       ├── ops_compat.py              # OpenSeesPy 호환 (3.8/3.12+)
-│       ├── kds_loads.py               # KDS 하중 파라미터
-│       └── verification.py            # 수치 검증
+│       └── ...                        # 기타 모듈
 │
 ├── webapp/                            # 웹 애플리케이션
 │   └── backend/
 │       ├── app/
-│       │   ├── main_simple.py         # FastAPI 앱 (Building API 포함)
+│       │   ├── main_simple.py         # FastAPI 앱
 │       │   └── core/
 │       │       ├── claude_service.py   # Claude API 서비스
+│       │       ├── auth.py            # 데모 인증 미들웨어
 │       │       └── config.py
-│       ├── templates/
+│       ├── templates/                 # HTML 템플릿
 │       │   ├── editor.html            # 3D Building Editor
-│       │   ├── home.html              # 메인 페이지
-│       │   └── base.html              # 베이스 템플릿
-│       └── static/
-│           ├── js/editor3d.js         # Three.js 3D 뷰어 (~1650줄)
-│           └── css/editor.css         # 테마 시스템 (~960줄)
+│       │   └── ...
+│       └── static/                    # JS/CSS
+│           ├── js/editor3d.js         # Three.js 3D 뷰어
+│           └── css/editor.css         # 테마 시스템
 │
 ├── tests/                             # 테스트 스위트
-│   ├── test_nl_resolver.py            # NL 변환 (38 tests)
-│   ├── test_design_check.py           # 설계검토 (16 tests)
-│   ├── test_stage5_metadata.py        # 메타데이터 (29 tests)
-│   ├── test_stage6_building_nonlinear.py  # 건물 비선형 (33 tests)
-│   ├── test_result_interpreter.py     # 결과 해석
-│   └── benchmark/                     # Midas Gen 비교 (5 cases, 112 metrics)
-│       ├── cases.py
-│       ├── compare.py
-│       └── run_benchmarks.py
+│   ├── benchmark/                     # Midas Gen 비교 (5 cases)
+│   └── ...                            # 단위 테스트
 │
 ├── data/                              # 데이터
 │   ├── mapping/occupancy.json         # 30개 용도 매핑
 │   └── kds_output/                    # KDS 추출/정규화 데이터
-│       ├── 03_*_normalized.json       # 정규화 데이터셋 (16종)
-│       └── midas_input_reference.json # Midas 비교 참조값
 │
 ├── scripts/                           # 유틸리티 스크립트
-│   ├── supabase_loader.py             # Supabase DB 적재
-│   ├── load_hazard_regions.py         # 지역 위험도 적재
-│   ├── load_seismic_pga.py            # 지진 PGA 적재
-│   ├── pdf_to_images.py               # PDF → 이미지 변환
-│   └── normalize_*.py                 # KDS 데이터 정규화
 │
-├── docs/                              # 프로젝트 문서
-├── adapters/                          # 어댑터 모듈
-├── agents/                            # AI 에이전트
-├── pipeline/                          # 데이터 파이프라인
-├── streamlit_app/                     # Streamlit UI 프로토타입
-└── opensees-ai-agent/                 # VIKTOR 기반 에이전트
+├── Dockerfile                         # Docker 이미지 (Python 3.12)
+├── docker-compose.yml                 # 로컬 Docker 실행
+└── DEPLOY.md                          # Azure Container Apps 배포 가이드
 ```
 
 ---
@@ -182,40 +163,46 @@ opensees-MCP/
 | Design Standard | AISC 360 | 강구조 부재강도 |
 | IFC Parser | ifcopenshell | 0.8.4+ |
 | Protocol | MCP (Model Context Protocol) | 14개 도구 등록 |
+| Deployment | Azure Container Apps | Docker + ACR |
 
 ---
 
-## 6. Sign Convention
+## 6. Installation & Run
 
-시각화에는 **교과서/MIDAS 부호규약**이 적용됩니다:
+### Local Development
 
-| 구분 | 규약 | 설명 |
-|------|------|------|
-| 전단력 V | V > 0 | 좌측 절단면에서 상향 |
-| 모멘트 M | M > 0 | Sagging (하부 인장) |
-| 축력 N | N > 0 | 인장 (+), 압축 (-) |
+```bash
+# Python 3.12+ 환경
+conda create -n opensees python=3.12
+conda activate opensees
 
-변환: `V_textbook = -V_opensees`, `M_textbook = -M_opensees`
+# 의존성 설치
+cd webapp/backend
+pip install -r requirements.txt
 
----
+# 환경변수 (.env)
+ANTHROPIC_API_KEY=your-api-key
+SUPABASE_URL=your-supabase-url
+SUPABASE_KEY=your-supabase-key
 
-## 7. KDS Database (Supabase)
-
-| 테이블 | 건수 | 내용 |
-|--------|------|------|
-| load_params | 712 | DL 234, LL 79, Seismic 258, Wind 49, Snow 17, Combo 46 |
-| hazard_region_values | 2,290 | 229개 시군구 x 10종 (snow, wind, seismic, PGA) |
-
-### KDS Agent Team Pipeline
-```
-[PDF] → pdf_to_images.py → [PNG Images]
-     → Document Analyst → Table Extractor → Normalizer → Validator → DB Loader
-     → Supabase (load_params / hazard_region_values)
+# 실행
+python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
 ```
 
+### Docker
+
+```bash
+docker compose up --build
+# 접속: http://localhost:8000
+```
+
+### Azure Deployment
+
+[DEPLOY.md](DEPLOY.md) 참조
+
 ---
 
-## 8. Benchmark Results (vs Midas Gen)
+## 7. Benchmark Results (vs Midas Gen)
 
 | Case | 모델 | 메트릭 | 결과 |
 |------|------|--------|------|
@@ -225,91 +212,27 @@ opensees-MCP/
 | 4 | 3D Linear | 12/12 OK, 12 CHECK | 요소 정식화 차이 ~3% |
 | 5 | 5-story 3D P-Delta | 40 | ALL OK (max diff 0.05%) |
 
-**Total: 112 metrics — 100 OK, 12 CHECK** (선형/비선형 모두 우수한 일치)
+**Total: 112 metrics — 100 OK, 12 CHECK**
 
 ---
 
-## 9. Installation & Run
+## 8. Sign Convention
 
-### Prerequisites
-```bash
-# Python 3.12+ 환경
-conda create -n opensees python=3.12
-conda activate opensees
-```
-
-### Install
-```bash
-# 의존성 설치
-cd webapp/backend
-pip install -r requirements.txt
-
-# MCP 서버 의존성
-cd ../../mcp-server
-pip install -r requirements.txt
-```
-
-### Environment Variables
-```bash
-# .env 파일 생성
-ANTHROPIC_API_KEY=your-api-key
-SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-supabase-key
-```
-
-### Run
-```bash
-cd webapp/backend
-python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
-```
-
-접속: http://localhost:8001
+| 구분 | 규약 | 설명 |
+|------|------|------|
+| 전단력 V | V > 0 | 좌측 절단면에서 상향 |
+| 모멘트 M | M > 0 | Sagging (하부 인장) |
+| 축력 N | N > 0 | 인장 (+), 압축 (-) |
 
 ---
 
-## 10. API Endpoints
-
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/` | 메인 페이지 |
-| GET | `/editor` | 3D Building Editor |
-| POST | `/api/building/analyze` | 빌딩 해석 (3D) |
-| POST | `/api/building/parse-ifc` | IFC 파싱 |
-| POST | `/api/building/sections` | 단면 목록 조회 |
-| POST | `/api/building/materials` | 재료 목록 조회 |
-| POST | `/api/claude/parse-building` | 자연어 → BuildingIntent |
-| POST | `/api/claude/resolve-config` | Intent → Config 변환 |
-| GET | `/api/jobs/{job_id}/report` | HTML 리포트 |
-| POST | `/api/jobs` | 2D Frame 해석 |
-| POST | `/api/simple-beam/jobs` | 단순보 해석 |
-| POST | `/api/continuous-beam/jobs` | 연속보 해석 |
-
----
-
-## 11. Implementation Stages
-
-| Stage | 내용 | 테스트 |
-|-------|------|--------|
-| 1 | 리포트 품질 (warnings, envelope, equilibrium) | - |
-| 2 | 가정 확인 (Assumption Confirmation) | - |
-| 3 | 부재 릴리즈 (2D `-release` / 3D `equalDOF`) | 29/29 |
-| 4 | P-Delta (2D PDelta / 3D Corotational) | 40/40 |
-| 5 | 메타데이터 + 리포트 명확성 개선 | 29/29 |
-| 6 | 3D 전역 응답 검증 + 건물 파이프라인 | 33/33 |
-| 7 | Midas Gen 벤치마크 (5 cases, 112 metrics) | 112/112 |
-| Phase 1 | 자연어 → Config (NL Resolver) | 38/38 |
-| Phase 2 | 설계검토 (Design Check) | 16/16 |
-| Phase 3 | 3D Building Editor (Web UI) | Manual |
-
----
-
-## 12. License
+## 9. License
 
 MIT License
 
 ---
 
-## 13. References
+## 10. References
 
 - [OpenSeesPy Documentation](https://openseespydoc.readthedocs.io/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)

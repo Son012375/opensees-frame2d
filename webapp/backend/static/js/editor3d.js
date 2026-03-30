@@ -50,6 +50,9 @@ const USAGE_OPTIONS = [
 let resolvedConfig = null;  // NL resolved config (for "바로 해석")
 let claudeAvailable = false;
 
+// Section property cache
+const sectionPropsCache = {};
+
 // ─── Theme ────────────────────────────────────────────────────────────────
 const SCENE_BG = { light: 0xdfe3e8, dark: 0x0d1117 };
 
@@ -207,6 +210,8 @@ function initThreeJS() {
 
     // Events
     canvas.addEventListener('click', onCanvasClick, false);
+    canvas.addEventListener('mousemove', onCanvasHover, false);
+    canvas.addEventListener('mouseleave', () => hideHoverTooltip(), false);
     window.addEventListener('resize', onResize, false);
 }
 
@@ -239,6 +244,9 @@ async function loadSectionsAndMaterials() {
         // Populate dropdowns
         populateSectionDropdowns();
         populateMaterialDropdown();
+
+        // Bind section property preview popups
+        bindAllSectionPreviews();
     } catch (e) {
         console.error('Failed to load sections/materials:', e);
     }
@@ -291,6 +299,94 @@ function populateMaterialDropdown() {
     setSelectValue(matSelect, 'SS275');
 }
 
+// ─── Section Property Preview ─────────────────────────────────────────────
+let sectionPopupEl = null;
+let sectionPopupTarget = null;
+
+function getSectionPopup() {
+    if (!sectionPopupEl) {
+        sectionPopupEl = document.createElement('div');
+        sectionPopupEl.id = 'section-props-popup';
+        document.body.appendChild(sectionPopupEl);
+    }
+    return sectionPopupEl;
+}
+
+async function fetchSectionProps(name) {
+    if (sectionPropsCache[name]) return sectionPropsCache[name];
+    try {
+        const res = await fetch('/api/sections/properties/' + encodeURIComponent(name));
+        const data = await res.json();
+        if (!data.error) sectionPropsCache[name] = data;
+        return data;
+    } catch { return null; }
+}
+
+function renderSectionPopup(popup, data) {
+    if (!data || data.error) {
+        popup.innerHTML = `<div class="sp-loading">${data?.error || '데이터 없음'}</div>`;
+        return;
+    }
+    const rows = [
+        ['A',  data.A_cm2,  'cm\u00B2'],
+        ['Ix', data.Ix_cm4, 'cm\u2074'],
+        ['Iy', data.Iy_cm4, 'cm\u2074'],
+        ['J',  data.J_cm4,  'cm\u2074'],
+        ['H',  data.h_mm,   'mm'],
+        ['B',  data.b_mm,   'mm'],
+        ['tw', data.tw_mm,  'mm'],
+        ['tf', data.tf_mm,  'mm'],
+    ];
+    let grid = rows
+        .filter(r => r[1] > 0)
+        .map(([k, v, u]) => `<span class="sp-key">${k}</span><span class="sp-val">${v.toLocaleString()}</span><span class="sp-unit">${u}</span>`)
+        .join('');
+    popup.innerHTML = `<div class="sp-title">${data.name}</div><div class="sp-grid">${grid}</div>`;
+}
+
+async function showSectionPopup(selectEl) {
+    const popup = getSectionPopup();
+    const name = selectEl.value;
+    if (!name) return;
+    sectionPopupTarget = selectEl;
+
+    // Position fixed below the select element
+    const rect = selectEl.getBoundingClientRect();
+    popup.style.left = rect.left + 'px';
+    popup.style.top = (rect.bottom + 4) + 'px';
+
+    popup.innerHTML = '<div class="sp-loading">Loading...</div>';
+    popup.classList.add('visible');
+
+    const data = await fetchSectionProps(name);
+    if (sectionPopupTarget === selectEl && popup.classList.contains('visible')) {
+        renderSectionPopup(popup, data);
+    }
+}
+
+function hideSectionPopup() {
+    const popup = getSectionPopup();
+    popup.classList.remove('visible');
+    sectionPopupTarget = null;
+}
+
+function bindSectionPreview(selectEl) {
+    if (!selectEl || selectEl.dataset.spBound) return;
+    selectEl.dataset.spBound = '1';
+    selectEl.addEventListener('focus', () => showSectionPopup(selectEl));
+    selectEl.addEventListener('change', () => showSectionPopup(selectEl));
+    selectEl.addEventListener('blur', () => setTimeout(hideSectionPopup, 200));
+}
+
+function bindAllSectionPreviews() {
+    // Manual tab dropdowns
+    ['input-col-section', 'input-beamx-section', 'input-beamy-section'].forEach(id => {
+        bindSectionPreview(document.getElementById(id));
+    });
+    // Properties panel dropdown
+    bindSectionPreview(document.getElementById('prop-new-section'));
+}
+
 // ─── Input Tab Switching ──────────────────────────────────────────────────
 function switchInputTab(tabName) {
     document.querySelectorAll('.input-tab').forEach(btn => {
@@ -301,6 +397,10 @@ function switchInputTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(div => {
         div.classList.toggle('active', div.id === 'tab-' + tabName);
     });
+    // Show live wireframe when switching to Manual tab (if no analysis result)
+    if (tabName === 'manual' && !currentResult) {
+        updateManualPreview();
+    }
 }
 
 // ─── Story Editor ────────────────────────────────────────────────────────
@@ -323,7 +423,16 @@ function createStoryRow(index, height, usage) {
     label.className = 'story-label';
     label.textContent = (index + 1) + 'F';
 
-    // Height input
+    // Height slider
+    const heightSlider = document.createElement('input');
+    heightSlider.type = 'range';
+    heightSlider.className = 'story-slider';
+    heightSlider.value = height;
+    heightSlider.step = '0.1';
+    heightSlider.min = '2.5';
+    heightSlider.max = '10';
+
+    // Hidden number input (keeps existing getter working)
     const heightInput = document.createElement('input');
     heightInput.type = 'number';
     heightInput.className = 'story-height';
@@ -331,11 +440,25 @@ function createStoryRow(index, height, usage) {
     heightInput.step = '0.5';
     heightInput.min = '2.5';
     heightInput.max = '10';
+    heightInput.style.display = 'none';
+
+    // Slider value display
+    const valDisplay = document.createElement('span');
+    valDisplay.className = 'slider-value';
+    valDisplay.textContent = parseFloat(height).toFixed(1);
 
     // Unit label
     const unit = document.createElement('span');
     unit.className = 'unit-label';
     unit.textContent = 'm';
+
+    // Bidirectional binding: slider ↔ hidden input + display
+    heightSlider.oninput = () => {
+        const v = parseFloat(heightSlider.value);
+        heightInput.value = v;
+        valDisplay.textContent = v.toFixed(1);
+        updateManualPreview();
+    };
 
     // Usage select
     const usageSelect = document.createElement('select');
@@ -356,11 +479,14 @@ function createStoryRow(index, height, usage) {
     removeBtn.onclick = () => {
         row.remove();
         renumberStoryRows();
+        updateManualPreview();
     };
 
     row.appendChild(label);
-    row.appendChild(heightInput);
+    row.appendChild(heightSlider);
+    row.appendChild(valDisplay);
     row.appendChild(unit);
+    row.appendChild(heightInput);
     row.appendChild(usageSelect);
     row.appendChild(removeBtn);
     return row;
@@ -370,6 +496,7 @@ function addStory() {
     const container = document.getElementById('story-list-container');
     const count = container.children.length;
     container.appendChild(createStoryRow(count, 3.5, 'office'));
+    updateManualPreview();
 }
 
 function renumberStoryRows() {
@@ -389,6 +516,159 @@ function getStoriesFromEditor() {
         stories.push({ height, usage });
     });
     return stories;
+}
+
+// ─── Bay Slider Editor ───────────────────────────────────────────────────
+function buildBaySliders(axis) {
+    // axis: 'x' or 'y'
+    const textInput = document.getElementById('input-bays-' + axis);
+    const container = document.getElementById('bays-' + axis + '-slider-container');
+    if (!container) return;
+
+    const bays = textInput.value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
+    container.innerHTML = '';
+
+    bays.forEach((w, i) => {
+        container.appendChild(createBayRow(i, w, axis));
+    });
+
+    // Add bay button
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn-add-bay';
+    addBtn.textContent = '+ 경간 추가';
+    addBtn.onclick = () => addBay(axis);
+    container.appendChild(addBtn);
+}
+
+function createBayRow(index, width, axis) {
+    const row = document.createElement('div');
+    row.className = 'bay-row';
+    row.dataset.axis = axis;
+    row.dataset.index = index;
+
+    const label = document.createElement('span');
+    label.className = 'bay-label';
+    label.textContent = (index + 1);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'bay-slider';
+    slider.value = width;
+    slider.step = '0.5';
+    slider.min = '3.0';
+    slider.max = '15.0';
+
+    const valDisplay = document.createElement('span');
+    valDisplay.className = 'slider-value';
+    valDisplay.textContent = parseFloat(width).toFixed(1) + 'm';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-remove-bay';
+    removeBtn.textContent = '\u00D7';
+    removeBtn.title = '이 경간 삭제';
+    removeBtn.onclick = () => {
+        row.remove();
+        syncBaySlidersToText(axis);
+        renumberBayRows(axis);
+        updateManualPreview();
+    };
+
+    slider.oninput = () => {
+        valDisplay.textContent = parseFloat(slider.value).toFixed(1) + 'm';
+        syncBaySlidersToText(axis);
+        updateManualPreview();
+    };
+
+    row.appendChild(label);
+    row.appendChild(slider);
+    row.appendChild(valDisplay);
+    row.appendChild(removeBtn);
+    return row;
+}
+
+function addBay(axis) {
+    const container = document.getElementById('bays-' + axis + '-slider-container');
+    const addBtn = container.querySelector('.btn-add-bay');
+    const count = container.querySelectorAll('.bay-row').length;
+    container.insertBefore(createBayRow(count, 8.0, axis), addBtn);
+    syncBaySlidersToText(axis);
+    updateManualPreview();
+}
+
+function renumberBayRows(axis) {
+    const container = document.getElementById('bays-' + axis + '-slider-container');
+    container.querySelectorAll('.bay-row').forEach((row, i) => {
+        row.dataset.index = i;
+        row.querySelector('.bay-label').textContent = (i + 1);
+    });
+}
+
+function syncBaySlidersToText(axis) {
+    const container = document.getElementById('bays-' + axis + '-slider-container');
+    const values = [];
+    container.querySelectorAll('.bay-slider').forEach(s => {
+        values.push(parseFloat(s.value).toFixed(1));
+    });
+    const textInput = document.getElementById('input-bays-' + axis);
+    textInput.value = values.join(', ');
+}
+
+function syncTextToBaySliders(axis) {
+    buildBaySliders(axis);
+    updateManualPreview();
+}
+
+function getBaysFromSliders(axis) {
+    const container = document.getElementById('bays-' + axis + '-slider-container');
+    if (!container) return [];
+    const values = [];
+    container.querySelectorAll('.bay-slider').forEach(s => {
+        const v = parseFloat(s.value);
+        if (!isNaN(v) && v > 0) values.push(v);
+    });
+    return values;
+}
+
+// ─── Real-time Manual Preview ────────────────────────────────────────────
+function parseBaysFromText(axis) {
+    const el = document.getElementById('input-bays-' + axis);
+    if (!el) return [];
+    return el.value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
+}
+
+function updateManualPreview() {
+    // Only update when Manual tab is active
+    const manualTab = document.getElementById('tab-manual');
+    if (!manualTab || !manualTab.classList.contains('active')) return;
+
+    const stories = getStoriesFromEditor();
+    const isIrregular = document.getElementById('irregular-toggle')?.checked;
+
+    // Clear previous analysis scene to show wireframe preview
+    if (currentResult) {
+        memberMeshes.forEach(m => scene.remove(m.mesh));
+        nodeMeshes.forEach(m => scene.remove(m));
+        memberMeshes = [];
+        nodeMeshes = [];
+        selectedMesh = null;
+        currentResult = null;
+        currentJobId = null;
+    }
+
+    if (isIrregular) {
+        const zones = getZonesFromEditor();
+        if (stories.length > 0 && zones.length > 0) {
+            buildIrregularPreview({ stories, zones });
+        }
+    } else {
+        let bays_x = getBaysFromSliders('x');
+        let bays_y = getBaysFromSliders('y');
+        if (bays_x.length === 0) bays_x = parseBaysFromText('x');
+        if (bays_y.length === 0) bays_y = parseBaysFromText('y');
+        if (stories.length > 0 && bays_x.length > 0 && bays_y.length > 0) {
+            buildPreviewScene({ stories, bays_x, bays_y });
+        }
+    }
 }
 
 // ─── Natural Language Input ───────────────────────────────────────────────
@@ -629,7 +909,15 @@ function goToIFCStep(step) {
     // Step-specific init
     if (step === 2 && ifcParsedData) {
         buildIFCGeometrySummary(ifcParsedData);
-        buildPreviewScene(ifcParsedData);
+        // 비정형 → 존 기반 프리뷰, 정형 → 기존 프리뷰
+        if (ifcParsedData.detected_zones && ifcParsedData.detected_zones.length > 0) {
+            buildIrregularPreview({
+                stories: ifcEditedData.stories,
+                zones: ifcParsedData.detected_zones,
+            });
+        } else {
+            buildPreviewScene(ifcParsedData);
+        }
         document.getElementById('preview-badge').style.display = 'block';
     }
     if (step === 3 && ifcParsedData) {
@@ -668,6 +956,8 @@ async function uploadIFC() {
             stories: data.stories.map(s => ({ ...s })),
             bays_x: [...(data.bays_x || [])],
             bays_y: [...(data.bays_y || [])],
+            detected_zones: data.detected_zones || null,
+            is_irregular: data.is_irregular || false,
         };
         setStatus('IFC 파싱 완료', 'success');
         goToIFCStep(2);  // Advance to geometry preview
@@ -690,27 +980,51 @@ function buildIFCGeometrySummary(data) {
     const s = data.summary || {};
     html += `<div class="ifc-geo-section"><h5>건물 개요</h5>`;
     html += `<div class="ifc-geo-info">${s.filename || '-'} | ${data.grid_source || '-'} 기반 (기둥 ${data.num_columns || 0}, 벽 ${data.num_walls || 0})</div>`;
+    // Zone detection banner
+    if (data.detected_zones && data.detected_zones.length > 0) {
+        const zoneNames = data.detected_zones.map(z => z.id).join(', ');
+        html += `<div class="ifc-zone-banner">
+            <strong>비정형 평면 감지</strong> — ${data.detected_zones.length}개 존 (${zoneNames})
+        </div>`;
+        data.detected_zones.forEach((z, zi) => {
+            const color = ['#4285f4','#34a853','#fbbc04','#ea4335'][zi % 4];
+            const wx = z.bays_x.reduce((a,b) => a+b, 0);
+            const wy = z.bays_y.reduce((a,b) => a+b, 0);
+            html += `<div class="ifc-zone-info" style="border-left:3px solid ${color}">
+                <strong style="color:${color}">Zone ${z.id}</strong>:
+                ${z.bays_x.length}×${z.bays_y.length} 경간,
+                ${wx}×${wy}m,
+                원점 (${z.origin_x}, ${z.origin_y})
+            </div>`;
+        });
+    }
     html += `</div>`;
 
-    // Editable story heights
+    // Editable story heights (slider + value + delete btn)
     html += `<div class="ifc-geo-section"><h5>층별 높이</h5>`;
     ed.stories.forEach((st, i) => {
+        const h = parseFloat(st.height) || 3.5;
         html += `<div class="ifc-geo-row">`;
         html += `<span class="ifc-geo-label">${st.name || (i + 1) + 'F'}</span>`;
-        html += `<input type="number" class="ifc-story-h" data-index="${i}" value="${st.height}" step="0.5" min="2.0" max="10" onchange="updatePreviewFromEdits()">`;
+        html += `<input type="range" class="ifc-story-slider" data-index="${i}" value="${h}" step="0.1" min="2.0" max="10">`;
+        html += `<span class="slider-value ifc-story-val" data-index="${i}">${h.toFixed(1)}</span>`;
         html += `<span class="ifc-geo-value">m</span>`;
+        html += `<button class="btn-ifc-remove-story" onclick="removeIFCStory(${i})" title="이 층 제거 (옥상 등)">&times;</button>`;
+        html += `<input type="hidden" class="ifc-story-h" data-index="${i}" value="${h}">`;
         html += `</div>`;
     });
     html += `</div>`;
 
-    // Editable bays
+    // Editable bays (text input + per-bay sliders)
     html += `<div class="ifc-geo-section"><h5>경간</h5>`;
     html += `<div class="ifc-geo-row"><span class="ifc-geo-label">X</span>`;
-    html += `<input type="text" id="ifc-edit-bays-x" value="${ed.bays_x.map(b => b.toFixed(1)).join(', ')}" onchange="updatePreviewFromEdits()">`;
+    html += `<input type="text" id="ifc-edit-bays-x" value="${ed.bays_x.map(b => b.toFixed(1)).join(', ')}" onchange="syncIFCBayText('x')">`;
     html += `<span class="ifc-geo-value">m</span></div>`;
+    html += `<div id="ifc-bays-x-sliders" class="ifc-bay-sliders"></div>`;
     html += `<div class="ifc-geo-row"><span class="ifc-geo-label">Y</span>`;
-    html += `<input type="text" id="ifc-edit-bays-y" value="${ed.bays_y.map(b => b.toFixed(1)).join(', ')}" onchange="updatePreviewFromEdits()">`;
+    html += `<input type="text" id="ifc-edit-bays-y" value="${ed.bays_y.map(b => b.toFixed(1)).join(', ')}" onchange="syncIFCBayText('y')">`;
     html += `<span class="ifc-geo-value">m</span></div>`;
+    html += `<div id="ifc-bays-y-sliders" class="ifc-bay-sliders"></div>`;
     html += `</div>`;
 
     // Detected sections/material (read-only)
@@ -730,6 +1044,73 @@ function buildIFCGeometrySummary(data) {
     }
 
     container.innerHTML = html;
+
+    // Bind story slider events (after innerHTML)
+    container.querySelectorAll('.ifc-story-slider').forEach(slider => {
+        slider.addEventListener('input', () => {
+            const idx = slider.dataset.index;
+            const v = parseFloat(slider.value);
+            const valEl = container.querySelector(`.ifc-story-val[data-index="${idx}"]`);
+            const hiddenEl = container.querySelector(`.ifc-story-h[data-index="${idx}"]`);
+            if (valEl) valEl.textContent = v.toFixed(1);
+            if (hiddenEl) hiddenEl.value = v;
+            updatePreviewFromEdits();
+        });
+    });
+
+    // Build IFC bay sliders
+    buildIFCBaySliders('x', ed.bays_x);
+    buildIFCBaySliders('y', ed.bays_y);
+}
+
+function buildIFCBaySliders(axis, bays) {
+    const container = document.getElementById('ifc-bays-' + axis + '-sliders');
+    if (!container) return;
+    container.innerHTML = '';
+    bays.forEach((w, i) => {
+        const row = document.createElement('div');
+        row.className = 'ifc-geo-row';
+        row.innerHTML = `
+            <span class="ifc-geo-label" style="font-size:10px">${i + 1}</span>
+            <input type="range" class="ifc-bay-slider" data-axis="${axis}" data-index="${i}"
+                   value="${w}" step="0.5" min="3.0" max="15.0">
+            <span class="slider-value">${parseFloat(w).toFixed(1)}m</span>`;
+        const slider = row.querySelector('input[type="range"]');
+        const valSpan = row.querySelector('.slider-value');
+        slider.addEventListener('input', () => {
+            valSpan.textContent = parseFloat(slider.value).toFixed(1) + 'm';
+            syncIFCBaySliders(axis);
+            updatePreviewFromEdits();
+        });
+        container.appendChild(row);
+    });
+}
+
+function syncIFCBaySliders(axis) {
+    const container = document.getElementById('ifc-bays-' + axis + '-sliders');
+    if (!container) return;
+    const values = [];
+    container.querySelectorAll('.ifc-bay-slider').forEach(s => {
+        values.push(parseFloat(s.value).toFixed(1));
+    });
+    const textInput = document.getElementById('ifc-edit-bays-' + axis);
+    if (textInput) textInput.value = values.join(', ');
+}
+
+function syncIFCBayText(axis) {
+    const textInput = document.getElementById('ifc-edit-bays-' + axis);
+    if (!textInput) return;
+    const bays = textInput.value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
+    buildIFCBaySliders(axis, bays);
+    updatePreviewFromEdits();
+}
+
+function removeIFCStory(index) {
+    if (!ifcEditedData || ifcEditedData.stories.length <= 1) return;
+    ifcEditedData.stories.splice(index, 1);
+    // Rebuild the geometry summary with updated stories
+    buildIFCGeometrySummary(ifcParsedData);
+    updatePreviewFromEdits();
 }
 
 function updatePreviewFromEdits() {
@@ -916,6 +1297,11 @@ function populateIFCSectionDropdowns() {
     const matSrc = document.getElementById('input-material');
     const matDst = document.getElementById('ifc-material');
     if (matSrc && matDst) matDst.innerHTML = matSrc.innerHTML;
+
+    // Bind section property previews to IFC dropdowns
+    ['ifc-col-section', 'ifc-beamx-section', 'ifc-beamy-section'].forEach(id => {
+        bindSectionPreview(document.getElementById(id));
+    });
 }
 
 // ─── NL Helper for Step 3 ───────────────────────────────────────────────
@@ -1005,6 +1391,11 @@ async function runAnalysisFromIFCWizard() {
         geometric_nonlinearity: 'linear',
     };
 
+    // 비정형 zones 포함
+    if (ifcEditedData.detected_zones && ifcEditedData.detected_zones.length > 0) {
+        config.zones = ifcEditedData.detected_zones;
+    }
+
     clearPreviewScene();
     modelSource = 'IFC';
     await runAnalysis(config);
@@ -1091,6 +1482,13 @@ function applyPreset() {
     setSelectValue(document.getElementById('input-col-section'), p.col);
     setSelectValue(document.getElementById('input-beamx-section'), p.beamx);
     setSelectValue(document.getElementById('input-beamy-section'), p.beamy);
+
+    // Build bay sliders from text values
+    buildBaySliders('x');
+    buildBaySliders('y');
+
+    // Show live wireframe preview
+    updateManualPreview();
 }
 
 // ─── Run Analysis ─────────────────────────────────────────────────────────
@@ -1100,10 +1498,23 @@ async function runAnalysis(configOverride = null) {
         config = configOverride;
     } else {
         if (!modelSource) modelSource = 'Manual';
-        // Parse inputs from story editor
         const stories = getStoriesFromEditor();
-        const bays_x = document.getElementById('input-bays-x').value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
-        const bays_y = document.getElementById('input-bays-y').value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+        const isIrregular = document.getElementById('irregular-toggle')?.checked;
+
+        let bays_x, bays_y, zones;
+        if (isIrregular) {
+            zones = getZonesFromEditor();
+            if (zones.length === 0) {
+                alert('비정형: 최소 1개 존을 정의해주세요.');
+                return;
+            }
+            // bays_x/bays_y = first zone's (for fallback)
+            bays_x = zones[0].bays_x;
+            bays_y = zones[0].bays_y;
+        } else {
+            bays_x = document.getElementById('input-bays-x').value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+            bays_y = document.getElementById('input-bays-y').value.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+        }
 
         if (stories.length === 0 || bays_x.length === 0 || bays_y.length === 0) {
             alert('층, Bays X, Bays Y 값을 입력해주세요.');
@@ -1123,7 +1534,13 @@ async function runAnalysis(configOverride = null) {
             importance: document.getElementById('input-importance').value,
             auto_combinations: true,
             geometric_nonlinearity: 'linear',
+            seismic_method: document.getElementById('input-seismic-method')?.value || 'ELF',
+            rsa_combination: document.getElementById('input-rsa-combination')?.value || 'CQC',
+            rsa_direction: document.getElementById('input-rsa-direction')?.value || '30pct',
         };
+        if (isIrregular && zones) {
+            config.zones = zones;
+        }
     }
 
     showLoading('Analyzing...');
@@ -1321,17 +1738,24 @@ function buildScene(result) {
         memberMeshes.push({ mesh, elementData: elem });
     });
 
-    // Draw support nodes (ground level)
+    // Draw all nodes (supports highlighted, others small)
     nodes.forEach(n => {
-        if (Math.abs(n.z) < 0.01) {
-            const geo = new THREE.SphereGeometry(0.2, 8, 8);
-            const mat = new THREE.MeshPhongMaterial({ color: 0xff6600 });
-            const sphere = new THREE.Mesh(geo, mat);
-            sphere.position.set(n.x, n.z, n.y);
-            scene.add(sphere);
-            nodeMeshes.push(sphere);
-        }
+        const isSupport = Math.abs(n.z) < 0.01;
+        const geo = new THREE.SphereGeometry(isSupport ? 0.2 : 0.1, 8, 8);
+        const mat = new THREE.MeshPhongMaterial({
+            color: isSupport ? 0xff6600 : 0x888888,
+            transparent: !isSupport,
+            opacity: isSupport ? 1.0 : 0.4,
+        });
+        const sphere = new THREE.Mesh(geo, mat);
+        sphere.position.set(n.x, n.z, n.y);
+        sphere.userData.nodeId = n.id;
+        scene.add(sphere);
+        nodeMeshes.push(sphere);
     });
+
+    // Reset deformed shape state
+    originalNodePositions = null;
 
     // Fit camera
     fitCameraToModel(viewer);
@@ -1364,6 +1788,99 @@ function fitCameraToModel(viewer) {
     if (gridHelper) {
         gridHelper.position.set(cx, 0, cy);
     }
+}
+
+// ─── 3D Hover Tooltip ─────────────────────────────────────────────────────
+let hoverTooltipEl = null;
+let hoveredMesh = null;
+
+function getHoverTooltip() {
+    if (!hoverTooltipEl) {
+        hoverTooltipEl = document.createElement('div');
+        hoverTooltipEl.id = 'member-hover-tooltip';
+        document.body.appendChild(hoverTooltipEl);
+    }
+    return hoverTooltipEl;
+}
+
+function onCanvasHover(event) {
+    if (memberMeshes.length === 0) return;
+
+    const container = document.getElementById('viewer-container');
+    const rect = container.getBoundingClientRect();
+    const mx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const my = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(new THREE.Vector2(mx, my), camera);
+    const meshes = memberMeshes.map(m => m.mesh);
+    const intersects = raycaster.intersectObjects(meshes);
+
+    if (intersects.length > 0) {
+        const mesh = intersects[0].object;
+        const elem = mesh.userData.elementData;
+        if (!elem) { hideHoverTooltip(); return; }
+
+        // Change cursor
+        container.style.cursor = 'pointer';
+
+        // Only update content if hovered member changed
+        if (hoveredMesh !== mesh) {
+            hoveredMesh = mesh;
+            showHoverTooltip(elem, event.clientX, event.clientY);
+        } else {
+            // Just update position
+            positionHoverTooltip(event.clientX, event.clientY);
+        }
+    } else {
+        container.style.cursor = '';
+        if (hoveredMesh) {
+            hoveredMesh = null;
+            hideHoverTooltip();
+        }
+    }
+}
+
+async function showHoverTooltip(elem, cx, cy) {
+    const tooltip = getHoverTooltip();
+    const typeLabel = elem.type === 'column' ? 'COLUMN' : elem.type === 'beam_x' ? 'BEAM X' : 'BEAM Y';
+
+    // Show immediately with basic info
+    tooltip.innerHTML = `<div class="sp-member-type ${elem.type}">${typeLabel} #${elem.id}</div>`
+        + `<div class="sp-title">${elem.section}</div>`
+        + `<div class="sp-loading">Loading...</div>`;
+    positionHoverTooltip(cx, cy);
+    tooltip.classList.add('visible');
+
+    // Fetch section properties
+    const data = await fetchSectionProps(elem.section);
+    if (hoveredMesh && data && !data.error) {
+        const rows = [
+            ['A',  data.A_cm2,  'cm\u00B2'],
+            ['Ix', data.Ix_cm4, 'cm\u2074'],
+            ['Iy', data.Iy_cm4, 'cm\u2074'],
+            ['J',  data.J_cm4,  'cm\u2074'],
+            ['H',  data.h_mm,   'mm'],
+            ['B',  data.b_mm,   'mm'],
+        ];
+        let grid = rows
+            .filter(r => r[1] > 0)
+            .map(([k, v, u]) => `<span class="sp-key">${k}</span><span class="sp-val">${v.toLocaleString()}</span><span class="sp-unit">${u}</span>`)
+            .join('');
+        tooltip.innerHTML = `<div class="sp-member-type ${elem.type}">${typeLabel} #${elem.id}</div>`
+            + `<div class="sp-title">${data.name}</div>`
+            + `<div class="sp-grid">${grid}</div>`;
+    }
+}
+
+function positionHoverTooltip(cx, cy) {
+    const tooltip = getHoverTooltip();
+    tooltip.style.left = (cx + 16) + 'px';
+    tooltip.style.top = (cy - 10) + 'px';
+}
+
+function hideHoverTooltip() {
+    const tooltip = getHoverTooltip();
+    tooltip.classList.remove('visible');
 }
 
 // ─── Raycaster Click ──────────────────────────────────────────────────────
@@ -1479,30 +1996,14 @@ function updateResultsPanel(result) {
         srcTag.textContent = 'Source: ' + (labels[modelSource] || modelSource);
     }
 
+    // Build case selector dropdown
+    buildCaseSelector(result);
+
     const env = result.envelope || {};
-    const table = document.getElementById('results-table');
-    table.innerHTML = `
-        <tr><td>Max Drift X</td><td>${(env.max_drift_x || 0).toFixed(5)}</td></tr>
-        <tr><td>Max Drift Y</td><td>${(env.max_drift_y || 0).toFixed(5)}</td></tr>
-        <tr><td>Max Disp X</td><td>${(env.max_dx_mm || 0).toFixed(2)} mm</td></tr>
-        <tr><td>Max Disp Y</td><td>${(env.max_dy_mm || 0).toFixed(2)} mm</td></tr>
-        <tr><td>Max Moment</td><td>${(env.max_moment_kNm || 0).toFixed(1)} kN·m</td></tr>
-        <tr><td>Max Axial</td><td>${(env.max_axial_kN || 0).toFixed(1)} kN</td></tr>
-        <tr><td>Max Shear</td><td>${(env.max_shear_kN || 0).toFixed(1)} kN</td></tr>
-    `;
+    renderResultsTable(env);
 
     // Modal analysis
-    if (result.modal_analysis) {
-        const modal = result.modal_analysis;
-        if (modal.periods && modal.periods.length > 0) {
-            table.innerHTML += `
-                <tr><td colspan="2" style="color:#4fc3f7; padding-top:8px;"><strong>Modal Analysis</strong></td></tr>
-                <tr><td>T1</td><td>${modal.periods[0].toFixed(3)} s</td></tr>
-                ${modal.periods.length > 1 ? `<tr><td>T2</td><td>${modal.periods[1].toFixed(3)} s</td></tr>` : ''}
-                ${modal.periods.length > 2 ? `<tr><td>T3</td><td>${modal.periods[2].toFixed(3)} s</td></tr>` : ''}
-            `;
-        }
-    }
+    buildModalUI(result.modal_analysis);
 
     // Design Check summary
     const dcSummary = document.getElementById('dc-summary');
@@ -1561,12 +2062,7 @@ function updateBottomBar(result) {
     const bar = document.getElementById('bottom-bar');
     bar.style.display = 'flex';
 
-    const env = result.envelope || {};
-    document.getElementById('bot-drift-x').textContent = (env.max_drift_x || 0).toFixed(5);
-    document.getElementById('bot-drift-y').textContent = (env.max_drift_y || 0).toFixed(5);
-    document.getElementById('bot-disp-x').textContent = (env.max_dx_mm || 0).toFixed(2) + ' mm';
-    document.getElementById('bot-disp-y').textContent = (env.max_dy_mm || 0).toFixed(2) + ' mm';
-    document.getElementById('bot-moment').textContent = (env.max_moment_kNm || 0).toFixed(1) + ' kN·m';
+    updateBottomBarValues(result.envelope || {});
 
     // Design check status
     const botDC = document.getElementById('bot-dc');
@@ -1579,6 +2075,496 @@ function updateBottomBar(result) {
         botDC.textContent = '-';
         botDC.className = 'bottom-value';
     }
+}
+
+// ─── Case/Combo Selector ─────────────────────────────────────────────────
+function buildCaseSelector(result) {
+    const wrap = document.getElementById('case-selector-wrap');
+    const sel = document.getElementById('case-selector');
+    if (!sel) return;
+
+    const caseNames = result.case_names || [];
+    const comboNames = result.combo_names || [];
+
+    if (caseNames.length === 0 && comboNames.length === 0) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    sel.innerHTML = '<option value="__envelope__">Envelope (전체 조합)</option>';
+
+    // Split RSA cases from regular combos
+    const rsaNames = comboNames.filter(n => n.includes('RSA'));
+    const regularCombos = comboNames.filter(n => !n.includes('RSA'));
+    const regularCases = caseNames.filter(n => n !== '__RSA__');
+
+    if (regularCombos.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Load Combinations (ELF)';
+        regularCombos.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+    }
+
+    if (rsaNames.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'RSA (응답스펙트럼)';
+        rsaNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+    }
+
+    if (regularCases.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Load Cases';
+        regularCases.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+    }
+
+    // Build ELF vs RSA comparison table if RSA data exists
+    buildElfRsaComparison(result);
+
+    wrap.style.display = 'block';
+}
+
+function onCaseSelect() {
+    const sel = document.getElementById('case-selector');
+    if (!sel || !currentResult) return;
+    const caseName = sel.value;
+
+    if (caseName === '__envelope__') {
+        // Restore envelope view
+        renderResultsTable(currentResult.envelope || {});
+        updateBottomBarValues(currentResult.envelope || {});
+        restoreOriginalPositions();
+    } else {
+        const cd = currentResult.case_data?.[caseName];
+        if (!cd) return;
+        renderResultsTable(cd.summary, caseName);
+        updateBottomBarValues(cd.summary);
+        applyDeformedShape(cd.displacements);
+    }
+}
+
+function buildElfRsaComparison(result) {
+    const section = document.getElementById('elf-rsa-comparison');
+    const table = document.getElementById('elf-rsa-table');
+    if (!section || !table) return;
+
+    const cd = result.case_data || {};
+    const hasRSA = cd['EQX_RSA'] || cd['EQY_RSA'];
+    if (!hasRSA) {
+        section.style.display = 'none';
+        return;
+    }
+
+    // Find ELF max (from EQX/EQY combos)
+    const env = result.envelope || {};
+    const elfDriftX = env.max_drift_x || 0;
+    const elfDriftY = env.max_drift_y || 0;
+    const elfDispX = Math.abs(env.max_dx_mm || 0);
+    const elfDispY = Math.abs(env.max_dy_mm || 0);
+
+    // RSA max (from RSA_100X_30Y / RSA_30X_100Y envelope)
+    const rsa1 = cd['RSA_100X_30Y']?.summary || {};
+    const rsa2 = cd['RSA_30X_100Y']?.summary || {};
+    const rsaDriftX = Math.max(rsa1.max_drift_x || 0, rsa2.max_drift_x || 0);
+    const rsaDriftY = Math.max(rsa1.max_drift_y || 0, rsa2.max_drift_y || 0);
+    const rsaDispX = Math.max(rsa1.max_dx_mm || 0, rsa2.max_dx_mm || 0);
+    const rsaDispY = Math.max(rsa1.max_dy_mm || 0, rsa2.max_dy_mm || 0);
+
+    function ratio(elf, rsa) {
+        if (elf === 0) return '-';
+        return (rsa / elf * 100).toFixed(0) + '%';
+    }
+
+    function diffColor(elf, rsa) {
+        if (elf === 0) return '';
+        const r = rsa / elf;
+        if (r > 1.05) return 'color:#ea4335;';
+        if (r < 0.95) return 'color:#34a853;';
+        return '';
+    }
+
+    table.innerHTML = `
+        <tr style="font-size:10px; color:var(--text-tertiary);">
+            <th></th><th>ELF</th><th>RSA</th><th>RSA/ELF</th>
+        </tr>
+        <tr>
+            <td>Drift X</td>
+            <td>${elfDriftX.toFixed(5)}</td>
+            <td>${rsaDriftX.toFixed(5)}</td>
+            <td style="${diffColor(elfDriftX, rsaDriftX)}">${ratio(elfDriftX, rsaDriftX)}</td>
+        </tr>
+        <tr>
+            <td>Drift Y</td>
+            <td>${elfDriftY.toFixed(5)}</td>
+            <td>${rsaDriftY.toFixed(5)}</td>
+            <td style="${diffColor(elfDriftY, rsaDriftY)}">${ratio(elfDriftY, rsaDriftY)}</td>
+        </tr>
+        <tr>
+            <td>Disp X</td>
+            <td>${elfDispX.toFixed(2)} mm</td>
+            <td>${rsaDispX.toFixed(2)} mm</td>
+            <td style="${diffColor(elfDispX, rsaDispX)}">${ratio(elfDispX, rsaDispX)}</td>
+        </tr>
+        <tr>
+            <td>Disp Y</td>
+            <td>${elfDispY.toFixed(2)} mm</td>
+            <td>${rsaDispY.toFixed(2)} mm</td>
+            <td style="${diffColor(elfDispY, rsaDispY)}">${ratio(elfDispY, rsaDispY)}</td>
+        </tr>
+    `;
+
+    section.style.display = 'block';
+}
+
+function renderResultsTable(env, caseName) {
+    const table = document.getElementById('results-table');
+    const label = caseName ? `<tr><td colspan="2" style="color:var(--accent-text); font-weight:600; padding-bottom:4px;">${caseName}</td></tr>` : '';
+    table.innerHTML = label + `
+        <tr><td>Max Drift X</td><td>${(env.max_drift_x || 0).toFixed(5)}</td></tr>
+        <tr><td>Max Drift Y</td><td>${(env.max_drift_y || 0).toFixed(5)}</td></tr>
+        <tr><td>Max Disp X</td><td>${(env.max_dx_mm || 0).toFixed(2)} mm</td></tr>
+        <tr><td>Max Disp Y</td><td>${(env.max_dy_mm || 0).toFixed(2)} mm</td></tr>
+        <tr><td>Max Moment</td><td>${(env.max_moment_kNm || 0).toFixed(1)} kN·m</td></tr>
+        <tr><td>Max Axial</td><td>${(env.max_axial_kN || 0).toFixed(1)} kN</td></tr>
+        <tr><td>Max Shear</td><td>${(env.max_shear_kN || 0).toFixed(1)} kN</td></tr>
+    `;
+}
+
+function updateBottomBarValues(env) {
+    document.getElementById('bot-drift-x').textContent = (env.max_drift_x || 0).toFixed(5);
+    document.getElementById('bot-drift-y').textContent = (env.max_drift_y || 0).toFixed(5);
+    document.getElementById('bot-disp-x').textContent = (env.max_dx_mm || 0).toFixed(2) + ' mm';
+    document.getElementById('bot-disp-y').textContent = (env.max_dy_mm || 0).toFixed(2) + ' mm';
+    document.getElementById('bot-moment').textContent = (env.max_moment_kNm || 0).toFixed(1) + ' kN·m';
+}
+
+// ─── Deformed Shape Visualization ────────────────────────────────────────
+let originalMemberState = null;  // Map<uuid, {pos, quat, scaleY}>
+let originalNodeState = null;    // Map<uuid, {pos}>
+
+function saveOriginalState() {
+    if (originalMemberState) return;
+    originalMemberState = new Map();
+    originalNodeState = new Map();
+    memberMeshes.forEach(({ mesh }) => {
+        originalMemberState.set(mesh.uuid, {
+            pos: mesh.position.clone(),
+            quat: mesh.quaternion.clone(),
+            scaleY: mesh.scale.y,
+            color: mesh.material.color.getHex(),
+            opacity: mesh.material.opacity,
+        });
+    });
+    nodeMeshes.forEach(m => {
+        originalNodeState.set(m.uuid, {
+            pos: m.position.clone(),
+            color: m.material.color.getHex(),
+            opacity: m.material.opacity,
+        });
+    });
+}
+
+function applyDeformedShape(displacements) {
+    if (!displacements || !currentResult?.viewer) return;
+    saveOriginalState();
+
+    const scale = 50; // Exaggeration factor
+    const viewer = currentResult.viewer;
+    const nodes = viewer.nodes;
+
+    // Build deformed node positions in Three.js coords (X, Z→Y, Y→-Z)
+    const deformedPos = {};  // nodeId -> THREE.Vector3
+    nodes.forEach(n => {
+        const d = displacements[String(n.id)];
+        const dx = d ? d[0] / 1000 * scale : 0;  // mm→m, scaled
+        const dy = d ? d[1] / 1000 * scale : 0;
+        const dz = d ? d[2] / 1000 * scale : 0;
+        // Three.js: X=structural X, Y=structural Z, Z=structural Y
+        deformedPos[n.id] = new THREE.Vector3(
+            n.x + dx,
+            n.z + dz,
+            n.y + dy,
+        );
+    });
+
+    // Reposition member cylinders to connect deformed nodes
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    memberMeshes.forEach(({ mesh, elementData }) => {
+        const pi = deformedPos[elementData.ni];
+        const pj = deformedPos[elementData.nj];
+        if (!pi || !pj) return;
+
+        const dir = new THREE.Vector3().subVectors(pj, pi);
+        const newLen = dir.length();
+        const mid = new THREE.Vector3().addVectors(pi, pj).multiplyScalar(0.5);
+        const direction = dir.clone().normalize();
+
+        mesh.position.copy(mid);
+        mesh.quaternion.setFromUnitVectors(yAxis, direction);
+
+        // Scale cylinder length to match deformed distance
+        const orig = originalMemberState.get(mesh.uuid);
+        if (orig && orig.scaleY !== 0) {
+            // Original cylinder height = geometry height * scaleY
+            // We want new visual length = newLen
+            // Original geometry height corresponds to original scaleY=1 length
+            mesh.scale.y = newLen / (mesh.geometry.parameters.height || newLen);
+        }
+    });
+
+    // Move node spheres to deformed positions
+    nodeMeshes.forEach(m => {
+        const nid = m.userData?.nodeId;
+        if (!nid || !deformedPos[nid]) return;
+        m.position.copy(deformedPos[nid]);
+    });
+}
+
+function restoreOriginalPositions() {
+    if (originalMemberState) {
+        memberMeshes.forEach(({ mesh }) => {
+            const orig = originalMemberState.get(mesh.uuid);
+            if (orig) {
+                mesh.position.copy(orig.pos);
+                mesh.quaternion.copy(orig.quat);
+                mesh.scale.y = orig.scaleY;
+                mesh.material.color.setHex(orig.color);
+                mesh.material.opacity = orig.opacity;
+            }
+        });
+    }
+    if (originalNodeState) {
+        nodeMeshes.forEach(m => {
+            const orig = originalNodeState.get(m.uuid);
+            if (orig) {
+                m.position.copy(orig.pos);
+                m.material.color.setHex(orig.color);
+                m.material.opacity = orig.opacity;
+            }
+        });
+    }
+}
+
+// ─── Modal Analysis UI + Animation ───────────────────────────────────────
+let modeAnimationId = null;
+let modeAnimating = false;
+
+function buildModalUI(modal) {
+    const section = document.getElementById('modal-section');
+    const sel = document.getElementById('mode-selector');
+    const table = document.getElementById('modal-table');
+    if (!section || !sel || !modal?.modes?.length) {
+        if (section) section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+    sel.innerHTML = '<option value="">-- 모드 선택 (3D 형상 표시) --</option>';
+
+    let tableHTML = `<tr style="font-size:10px; color:var(--text-tertiary);">
+        <th>Mode</th><th>T (s)</th><th>Dir</th><th>Mass%</th></tr>`;
+
+    modal.modes.forEach((m, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = `Mode ${m.mode}: T=${m.period_s}s (${m.direction})`;
+        sel.appendChild(opt);
+
+        const mp = m.mass_participation || {};
+        const dominant = Math.max(mp.x_pct || 0, mp.y_pct || 0, mp.rz_pct || 0);
+        const highlight = i < 3 ? 'font-weight:600;' : '';
+        tableHTML += `<tr style="${highlight}">
+            <td>${m.mode}</td>
+            <td>${m.period_s.toFixed(3)}</td>
+            <td>${m.direction}</td>
+            <td>${dominant.toFixed(1)}%</td>
+        </tr>`;
+    });
+
+    table.innerHTML = tableHTML;
+}
+
+function onModeSelect() {
+    stopModeAnimation();
+    const sel = document.getElementById('mode-selector');
+    const idx = parseInt(sel.value);
+    if (isNaN(idx)) {
+        restoreOriginalPositions();
+        hideModeLegend();
+        return;
+    }
+
+    const modal = currentResult?.modal_analysis;
+    if (!modal?.modes?.[idx]?.shape) return;
+
+    const mode = modal.modes[idx];
+    applyModeShape(mode.shape, 1.0);
+    showModeLegend(mode);
+}
+
+function jetColormap(t) {
+    // t: 0.0 (blue/min) → 1.0 (red/max), returns THREE.Color
+    t = Math.max(0, Math.min(1, t));
+    let r, g, b;
+    if (t < 0.25) {
+        r = 0; g = t * 4; b = 1;
+    } else if (t < 0.5) {
+        r = 0; g = 1; b = 1 - (t - 0.25) * 4;
+    } else if (t < 0.75) {
+        r = (t - 0.5) * 4; g = 1; b = 0;
+    } else {
+        r = 1; g = 1 - (t - 0.75) * 4; b = 0;
+    }
+    return new THREE.Color(r, g, b);
+}
+
+function applyModeShape(shape, amplitude) {
+    if (!currentResult?.viewer) return;
+    saveOriginalState();
+
+    const absAmp = Math.abs(amplitude);
+    const scale = 3.0 * amplitude; // Visual scale factor
+    const nodes = currentResult.viewer.nodes;
+
+    // Compute per-node displacement magnitude (normalized 0-1)
+    const nodeDisp = {};
+    nodes.forEach(n => {
+        const s = shape[String(n.id)];
+        if (s) {
+            nodeDisp[n.id] = Math.sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+        } else {
+            nodeDisp[n.id] = 0;
+        }
+    });
+
+    const deformedPos = {};
+    nodes.forEach(n => {
+        const s = shape[String(n.id)];
+        const dx = s ? s[0] * scale : 0;
+        const dy = s ? s[1] * scale : 0;
+        const dz = s ? s[2] * scale : 0;
+        deformedPos[n.id] = new THREE.Vector3(n.x + dx, n.z + dz, n.y + dy);
+    });
+
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    memberMeshes.forEach(({ mesh, elementData }) => {
+        const pi = deformedPos[elementData.ni];
+        const pj = deformedPos[elementData.nj];
+        if (!pi || !pj) return;
+
+        const dir = new THREE.Vector3().subVectors(pj, pi);
+        const newLen = dir.length();
+        const mid = new THREE.Vector3().addVectors(pi, pj).multiplyScalar(0.5);
+
+        mesh.position.copy(mid);
+        mesh.quaternion.setFromUnitVectors(yAxis, dir.clone().normalize());
+        mesh.scale.y = newLen / (mesh.geometry.parameters.height || newLen);
+
+        // Color by displacement magnitude (average of two end nodes)
+        const di = nodeDisp[elementData.ni] || 0;
+        const dj = nodeDisp[elementData.nj] || 0;
+        const avgDisp = (di + dj) / 2 * absAmp;
+        mesh.material.color.copy(jetColormap(avgDisp));
+        mesh.material.opacity = 1.0;
+    });
+
+    nodeMeshes.forEach(m => {
+        const nid = m.userData?.nodeId;
+        if (!nid) return;
+        if (deformedPos[nid]) m.position.copy(deformedPos[nid]);
+        // Color node spheres too
+        const d = (nodeDisp[nid] || 0) * absAmp;
+        m.material.color.copy(jetColormap(d));
+        m.material.opacity = 1.0;
+    });
+}
+
+function toggleModeAnimation() {
+    if (modeAnimating) {
+        stopModeAnimation();
+    } else {
+        startModeAnimation();
+    }
+}
+
+function startModeAnimation() {
+    const sel = document.getElementById('mode-selector');
+    const idx = parseInt(sel.value);
+    if (isNaN(idx)) return;
+
+    const modal = currentResult?.modal_analysis;
+    if (!modal?.modes?.[idx]?.shape) return;
+
+    const shape = modal.modes[idx].shape;
+    modeAnimating = true;
+    document.getElementById('btn-mode-animate').innerHTML = '&#9724;'; // Stop icon
+
+    let t = 0;
+    function animateMode() {
+        if (!modeAnimating) return;
+        t += 0.04;
+        const amplitude = Math.sin(t);
+        applyModeShape(shape, amplitude);
+        modeAnimationId = requestAnimationFrame(animateMode);
+    }
+    animateMode();
+}
+
+function stopModeAnimation() {
+    modeAnimating = false;
+    if (modeAnimationId) {
+        cancelAnimationFrame(modeAnimationId);
+        modeAnimationId = null;
+    }
+    document.getElementById('btn-mode-animate').innerHTML = '&#9654;'; // Play icon
+}
+
+function showModeLegend(mode) {
+    const legend = document.getElementById('mode-color-legend');
+    if (!legend) return;
+
+    // Build gradient bar (top=red=max, bottom=blue=min)
+    const bar = document.getElementById('legend-bar');
+    bar.style.background = 'linear-gradient(to bottom, #ff0000, #ff8800, #ffff00, #00ff00, #00ffff, #0000ff)';
+
+    // Build labels (10 steps)
+    const labels = document.getElementById('legend-labels');
+    const steps = 6;
+    let html = '';
+    for (let i = 0; i <= steps; i++) {
+        const val = (1.0 - i / steps);
+        html += `<span>${val.toFixed(2)}</span>`;
+    }
+    labels.innerHTML = html;
+
+    // Info line
+    const info = document.getElementById('legend-info');
+    const mp = mode.mass_participation || {};
+    info.innerHTML = `MODE ${mode.mode}<br>T = ${mode.period_s} s<br>${mode.direction}`
+        + `<br>Mass: X=${(mp.x_pct||0).toFixed(1)}% Y=${(mp.y_pct||0).toFixed(1)}%`;
+
+    legend.style.display = 'block';
+}
+
+function hideModeLegend() {
+    const legend = document.getElementById('mode-color-legend');
+    if (legend) legend.style.display = 'none';
 }
 
 // ─── Design Check Colors ─────────────────────────────────────────────────
@@ -1663,4 +2649,406 @@ function setStatus(text, type) {
     const el = document.querySelector('.status-text');
     el.textContent = text;
     el.className = 'status-text ' + (type || '');
+}
+
+
+// ─── Irregular Building (Zones) ───────────────────────────────────────────
+let zonesData = [];
+
+function toggleIrregular() {
+    const on = document.getElementById('irregular-toggle').checked;
+    document.getElementById('regular-bays-panel').style.display = on ? 'none' : '';
+    document.getElementById('irregular-zones-panel').style.display = on ? '' : 'none';
+    const hint = document.getElementById('irregular-hint');
+    if (hint) hint.style.display = on ? '' : 'none';
+    if (on && zonesData.length === 0) {
+        // Initialize with current bays as Zone A
+        const bx = parseBaysFromText('x');
+        const by = parseBaysFromText('y');
+        zonesData = [{ id: 'A', bays_x: bx.length ? bx : [8.0, 8.0], bays_y: by.length ? by : [8.0, 8.0], origin_x: 0, origin_y: 0, story_from: 1, story_to: null }];
+        renderZoneList();
+    }
+    updateManualPreview();
+}
+
+function applyZonePreset() {
+    const preset = document.getElementById('zone-preset').value;
+    const stories = getStoriesFromEditor();
+    const ns = stories.length || 5;
+
+    if (preset === 'L-shape') {
+        zonesData = [
+            { id: 'A', bays_x: [8, 8, 8], bays_y: [8, 8], origin_x: 0, origin_y: 0, story_from: 1, story_to: null },
+            { id: 'B', bays_x: [8, 8], bays_y: [8, 8], origin_x: 0, origin_y: 16, story_from: 1, story_to: null },
+        ];
+    } else if (preset === 'T-shape') {
+        zonesData = [
+            { id: 'A', bays_x: [8, 8, 8, 8], bays_y: [8, 8], origin_x: 0, origin_y: 0, story_from: 1, story_to: null },
+            { id: 'B', bays_x: [8, 8], bays_y: [8, 8], origin_x: 8, origin_y: 16, story_from: 1, story_to: null },
+        ];
+    } else if (preset === 'setback') {
+        const mid = Math.ceil(ns / 2);
+        zonesData = [
+            { id: 'Base', bays_x: [8, 8, 8], bays_y: [8, 8, 8], origin_x: 0, origin_y: 0, story_from: 1, story_to: mid },
+            { id: 'Tower', bays_x: [8, 8], bays_y: [8, 8], origin_x: 4, origin_y: 4, story_from: 1, story_to: null },
+        ];
+    } else {
+        return;
+    }
+    renderZoneList();
+    drawZonePlan();
+    updateManualPreview();
+}
+
+function addZone() {
+    const nextId = String.fromCharCode(65 + zonesData.length); // A, B, C, ...
+    zonesData.push({ id: nextId, bays_x: [8], bays_y: [8], origin_x: 0, origin_y: 0, story_from: 1, story_to: null });
+    renderZoneList();
+    drawZonePlan();
+}
+
+function removeZone(idx) {
+    zonesData.splice(idx, 1);
+    renderZoneList();
+    drawZonePlan();
+    updateManualPreview();
+}
+
+function renderZoneList() {
+    const container = document.getElementById('zone-list-container');
+    container.innerHTML = '';
+    zonesData.forEach((z, idx) => {
+        const color = ZONE_COLORS[idx % ZONE_COLORS.length];
+        const row = document.createElement('div');
+        row.className = 'zone-row';
+        row.style.borderLeftColor = color;
+        row.innerHTML = `
+            <div class="zone-header">
+                <strong style="color:${color}">Zone ${z.id}</strong>
+                <button class="btn-remove-zone" onclick="removeZone(${idx})" title="삭제">&times;</button>
+            </div>
+            <div class="zone-fields-v">
+                <div class="zf-row">
+                    <label>이름</label>
+                    <input type="text" value="${z.id}" style="width:60px"
+                           onchange="zonesData[${idx}].id=this.value; renderZoneList()">
+                </div>
+                <div class="zf-row">
+                    <label>X방향 경간 (m)</label>
+                    <input type="text" value="${z.bays_x.join(', ')}" placeholder="8, 8, 8"
+                           onchange="zonesData[${idx}].bays_x=this.value.split(',').map(Number).filter(v=>v>0); drawZonePlan(); updateManualPreview()">
+                </div>
+                <div class="zf-row">
+                    <label>Y방향 경간 (m)</label>
+                    <input type="text" value="${z.bays_y.join(', ')}" placeholder="8, 8"
+                           onchange="zonesData[${idx}].bays_y=this.value.split(',').map(Number).filter(v=>v>0); drawZonePlan(); updateManualPreview()">
+                </div>
+                <div class="zf-row">
+                    <label>위치 오프셋 X, Y (m)</label>
+                    <div class="zf-pair">
+                        <input type="number" value="${z.origin_x}" step="1" placeholder="X"
+                               onchange="zonesData[${idx}].origin_x=parseFloat(this.value)||0; drawZonePlan(); updateManualPreview()">
+                        <input type="number" value="${z.origin_y}" step="1" placeholder="Y"
+                               onchange="zonesData[${idx}].origin_y=parseFloat(this.value)||0; drawZonePlan(); updateManualPreview()">
+                    </div>
+                </div>
+                <div class="zf-row">
+                    <label>적용 층 (시작 ~ 끝)</label>
+                    <div class="zf-pair">
+                        <input type="number" value="${z.story_from}" min="1" placeholder="1"
+                               onchange="zonesData[${idx}].story_from=parseInt(this.value)||1; drawZonePlan(); updateManualPreview()">
+                        <input type="text" value="${z.story_to || '전체'}" placeholder="전체"
+                               onchange="zonesData[${idx}].story_to=this.value==='전체'||this.value==='all'?null:(parseInt(this.value)||null); drawZonePlan(); updateManualPreview()">
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(row);
+    });
+    drawZonePlan();
+}
+
+function getZonesFromEditor() {
+    return zonesData.map(z => ({
+        id: z.id,
+        bays_x: z.bays_x,
+        bays_y: z.bays_y,
+        origin_x: z.origin_x || 0,
+        origin_y: z.origin_y || 0,
+        story_from: z.story_from || 1,
+        story_to: z.story_to || null,
+    })).filter(z => z.bays_x.length > 0 && z.bays_y.length > 0);
+}
+
+const ZONE_COLORS = ['#4285f4', '#34a853', '#fbbc04', '#ea4335', '#9c27b0', '#00bcd4'];
+
+function drawZonePlan() {
+    const canvas = document.getElementById('zone-plan-canvas');
+    if (!canvas) return;
+    // Handle HiDPI
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    if (zonesData.length === 0) {
+        ctx.fillStyle = '#999';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('존을 추가하면 평면도가 표시됩니다', W/2, H/2);
+        return;
+    }
+
+    // Compute bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    zonesData.forEach(z => {
+        const wx = z.bays_x.reduce((a, b) => a + b, 0);
+        const wy = z.bays_y.reduce((a, b) => a + b, 0);
+        minX = Math.min(minX, z.origin_x || 0);
+        maxX = Math.max(maxX, (z.origin_x || 0) + wx);
+        minY = Math.min(minY, z.origin_y || 0);
+        maxY = Math.max(maxY, (z.origin_y || 0) + wy);
+    });
+
+    const pad = 30;
+    const scaleX = (W - 2 * pad) / (maxX - minX || 1);
+    const scaleY = (H - 2 * pad) / (maxY - minY || 1);
+    const scale = Math.min(scaleX, scaleY);
+
+    const offX = pad + ((W - 2 * pad) - (maxX - minX) * scale) / 2;
+    const offY = pad + ((H - 2 * pad) - (maxY - minY) * scale) / 2;
+
+    function tx(x) { return offX + (x - minX) * scale; }
+    function ty(y) { return H - offY - (y - minY) * scale; }
+
+    // Draw zones
+    zonesData.forEach((z, idx) => {
+        const wx = z.bays_x.reduce((a, b) => a + b, 0);
+        const wy = z.bays_y.reduce((a, b) => a + b, 0);
+        const ox = z.origin_x || 0, oy = z.origin_y || 0;
+        const x0 = tx(ox);
+        const y0 = ty(oy + wy);
+        const w = wx * scale;
+        const h = wy * scale;
+        const color = ZONE_COLORS[idx % ZONE_COLORS.length];
+
+        // Fill + border
+        ctx.fillStyle = color + '22';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.fillRect(x0, y0, w, h);
+        ctx.strokeRect(x0, y0, w, h);
+
+        // Grid lines
+        ctx.lineWidth = 0.5;
+        ctx.strokeStyle = color + '88';
+        ctx.setLineDash([3, 3]);
+        let gx = ox;
+        for (let i = 0; i <= z.bays_x.length; i++) {
+            const px = tx(gx);
+            ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y0 + h); ctx.stroke();
+            if (i < z.bays_x.length) gx += z.bays_x[i];
+        }
+        let gy = oy;
+        for (let j = 0; j <= z.bays_y.length; j++) {
+            const py = ty(gy);
+            ctx.beginPath(); ctx.moveTo(x0, py); ctx.lineTo(x0 + w, py); ctx.stroke();
+            if (j < z.bays_y.length) gy += z.bays_y[j];
+        }
+        ctx.setLineDash([]);
+
+        // Zone label + area
+        ctx.fillStyle = color;
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        const area = wx * wy;
+        ctx.fillText(`${z.id}`, x0 + 4, y0 + 13);
+        ctx.font = '10px sans-serif';
+        ctx.fillText(`${wx}×${wy}m`, x0 + 4, y0 + 25);
+        ctx.fillStyle = color + 'aa';
+        ctx.fillText(`${area}m²`, x0 + 4, y0 + 36);
+
+        // Dimension arrows (X width at bottom, Y width at left)
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.font = '9px sans-serif';
+        // X dimension below
+        if (w > 30) {
+            const dy_dim = y0 + h + 10;
+            ctx.beginPath(); ctx.moveTo(x0, dy_dim); ctx.lineTo(x0 + w, dy_dim); ctx.stroke();
+            ctx.textAlign = 'center';
+            ctx.fillText(`${wx}m`, x0 + w/2, dy_dim + 10);
+        }
+        // Y dimension to the right
+        if (h > 30) {
+            const dx_dim = x0 + w + 6;
+            ctx.beginPath(); ctx.moveTo(dx_dim, y0); ctx.lineTo(dx_dim, y0 + h); ctx.stroke();
+            ctx.save();
+            ctx.translate(dx_dim + 10, y0 + h/2);
+            ctx.rotate(-Math.PI/2);
+            ctx.textAlign = 'center';
+            ctx.fillText(`${wy}m`, 0, 0);
+            ctx.restore();
+        }
+    });
+
+    // Axes indicator
+    ctx.strokeStyle = '#666';
+    ctx.fillStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    // X arrow
+    ctx.beginPath(); ctx.moveTo(10, H-10); ctx.lineTo(40, H-10); ctx.stroke();
+    ctx.fillText('X', 45, H-7);
+    // Y arrow
+    ctx.beginPath(); ctx.moveTo(10, H-10); ctx.lineTo(10, H-40); ctx.stroke();
+    ctx.fillText('Y', 10, H-44);
+}
+
+function buildIrregularPreview(data) {
+    clearPreviewScene();
+    if (!scene) return;
+
+    const zones = data.zones || [];
+    const stories = data.stories || [];
+    if (zones.length === 0 || stories.length === 0) return;
+
+    const zCoords = [0];
+    stories.forEach(s => zCoords.push(zCoords[zCoords.length - 1] + (s.height || 3.5)));
+    const ns = stories.length;
+
+    // Same materials as regular preview
+    const colMat = new THREE.LineBasicMaterial({ color: 0x4285f4, linewidth: 2 });
+    const beamXMat = new THREE.LineBasicMaterial({ color: 0x34a853, linewidth: 2 });
+    const beamYMat = new THREE.LineBasicMaterial({ color: 0xfbbc04, linewidth: 2 });
+    const nodeMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+    const nodeGeo = new THREE.SphereGeometry(0.12, 6, 6);
+    const triGeo = new THREE.ConeGeometry(0.3, 0.4, 4);
+    const triMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+
+    // Same coordinate swap as regular: Three.js (x, z, -y)
+    function addLine(p1, p2, mat) {
+        const geo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(p1[0], p1[2], -p1[1]),
+            new THREE.Vector3(p2[0], p2[2], -p2[1]),
+        ]);
+        const line = new THREE.Line(geo, mat);
+        scene.add(line);
+        previewMeshes.push(line);
+    }
+
+    // Track drawn nodes to avoid duplicates at zone boundaries
+    const drawnNodes = new Set();
+    const drawnCols = new Set();
+    const drawnBeamsX = new Set();
+    const drawnBeamsY = new Set();
+
+    function nk(x, y, z) { return `${x.toFixed(3)}_${y.toFixed(3)}_${z.toFixed(3)}`; }
+    function ek(x1, y1, z1, x2, y2, z2) { return nk(x1,y1,z1) + '|' + nk(x2,y2,z2); }
+
+    zones.forEach(zone => {
+        const ox = zone.origin_x || 0;
+        const oy = zone.origin_y || 0;
+        const xc = [ox];
+        zone.bays_x.forEach(b => xc.push(xc[xc.length - 1] + b));
+        const yc = [oy];
+        zone.bays_y.forEach(b => yc.push(yc[yc.length - 1] + b));
+        const sf = zone.story_from || 1;
+        const st = zone.story_to || ns;
+
+        // Columns
+        for (let s = Math.max(0, sf - 1); s < Math.min(st, ns); s++) {
+            xc.forEach(x => yc.forEach(y => {
+                const key = ek(x,y,zCoords[s], x,y,zCoords[s+1]);
+                if (!drawnCols.has(key)) {
+                    drawnCols.add(key);
+                    addLine([x, y, zCoords[s]], [x, y, zCoords[s+1]], colMat);
+                }
+            }));
+        }
+
+        // Beams X
+        for (let s = sf; s <= Math.min(st, ns); s++) {
+            yc.forEach(y => {
+                for (let i = 0; i < xc.length - 1; i++) {
+                    const key = ek(xc[i],y,zCoords[s], xc[i+1],y,zCoords[s]);
+                    if (!drawnBeamsX.has(key)) {
+                        drawnBeamsX.add(key);
+                        addLine([xc[i], y, zCoords[s]], [xc[i+1], y, zCoords[s]], beamXMat);
+                    }
+                }
+            });
+        }
+
+        // Beams Y
+        for (let s = sf; s <= Math.min(st, ns); s++) {
+            xc.forEach(x => {
+                for (let j = 0; j < yc.length - 1; j++) {
+                    const key = ek(x,yc[j],zCoords[s], x,yc[j+1],zCoords[s]);
+                    if (!drawnBeamsY.has(key)) {
+                        drawnBeamsY.add(key);
+                        addLine([x, yc[j], zCoords[s]], [x, yc[j+1], zCoords[s]], beamYMat);
+                    }
+                }
+            });
+        }
+
+        // Nodes
+        for (let s = Math.max(0, sf - 1); s <= Math.min(st, ns); s++) {
+            xc.forEach(x => yc.forEach(y => {
+                const key = nk(x, y, zCoords[s]);
+                if (!drawnNodes.has(key)) {
+                    drawnNodes.add(key);
+                    const sphere = new THREE.Mesh(nodeGeo, nodeMat);
+                    sphere.position.set(x, zCoords[s], -y);
+                    scene.add(sphere);
+                    previewMeshes.push(sphere);
+                }
+            }));
+        }
+
+        // Support triangles at base
+        if (sf <= 1) {
+            xc.forEach(x => yc.forEach(y => {
+                const key = nk(x, y, 0);
+                if (!drawnNodes.has('tri_' + key)) {
+                    drawnNodes.add('tri_' + key);
+                    const tri = new THREE.Mesh(triGeo, triMat);
+                    tri.position.set(x, -0.2, -y);
+                    scene.add(tri);
+                    previewMeshes.push(tri);
+                }
+            }));
+        }
+    });
+
+    // Show preview badge
+    const badge = document.getElementById('preview-badge');
+    if (badge) badge.style.display = 'block';
+
+    // Fit camera
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    zones.forEach(z => {
+        const wx = z.bays_x.reduce((a, b) => a + b, 0);
+        const wy = z.bays_y.reduce((a, b) => a + b, 0);
+        minX = Math.min(minX, z.origin_x || 0);
+        maxX = Math.max(maxX, (z.origin_x || 0) + wx);
+        minY = Math.min(minY, z.origin_y || 0);
+        maxY = Math.max(maxY, (z.origin_y || 0) + wy);
+    });
+    const maxZ = zCoords[zCoords.length - 1];
+    const cx = (minX + maxX) / 2;
+    const cy = maxZ / 2;
+    const cz = -(minY + maxY) / 2;
+    const size = Math.max(maxX - minX, maxY - minY, maxZ);
+    const dist = size * 1.8;
+    camera.position.set(cx + dist * 0.7, cy + dist * 0.5, cz + dist * 0.7);
+    controls.target.set(cx, cy, cz);
+    controls.update();
 }

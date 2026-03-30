@@ -330,11 +330,13 @@ def _calculate_story_weights(model: BuildingModel, dl_loads: list[dict]) -> list
     """층별 유효 중량 계산 (kN).
 
     W = DL × floor_area (활하중은 창고 25%만 포함, 일반 건물은 미포함)
+    비정형 건물은 층별 바닥면적이 다를 수 있음 (setback 등).
     """
-    floor_area = model.floor_area
     weights = []
     for ld in dl_loads:
-        w = ld["value"] * floor_area  # kN
+        story = ld.get("story", 1)
+        area = model.floor_area_at_story(story)
+        w = ld["value"] * area  # kN
         weights.append(round(w, 2))
     return weights
 

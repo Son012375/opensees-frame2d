@@ -84,6 +84,10 @@ class BuildingModification(BaseModel):
 # Application
 app = FastAPI(title="OpenSees Structural Analysis Platform")
 
+# Demo auth middleware (enabled when DEMO_AUTH_TOKEN env var is set)
+from app.core.auth import DemoAuthMiddleware
+app.add_middleware(DemoAuthMiddleware)
+
 # Static files and templates
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
@@ -554,6 +558,30 @@ async def list_sections():
                 "fallback": True, "error": str(e)}
 
 
+@app.get("/api/sections/properties/{section_name:path}")
+async def get_section_props(section_name: str):
+    """Return section properties (A, Ix, Iy, J, h, b, tw, tf) for a given section"""
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.section_3d import get_section_3d
+        sec = get_section_3d(section_name)
+        return {
+            "name": sec.name,
+            "A_cm2": round(sec.A / 100, 2),
+            "Ix_cm4": round(sec.Ix / 10000, 1),
+            "Iy_cm4": round(sec.Iy / 10000, 1),
+            "J_cm4": round(sec.J / 10000, 1),
+            "h_mm": round(sec.h, 1),
+            "b_mm": round(sec.b, 1),
+            "tw_mm": round(sec.tw, 1),
+            "tf_mm": round(sec.tf, 1),
+            "j_source": sec.j_source,
+        }
+    except Exception as e:
+        return {"error": str(e), "name": section_name}
+
+
 @app.get("/api/materials/list")
 async def list_materials():
     """Return available materials"""
@@ -649,77 +677,26 @@ async def analyze_building_api(input_data: BuildingInput):
             else:
                 viewer_nodes.append({"id": n.id, "x": n.x, "y": n.y, "z": n.z})
 
-        # Build structural members from grid topology
-        # (sub-elements reference internal OpenSees nodes not in viewer_nodes)
+        # Build structural members from member_info (supports both regular and irregular)
         viewer_elements = []
-        node_by_pos = {}  # (x,y,z) -> node_id
-        for vn in viewer_nodes:
-            key = (round(vn["x"], 3), round(vn["y"], 3), round(vn["z"], 3))
-            node_by_pos[key] = vn["id"]
-
-        stories_h = list(multi.stories)
-        bays_x = list(multi.bays_x)
-        bays_y = list(multi.bays_y)
-        nx = len(bays_x) + 1
-        ny = len(bays_y) + 1
-        ns = len(stories_h)
-
-        # Compute grid coordinates
-        x_coords = [0.0]
-        for bx in bays_x:
-            x_coords.append(x_coords[-1] + bx)
-        y_coords = [0.0]
-        for by_ in bays_y:
-            y_coords.append(y_coords[-1] + by_)
-        z_coords = [0.0]
-        for sh in stories_h:
-            z_coords.append(z_coords[-1] + sh)
-
-        member_id = 0
-        # Columns: vertical members
-        for s in range(ns):
-            for iy in range(ny):
-                for ix in range(nx):
-                    key_i = (round(x_coords[ix], 3), round(y_coords[iy], 3), round(z_coords[s], 3))
-                    key_j = (round(x_coords[ix], 3), round(y_coords[iy], 3), round(z_coords[s + 1], 3))
-                    ni_id = node_by_pos.get(key_i)
-                    nj_id = node_by_pos.get(key_j)
-                    if ni_id and nj_id:
-                        member_id += 1
-                        viewer_elements.append({
-                            "id": member_id, "ni": ni_id, "nj": nj_id,
-                            "type": "column", "section": multi.column_section,
-                        })
-
-        # Beams X: along X direction at each story level
-        for s in range(1, ns + 1):
-            for iy in range(ny):
-                for ix in range(nx - 1):
-                    key_i = (round(x_coords[ix], 3), round(y_coords[iy], 3), round(z_coords[s], 3))
-                    key_j = (round(x_coords[ix + 1], 3), round(y_coords[iy], 3), round(z_coords[s], 3))
-                    ni_id = node_by_pos.get(key_i)
-                    nj_id = node_by_pos.get(key_j)
-                    if ni_id and nj_id:
-                        member_id += 1
-                        viewer_elements.append({
-                            "id": member_id, "ni": ni_id, "nj": nj_id,
-                            "type": "beam_x", "section": multi.beam_x_section,
-                        })
-
-        # Beams Y: along Y direction at each story level
-        for s in range(1, ns + 1):
-            for iy in range(ny - 1):
-                for ix in range(nx):
-                    key_i = (round(x_coords[ix], 3), round(y_coords[iy], 3), round(z_coords[s], 3))
-                    key_j = (round(x_coords[ix], 3), round(y_coords[iy + 1], 3), round(z_coords[s], 3))
-                    ni_id = node_by_pos.get(key_i)
-                    nj_id = node_by_pos.get(key_j)
-                    if ni_id and nj_id:
-                        member_id += 1
-                        viewer_elements.append({
-                            "id": member_id, "ni": ni_id, "nj": nj_id,
-                            "type": "beam_y", "section": multi.beam_y_section,
-                        })
+        _section_map = {
+            "column": multi.column_section,
+            "beam_x": multi.beam_x_section,
+            "beam_y": multi.beam_y_section,
+        }
+        viewer_node_ids = {vn["id"] for vn in viewer_nodes}
+        for minfo in (multi.member_info or []):
+            ni_id = minfo.get("ni", 0)
+            nj_id = minfo.get("nj", 0)
+            etype = minfo.get("elem_type", "column")
+            if ni_id in viewer_node_ids and nj_id in viewer_node_ids:
+                viewer_elements.append({
+                    "id": minfo["member_id"],
+                    "ni": ni_id,
+                    "nj": nj_id,
+                    "type": etype,
+                    "section": _section_map.get(etype, ""),
+                })
 
         # 7. Envelope across combos
         env = {"max_dx_mm": 0, "max_dy_mm": 0, "max_dz_mm": 0,
@@ -742,6 +719,85 @@ async def analyze_building_api(input_data: BuildingInput):
                 env["max_axial_kN"] = round(cr.max_axial, 2)
             if cr.max_shear > env["max_shear_kN"]:
                 env["max_shear_kN"] = round(cr.max_shear, 2)
+
+        # 7b. Per-case/combo results for frontend case selector
+        case_names = list(multi.case_results.keys())
+        combo_names = list(multi.combo_results.keys())
+        case_data = {}
+
+        def _extract_case_summary(cr):
+            """Extract summary + per-node displacements from a case result."""
+            summary = {
+                "max_dx_mm": round(cr.max_displacement_x, 3),
+                "max_dy_mm": round(cr.max_displacement_y, 3),
+                "max_dz_mm": round(getattr(cr, 'max_displacement_z', 0), 3),
+                "max_drift_x": round(cr.max_drift_x, 6),
+                "max_drift_y": round(cr.max_drift_y, 6),
+                "max_moment_kNm": round(cr.max_moment, 2),
+                "max_axial_kN": round(cr.max_axial, 2),
+                "max_shear_kN": round(cr.max_shear, 2),
+            }
+            displacements = {}
+            for nd in cr.nodal_displacements:
+                nid = nd.get("node_id", nd.get("node", 0))
+                displacements[str(nid)] = [
+                    round(nd.get("dx_mm", 0), 3),
+                    round(nd.get("dy_mm", 0), 3),
+                    round(nd.get("dz_mm", 0), 3),
+                ]
+            drifts = []
+            for sd in cr.story_drifts:
+                drifts.append({
+                    "story": sd.get("story", 0),
+                    "drift_x": round(sd.get("drift_x", 0), 6),
+                    "drift_y": round(sd.get("drift_y", 0), 6),
+                })
+            return {"summary": summary, "displacements": displacements, "story_drifts": drifts}
+
+        for cn, cr in multi.case_results.items():
+            case_data[cn] = _extract_case_summary(cr)
+        for cn, cr in multi.combo_results.items():
+            case_data[cn] = _extract_case_summary(cr)
+
+        # 7c. Response Spectrum Analysis (if requested)
+        rsa_result = None
+        seismic_method = input_data.config.get("seismic_method", "ELF")
+        if seismic_method == "RSA" and multi.modal_analysis:
+            try:
+                from core.design_spectrum import compute_design_spectrum
+                from core.response_spectrum_analysis import (
+                    run_response_spectrum_analysis, rsa_result_to_case_data,
+                )
+                # Get seismic system parameters
+                seismic_sys = input_data.config.get("seismic_system", "ordinary_moment_frame")
+                R_map = {"special_moment_frame": 8.0, "intermediate_moment_frame": 4.5,
+                         "ordinary_moment_frame": 3.5, "special_concentric_braced": 8.0}
+                R = R_map.get(seismic_sys, 3.5)
+                IE = model.importance_factor
+                region = model.region or "서울"
+                site_class = model.site_class or "S3"
+
+                spectrum = compute_design_spectrum(region, site_class, IE)
+                if spectrum.get("status") == "success":
+                    rsa_result = run_response_spectrum_analysis(
+                        modal_analysis=multi.modal_analysis,
+                        spectrum_result=spectrum,
+                        viewer_nodes=viewer_nodes,
+                        stories=list(multi.stories),
+                        bays_x=list(multi.bays_x),
+                        bays_y=list(multi.bays_y),
+                        combination_rule=input_data.config.get("rsa_combination", "CQC"),
+                        direction_rule=input_data.config.get("rsa_direction", "30pct"),
+                        IE=IE, R=R,
+                    )
+                    # Merge RSA case_data
+                    rsa_cases = rsa_result_to_case_data(rsa_result)
+                    case_data.update(rsa_cases)
+                    case_names.append("__RSA__")  # Marker for frontend
+                    combo_names.extend(rsa_cases.keys())
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
 
         # 8. Design check per-member results for coloring
         # Map design check member_id (1-based) to viewer structural member IDs
@@ -780,12 +836,25 @@ async def analyze_building_api(input_data: BuildingInput):
                 "beam_x_section": multi.beam_x_section,
                 "beam_y_section": multi.beam_y_section,
                 "material_name": multi.material_name,
+                "is_irregular": multi.analysis_metadata.get("irregular", False),
+                "zones": input_data.config.get("zones"),
             },
             "envelope": env,
+            "case_names": case_names,
+            "combo_names": combo_names,
+            "case_data": case_data,
             "design_check": dc_result,
             "interpretation": interpretation,
             "member_checks": member_checks,
             "modal_analysis": multi.modal_analysis,
+            "rsa": {
+                "enabled": rsa_result is not None,
+                "combination_rule": rsa_result.combination_rule if rsa_result else None,
+                "direction_rule": rsa_result.direction_rule if rsa_result else None,
+                "num_modes_used": rsa_result.num_modes_used if rsa_result else 0,
+                "parameters": rsa_result.parameters if rsa_result else {},
+                "story_drifts": rsa_result.story_drifts if rsa_result else [],
+            } if seismic_method == "RSA" else None,
         }
 
         # Generate HTML report
@@ -832,10 +901,14 @@ async def parse_ifc_upload(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".ifc"):
         raise HTTPException(status_code=400, detail="IFC 파일(.ifc)만 업로드할 수 있습니다.")
 
+    # File size limit (50MB)
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+
     # Save to temp file
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ifc")
     try:
-        content = await file.read()
         os.write(tmp_fd, content)
         os.close(tmp_fd)
 
@@ -865,6 +938,8 @@ async def parse_ifc_upload(file: UploadFile = File(...)):
         for by in bays_y:
             grid_y.append(grid_y[-1] + by)
 
+        detected_zones = ifc_data.get("detected_zones")  # zone-based irregular detection
+
         result = {
             "success": True,
             "stories": stories,
@@ -878,12 +953,16 @@ async def parse_ifc_upload(file: UploadFile = File(...)):
             "num_columns": ifc_data.get("num_columns", 0),
             "num_walls": ifc_data.get("num_walls", 0),
             "warnings": ifc_data.get("warnings", []),
+            "detected_zones": detected_zones,
+            "is_irregular": detected_zones is not None,
             "summary": {
                 "num_stories": len(stories),
                 "num_bays_x": len(bays_x),
                 "num_bays_y": len(bays_y),
                 "total_height": sum(s.get("height", 0) for s in stories),
                 "filename": file.filename,
+                "is_irregular": detected_zones is not None,
+                "num_zones": len(detected_zones) if detected_zones else 0,
             },
         }
         return result

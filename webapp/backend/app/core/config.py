@@ -10,7 +10,7 @@ JOBS_DIR = BASE_DIR / "jobs"
 JOBS_DIR.mkdir(exist_ok=True)
 
 # MCP server path (existing analysis code)
-MCP_SERVER_PATH = Path(os.getenv("MCP_SERVER_PATH", "d:/son/opensees-MCP/mcp-server"))
+MCP_SERVER_PATH = Path(os.getenv("MCP_SERVER_PATH", str(Path(__file__).resolve().parents[4] / "mcp-server")))
 
 # Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

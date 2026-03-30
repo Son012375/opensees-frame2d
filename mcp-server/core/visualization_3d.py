@@ -827,7 +827,7 @@ def _get_model_settings(r) -> dict:
 # HTML Report Generator
 # ============================================================
 
-def plot_frame_3d_interactive(multi_result, output_path=None, deformation_scale=50.0, assumptions=None, design_check=None, interpretation=None) -> str:
+def plot_frame_3d_interactive(multi_result, output_path=None, deformation_scale=50.0, assumptions=None, design_check=None, interpretation=None, paper_mode=False, paper_case=None) -> str:
     """3D 프레임 해석 결과 → 인터랙티브 HTML 리포트.
 
     Args:
@@ -836,11 +836,17 @@ def plot_frame_3d_interactive(multi_result, output_path=None, deformation_scale=
         deformation_scale: 변형 배율 기본값 (0~200)
         assumptions: build_assumption_summary() 결과 dict (None이면 탭 미표시)
         design_check: run_design_check() 결과 dict (None이면 탭 미표시)
+        paper_mode: True면 논문용 2색 3D 뷰만 생성 (UI 제거)
+        paper_case: paper_mode에서 표시할 하중조합 이름 (None이면 첫 번째 조합)
 
     Returns:
         str: 생성된 HTML 파일 경로
     """
     data = prepare_3d_viz_data(multi_result)
+
+    # Paper mode: 논문용 2색 3D 뷰만 생성
+    if paper_mode:
+        return _generate_paper_mode_html(data, output_path, deformation_scale, paper_case)
 
     # Assumptions 데이터 삽입 (있는 경우만)
     if assumptions is not None:
@@ -2595,3 +2601,118 @@ init();
 </script>
 </body>
 </html>"""
+
+
+# ============================================================
+# Paper Mode: 논문용 2색 3D 뷰 HTML 생성
+# ============================================================
+
+def _generate_paper_mode_html(data: dict, output_path, deformation_scale: float, paper_case: str | None) -> str:
+    """논문용 2색(undeformed 회색 + deformed 파랑) 3D 뷰 HTML 생성."""
+    # 표시할 하중 케이스 결정
+    if paper_case and paper_case in data["all_names"]:
+        case_name = paper_case
+    elif data["combo_names"]:
+        case_name = data["combo_names"][0]
+    else:
+        case_name = data["all_names"][0]
+
+    data_json = json.dumps(data, ensure_ascii=False)
+    scale = int(deformation_scale)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>3D Frame - Paper Figure</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+body {{ margin:0; padding:0; background:#fff; }}
+#plot3d {{ width:100vw; height:100vh; }}
+</style>
+</head>
+<body>
+<div id="plot3d"></div>
+<script>
+var DATA = {data_json};
+var caseName = "{case_name}";
+var scale = {scale};
+
+(function() {{
+  var types = ['column', 'beam_x', 'beam_y'];
+  var traces = [];
+
+  // Undeformed - single light gray
+  var ux=[], uy=[], uz=[];
+  for (var t = 0; t < 3; t++) {{
+    var ms = DATA.members[types[t]];
+    for (var i = 0; i < ms.length; i++) {{
+      var ni = ms[i][0], nj = ms[i][1];
+      var pi = DATA.node_map[String(ni)], pj = DATA.node_map[String(nj)];
+      ux.push(pi[0], pj[0], null);
+      uy.push(pi[1], pj[1], null);
+      uz.push(pi[2], pj[2], null);
+    }}
+  }}
+  traces.push({{type:'scatter3d', mode:'lines', x:ux, y:uy, z:uz,
+    line:{{color:'#BDBDBD', width:3}}, name:'Undeformed', legendgroup:'undeformed'}});
+
+  // Deformed - single dark blue
+  var cd = DATA.case_data[caseName], disp = cd.disp;
+  var dx=[], dy=[], dz=[];
+  for (var t = 0; t < 3; t++) {{
+    var ms = DATA.members[types[t]];
+    for (var i = 0; i < ms.length; i++) {{
+      var ni = ms[i][0], nj = ms[i][1];
+      var pi = DATA.node_map[String(ni)], pj = DATA.node_map[String(nj)];
+      var di = disp[String(ni)] || [0,0,0], dj = disp[String(nj)] || [0,0,0];
+      dx.push(pi[0]+di[0]/1000*scale, pj[0]+dj[0]/1000*scale, null);
+      dy.push(pi[1]+di[1]/1000*scale, pj[1]+dj[1]/1000*scale, null);
+      dz.push(pi[2]+di[2]/1000*scale, pj[2]+dj[2]/1000*scale, null);
+    }}
+  }}
+  traces.push({{type:'scatter3d', mode:'lines', x:dx, y:dy, z:dz,
+    line:{{color:'#1565C0', width:5}}, name:'Deformed', legendgroup:'deformed'}});
+
+  // Supports - black triangles
+  var sx=[], sy=[], sz=[];
+  for (var i = 0; i < DATA.support_ids.length; i++) {{
+    var p = DATA.node_map[String(DATA.support_ids[i])];
+    sx.push(p[0]); sy.push(p[1]); sz.push(p[2]);
+  }}
+  traces.push({{type:'scatter3d', mode:'markers', x:sx, y:sy, z:sz,
+    marker:{{size:5, color:'#333', symbol:'diamond'}}, name:'Supports'}});
+
+  var layout = {{
+    scene: {{
+      xaxis:{{title:'X (m)', gridcolor:'#eee', zerolinecolor:'#ccc'}},
+      yaxis:{{title:'Y (m)', gridcolor:'#eee', zerolinecolor:'#ccc'}},
+      zaxis:{{title:'Z (m)', gridcolor:'#eee', zerolinecolor:'#ccc'}},
+      aspectmode:'data',
+      camera:{{eye:{{x:1.8, y:1.8, z:1.2}}}},
+      bgcolor:'#ffffff'
+    }},
+    height:800,
+    margin:{{l:0,r:0,t:40,b:0}},
+    legend:{{x:0.01, y:0.98, bgcolor:'rgba(255,255,255,0.9)',
+             bordercolor:'#ccc', borderwidth:1, font:{{size:13}}}},
+    title:{{text:'Load combination: {case_name}  |  Deformation scale: ' + scale + 'x',
+            font:{{size:14, color:'#555'}}, x:0.5}},
+    paper_bgcolor:'#ffffff',
+    plot_bgcolor:'#ffffff'
+  }};
+
+  Plotly.newPlot('plot3d', traces, layout, {{responsive:true}});
+}})();
+</script>
+</body>
+</html>"""
+
+    if output_path is None:
+        fd, output_path = tempfile.mkstemp(suffix='.html')
+        os.close(fd)
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    return output_path

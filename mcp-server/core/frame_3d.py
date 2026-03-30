@@ -191,6 +191,176 @@ _TORSION_DOF = {"beam_x": 4, "beam_y": 5, "column": 6}
 # 기하 생성
 # ============================================================
 
+_COORD_TOL = 3  # 좌표 병합 소수점 자릿수 (mm 단위, 0.001m)
+
+
+def _get_story_nodes_from_grid(node_grid: dict, n_cols_x: int, n_cols_y: int,
+                                n_stories: int) -> dict[int, list[int]]:
+    """정형 node_grid에서 story_nodes 딕셔너리 생성."""
+    story_nodes = {}
+    for s in range(n_stories + 1):
+        story_nodes[s] = [
+            node_grid[(s, cx, cy)]
+            for cy in range(n_cols_y)
+            for cx in range(n_cols_x)
+        ]
+    return story_nodes
+
+
+def _generate_irregular_geometry(
+    stories: list[float],
+    zones: list[dict],
+) -> tuple[list[Node3D], list[tuple[int, int, str]], dict[int, list[int]],
+           list[int], list[dict]]:
+    """비정형 프레임 기하 생성 (존 기반, 노드 병합).
+
+    Args:
+        stories: 층고 리스트 (m)
+        zones: 존 정보 dict 리스트
+            각 존: {id, bays_x, bays_y, origin_x, origin_y, story_from, story_to}
+
+    Returns:
+        nodes: 노드 목록
+        connections: [(ni, nj, elem_type), ...]
+        story_nodes: {story_level: [node_ids]}
+        base_nodes: 기초 노드 ID 목록
+        member_metadata: 부재별 메타데이터 (story, zone_id, trib_width, direction)
+    """
+    n_stories = len(stories)
+    z_coords = [0.0]
+    for sh in stories:
+        z_coords.append(z_coords[-1] + sh)
+
+    def rkey(x, y, z):
+        return (round(x, _COORD_TOL), round(y, _COORD_TOL), round(z, _COORD_TOL))
+
+    coord_to_node: dict[tuple, int] = {}
+    nodes: list[Node3D] = []
+    story_nodes: dict[int, list[int]] = {s: [] for s in range(n_stories + 1)}
+    node_id = 1
+
+    def _zone_active_at_level(zone, level):
+        """level=0은 base, level>=1은 해당 층 상단."""
+        if level == 0:
+            return zone.get("story_from", 1) <= 1
+        return (zone.get("story_from", 1) <= level and
+                (zone.get("story_to") is None or zone["story_to"] >= level))
+
+    def _zone_x_coords(zone):
+        coords = [zone.get("origin_x", 0.0)]
+        for bx in zone["bays_x"]:
+            coords.append(coords[-1] + bx)
+        return coords
+
+    def _zone_y_coords(zone):
+        coords = [zone.get("origin_y", 0.0)]
+        for by in zone["bays_y"]:
+            coords.append(coords[-1] + by)
+        return coords
+
+    # 1단계: 모든 존에서 노드 생성 (좌표 기반 병합)
+    for zone in zones:
+        x_crds = _zone_x_coords(zone)
+        y_crds = _zone_y_coords(zone)
+
+        for s in range(n_stories + 1):
+            if not _zone_active_at_level(zone, s):
+                continue
+            z = z_coords[s]
+            for y in y_crds:
+                for x in x_crds:
+                    key = rkey(x, y, z)
+                    if key not in coord_to_node:
+                        node = Node3D(id=node_id, x=x, y=y, z=z)
+                        nodes.append(node)
+                        coord_to_node[key] = node_id
+                        story_nodes[s].append(node_id)
+                        node_id += 1
+
+    base_nodes = list(story_nodes[0])
+
+    # 2단계: 부재 연결 (중복 방지)
+    connections: list[tuple[int, int, str]] = []
+    member_metadata: list[dict] = []
+    conn_set: set[tuple[int, int, str]] = set()
+
+    def _add_conn(ni, nj, etype, meta):
+        nonlocal connections
+        key = (min(ni, nj), max(ni, nj), etype)
+        if key not in conn_set:
+            conn_set.add(key)
+            connections.append((ni, nj, etype))
+            member_metadata.append(meta)
+
+    for zone in zones:
+        x_crds = _zone_x_coords(zone)
+        y_crds = _zone_y_coords(zone)
+        bays_x = zone["bays_x"]
+        bays_y = zone["bays_y"]
+        zid = zone["id"]
+        n_cx = len(x_crds)
+        n_cy = len(y_crds)
+
+        # 기둥: story s → s+1
+        for s in range(n_stories):
+            low_active = _zone_active_at_level(zone, s)
+            up_active = _zone_active_at_level(zone, s + 1)
+            if not (low_active and up_active):
+                continue
+            for y in y_crds:
+                for x in x_crds:
+                    ni = coord_to_node[rkey(x, y, z_coords[s])]
+                    nj = coord_to_node[rkey(x, y, z_coords[s + 1])]
+                    _add_conn(ni, nj, "column", {
+                        "story": s + 1, "zone_id": zid, "trib_width": 0.0,
+                    })
+
+        # Beam_X: story ≥ 1, 인접 X 노드 연결
+        for s in range(1, n_stories + 1):
+            if not _zone_active_at_level(zone, s):
+                continue
+            z = z_coords[s]
+            for iy, y in enumerate(y_crds):
+                # tributary width (Y방향)
+                trib_y = 0.0
+                if iy > 0:
+                    trib_y += bays_y[iy - 1] / 2.0
+                if iy < n_cy - 1:
+                    trib_y += bays_y[iy] / 2.0
+                if trib_y == 0.0:
+                    trib_y = bays_y[0] if bays_y else 1.0
+
+                for ix in range(n_cx - 1):
+                    ni = coord_to_node[rkey(x_crds[ix], y, z)]
+                    nj = coord_to_node[rkey(x_crds[ix + 1], y, z)]
+                    _add_conn(ni, nj, "beam_x", {
+                        "story": s, "zone_id": zid, "trib_width": trib_y,
+                    })
+
+        # Beam_Y: story ≥ 1, 인접 Y 노드 연결
+        for s in range(1, n_stories + 1):
+            if not _zone_active_at_level(zone, s):
+                continue
+            z = z_coords[s]
+            for ix, x in enumerate(x_crds):
+                trib_x = 0.0
+                if ix > 0:
+                    trib_x += bays_x[ix - 1] / 2.0
+                if ix < n_cx - 1:
+                    trib_x += bays_x[ix] / 2.0
+                if trib_x == 0.0:
+                    trib_x = bays_x[0] if bays_x else 1.0
+
+                for iy in range(n_cy - 1):
+                    ni = coord_to_node[rkey(x, y_crds[iy], z)]
+                    nj = coord_to_node[rkey(x, y_crds[iy + 1], z)]
+                    _add_conn(ni, nj, "beam_y", {
+                        "story": s, "zone_id": zid, "trib_width": trib_x,
+                    })
+
+    return nodes, connections, story_nodes, base_nodes, member_metadata
+
+
 def _generate_frame_3d_geometry(
     stories: list[float],
     bays_x: list[float],
@@ -290,6 +460,7 @@ def _build_frame_3d_model(
     num_stories: int = 0,
     member_releases: dict | None = None,
     geometric_nonlinearity: str = "linear",
+    story_nodes_map: dict[int, list[int]] | None = None,
 ) -> tuple[list[Element3D], dict[int, list[int]], list[dict], int]:
     """OpenSees 3D 모델 구축.
 
@@ -314,18 +485,30 @@ def _build_frame_3d_model(
             ops.fix(bn, 1, 1, 1, 0, 0, 0)
 
     # 강체 다이어프램 (층별 수평면 구속)
-    if rigid_diaphragm and node_grid:
-        cx_m = n_cols_x // 2
-        cy_m = n_cols_y // 2
-        for s in range(1, num_stories + 1):
-            master_nid = node_grid[(s, cx_m, cy_m)]
-            slave_nids = [
-                node_grid[(s, cx, cy)]
-                for cx in range(n_cols_x) for cy in range(n_cols_y)
-                if node_grid[(s, cx, cy)] != master_nid
-            ]
-            if slave_nids:
-                ops.rigidDiaphragm(3, master_nid, *slave_nids)
+    if rigid_diaphragm:
+        if story_nodes_map:
+            # 비정형: story_nodes_map에서 직접 사용
+            for s in range(1, num_stories + 1):
+                snodes = story_nodes_map.get(s, [])
+                if len(snodes) < 2:
+                    continue
+                master_nid = snodes[len(snodes) // 2]
+                slave_nids = [n for n in snodes if n != master_nid]
+                if slave_nids:
+                    ops.rigidDiaphragm(3, master_nid, *slave_nids)
+        elif node_grid:
+            # 정형: 기존 방식
+            cx_m = n_cols_x // 2
+            cy_m = n_cols_y // 2
+            for s in range(1, num_stories + 1):
+                master_nid = node_grid[(s, cx_m, cy_m)]
+                slave_nids = [
+                    node_grid[(s, cx, cy)]
+                    for cx in range(n_cols_x) for cy in range(n_cols_y)
+                    if node_grid[(s, cx, cy)] != master_nid
+                ]
+                if slave_nids:
+                    ops.rigidDiaphragm(3, master_nid, *slave_nids)
 
     # 기하변환 (vecxz 벡터)
     # 참고: opensees 0.1.x에서 3D 'PDelta'는 기하강성 미반영 (silently ignored).
@@ -621,6 +804,82 @@ def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
             by_idx += 1
 
 
+def _apply_loads_3d_irregular(
+    loads: list[dict],
+    story_nodes: dict[int, list[int]],
+    connections: list[tuple[int, int, str]],
+    member_to_elements: dict[int, list[int]],
+    member_metadata: list[dict],
+):
+    """비정형 건물 하중 적용 (story_nodes + member_metadata 기반)."""
+    ops.timeSeries('Linear', 1)
+    ops.pattern('Plain', 1, 1)
+
+    for ld in loads:
+        ld_type = ld.get("type", "floor")
+        story = ld.get("story", 1)
+
+        if ld_type == "floor":
+            w_kNm = ld.get("value", 0.0)
+            w_Nmm = w_kNm  # kN/m → N/mm (×1000/1000)
+            for mid_0, meta in enumerate(member_metadata):
+                mid = mid_0 + 1
+                if meta["story"] != story:
+                    continue
+                etype = connections[mid_0][2]
+                if etype not in ("beam_x", "beam_y"):
+                    continue
+                if mid in member_to_elements:
+                    for eid in member_to_elements[mid]:
+                        ops.eleLoad('-ele', eid, '-type', '-beamUniform',
+                                    0.0, -w_Nmm, 0.0)
+
+        elif ld_type == "floor_area":
+            w_area = ld.get("value", 0.0)  # kN/m²
+            w_area_half = w_area * 0.5
+            for mid_0, meta in enumerate(member_metadata):
+                mid = mid_0 + 1
+                if meta["story"] != story:
+                    continue
+                etype = connections[mid_0][2]
+                if etype not in ("beam_x", "beam_y"):
+                    continue
+                trib = meta.get("trib_width", 0.0)
+                if trib <= 0:
+                    continue
+                w_line_Nmm = w_area_half * trib  # kN/m² × m × 0.5 → kN/m → N/mm
+                if mid in member_to_elements:
+                    for eid in member_to_elements[mid]:
+                        ops.eleLoad('-ele', eid, '-type', '-beamUniform',
+                                    0.0, -w_line_Nmm, 0.0)
+
+        elif ld_type == "lateral_x":
+            fx_N = ld.get("value", ld.get("fx", 0.0)) * 1000.0
+            snodes = story_nodes.get(story, [])
+            if snodes:
+                fx_per = fx_N / len(snodes)
+                for nid in snodes:
+                    ops.load(nid, fx_per, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+        elif ld_type == "lateral_y":
+            fy_N = ld.get("value", ld.get("fy", 0.0)) * 1000.0
+            snodes = story_nodes.get(story, [])
+            if snodes:
+                fy_per = fy_N / len(snodes)
+                for nid in snodes:
+                    ops.load(nid, 0.0, fy_per, 0.0, 0.0, 0.0, 0.0)
+
+        elif ld_type == "nodal":
+            nid = ld.get("node", 1)
+            fx = ld.get("fx", 0.0) * 1000.0
+            fy = ld.get("fy", 0.0) * 1000.0
+            fz = ld.get("fz", 0.0) * 1000.0
+            mx = ld.get("mx", 0.0) * 1e6
+            my = ld.get("my", 0.0) * 1e6
+            mz = ld.get("mz", 0.0) * 1e6
+            ops.load(nid, fx, fy, fz, mx, my, mz)
+
+
 # ============================================================
 # 해석
 # ============================================================
@@ -684,8 +943,12 @@ def _extract_case_results_3d(
     n_cols_x: int,
     n_cols_y: int,
     supports: str,
+    story_nodes_map: dict[int, list[int]] | None = None,
 ) -> Frame3DCaseResult:
-    """현재 OpenSees 상태에서 결과 추출."""
+    """현재 OpenSees 상태에서 결과 추출.
+
+    story_nodes_map이 제공되면 (비정형) 그것을 사용, 없으면 node_grid에서 생성.
+    """
     result = Frame3DCaseResult()
     n_stories = len(stories)
 
@@ -792,17 +1055,18 @@ def _extract_case_results_3d(
         })
 
     # 4. 층간변위각 (X/Y 양방향)
-    z_cumulative = [0.0]
-    for sh in stories:
-        z_cumulative.append(z_cumulative[-1] + sh)
+    # story_nodes_map 사용 (비정형 지원) 또는 node_grid에서 생성
+    if story_nodes_map is None:
+        story_nodes_map = _get_story_nodes_from_grid(node_grid, n_cols_x, n_cols_y, n_stories)
 
     for s in range(1, n_stories + 1):
         story_height_mm = stories[s - 1] * 1000
 
-        lower_nodes = [node_grid[(s - 1, cx, cy)]
-                       for cy in range(n_cols_y) for cx in range(n_cols_x)]
-        upper_nodes = [node_grid[(s, cx, cy)]
-                       for cy in range(n_cols_y) for cx in range(n_cols_x)]
+        lower_nodes = story_nodes_map.get(s - 1, [])
+        upper_nodes = story_nodes_map.get(s, [])
+
+        if not lower_nodes or not upper_nodes:
+            continue
 
         lower_dx = sum(ops.nodeDisp(n, 1) for n in lower_nodes) / len(lower_nodes)
         upper_dx = sum(ops.nodeDisp(n, 1) for n in upper_nodes) / len(upper_nodes)
@@ -912,6 +1176,7 @@ def _superpose_case_results_3d(
     node_grid: dict,
     n_cols_x: int,
     n_cols_y: int,
+    story_nodes_map: dict[int, list[int]] | None = None,
 ) -> Frame3DCaseResult:
     """하중조합 결과를 선형 중첩으로 생성."""
     combo = Frame3DCaseResult()
@@ -1019,12 +1284,16 @@ def _superpose_case_results_3d(
         combo.reactions.append(r)
 
     # 층간변위각 재계산
+    if story_nodes_map is None:
+        story_nodes_map = _get_story_nodes_from_grid(node_grid, n_cols_x, n_cols_y, n_stories)
+
     for s in range(1, n_stories + 1):
         story_height_mm = stories[s - 1] * 1000
-        lower_nids = [node_grid[(s - 1, cx, cy)]
-                      for cy in range(n_cols_y) for cx in range(n_cols_x)]
-        upper_nids = [node_grid[(s, cx, cy)]
-                      for cy in range(n_cols_y) for cx in range(n_cols_x)]
+        lower_nids = story_nodes_map.get(s - 1, [])
+        upper_nids = story_nodes_map.get(s, [])
+
+        if not lower_nids or not upper_nids:
+            continue
 
         lower_dx = sum(node_disp_map.get(n, {}).get("dx_mm", 0) for n in lower_nids) / len(lower_nids)
         upper_dx = sum(node_disp_map.get(n, {}).get("dx_mm", 0) for n in upper_nids) / len(upper_nids)
@@ -1145,6 +1414,7 @@ def _run_eigen_analysis(
     num_modes: int = 0,
     geometric_nonlinearity: str = "linear",
     member_releases: dict | None = None,
+    story_nodes_map: dict[int, list[int]] | None = None,
 ) -> dict:
     """고유치해석 수행.
 
@@ -1160,63 +1430,61 @@ def _run_eigen_analysis(
     if not story_weights_kN or len(story_weights_kN) != num_stories:
         return {}
 
+    # story_nodes_map 생성 (없으면)
+    is_irreg = story_nodes_map is not None
+    if not is_irreg and node_grid:
+        story_nodes_map = _get_story_nodes_from_grid(node_grid, n_cols_x, n_cols_y, num_stories)
+
     # 1. 모델 재구축 (num_elements_per_member=1 → 유령모드 방지)
     _build_frame_3d_model(
         nodes, connections, base_nodes, supports,
         col_sec, bx_sec, by_sec, E, G,
         num_elements_per_member=1,
         rigid_diaphragm=True,
-        node_grid=node_grid,
+        node_grid=node_grid if not is_irreg else None,
         n_cols_x=n_cols_x,
         n_cols_y=n_cols_y,
         num_stories=num_stories,
         member_releases=member_releases,
         geometric_nonlinearity=geometric_nonlinearity,
+        story_nodes_map=story_nodes_map if is_irreg else None,
     )
 
     # 2. 분산 질량 배정 + 층별 질량/회전관성 기록
     g_acc = 9810.0  # mm/s²
-    nodes_per_floor = n_cols_x * n_cols_y
+    node_map = {n.id: n for n in nodes}
 
-    # 마스터 절점 좌표 (mm) — 회전관성 계산용
-    cx_m = n_cols_x // 2
-    cy_m = n_cols_y // 2
-    master_nodes = {s: node_grid[(s, cx_m, cy_m)] for s in range(1, num_stories + 1)}
-
-    # 절점 좌표 (mm) — bays_x/bays_y에서 산출
-    if bays_x and bays_y:
-        x_coords_mm = [sum(bays_x[:i]) * 1000 for i in range(n_cols_x)]
-        y_coords_mm = [sum(bays_y[:i]) * 1000 for i in range(n_cols_y)]
-    else:
-        # fallback: 노드 객체에서 좌표 추출 (m → mm)
-        node_map = {n.id: n for n in nodes}
-        xs = sorted(set(node_map[node_grid[(1, cx, 0)]].x for cx in range(n_cols_x)))
-        ys = sorted(set(node_map[node_grid[(1, 0, cy)]].y for cy in range(n_cols_y)))
-        x_coords_mm = [v * 1000 for v in xs]
-        y_coords_mm = [v * 1000 for v in ys]
-    x_master_mm = x_coords_mm[cx_m]
-    y_master_mm = y_coords_mm[cy_m]
-
-    # floor_masses: [(m_trans, I_eff)] — 참여질량 계산용
+    # 마스터 절점 결정
+    master_nodes = {}
     floor_masses = []
-    total_weight_kN = sum(story_weights_kN)
 
     for s in range(1, num_stories + 1):
+        snodes = story_nodes_map.get(s, [])
+        if not snodes:
+            continue
+        nodes_per_floor = len(snodes)
+
+        # 마스터 = 중앙 노드
+        master_nid = snodes[len(snodes) // 2]
+        master_nodes[s] = master_nid
+        mx_mm = node_map[master_nid].x * 1000
+        my_mm = node_map[master_nid].y * 1000
+
         W_N = story_weights_kN[s - 1] * 1000.0
         m_per_node = W_N / g_acc / nodes_per_floor
         m_floor = W_N / g_acc
 
-        # 실효 회전관성: I_eff = Σ m_per_node × [(x_i - x_m)² + (y_i - y_m)²]
+        # 실효 회전관성
         I_eff = 0.0
-        for cx in range(n_cols_x):
-            for cy in range(n_cols_y):
-                nid = node_grid[(s, cx, cy)]
-                ops.mass(nid, m_per_node, m_per_node, 1e-6, 0.0, 0.0, 0.0)
-                dx = x_coords_mm[cx] - x_master_mm
-                dy = y_coords_mm[cy] - y_master_mm
-                I_eff += m_per_node * (dx ** 2 + dy ** 2)
+        for nid in snodes:
+            ops.mass(nid, m_per_node, m_per_node, 1e-6, 0.0, 0.0, 0.0)
+            dx = node_map[nid].x * 1000 - mx_mm
+            dy = node_map[nid].y * 1000 - my_mm
+            I_eff += m_per_node * (dx ** 2 + dy ** 2)
 
         floor_masses.append((m_floor, I_eff))
+
+    total_weight_kN = sum(story_weights_kN)
 
     # 3. 모드 수 결정
     if num_modes <= 0:
@@ -1307,6 +1575,26 @@ def _run_eigen_analysis(
         else:
             direction, dominance = "N/A", 0.0
 
+        # 전체 노드 모드형상 추출 (3D 시각화용)
+        mode_shape = {}
+        all_nids = set()
+        for s_nids in story_nodes_map.values():
+            all_nids.update(s_nids)
+        for nid in all_nids:
+            try:
+                ux_e = ops.nodeEigenvector(nid, mode_num, 1)
+                uy_e = ops.nodeEigenvector(nid, mode_num, 2)
+                uz_e = ops.nodeEigenvector(nid, mode_num, 3)
+            except Exception:
+                ux_e = uy_e = uz_e = 0.0
+            mode_shape[nid] = [round(ux_e, 6), round(uy_e, 6), round(uz_e, 6)]
+
+        # 정규화: 최대 변위 = 1.0
+        max_disp = max((math.sqrt(v[0]**2 + v[1]**2 + v[2]**2) for v in mode_shape.values()), default=1.0)
+        if max_disp > 1e-12:
+            for nid in mode_shape:
+                mode_shape[nid] = [round(c / max_disp, 6) for c in mode_shape[nid]]
+
         modes.append({
             "mode": mode_num,
             "period_s": round(T, 4),
@@ -1314,6 +1602,7 @@ def _run_eigen_analysis(
             "direction": direction,
             "dominance_pct": round(dominance, 2),
             "mass_participation": mp,
+            "shape": mode_shape,
         })
 
         # 방향별 1차 고유주기 기록
@@ -1377,6 +1666,7 @@ def analyze_frame_3d_multi(
     geometric_nonlinearity: str = "linear",
     modal_analysis: bool = False,
     story_weights_kN: list[float] | None = None,
+    zones: list[dict] | None = None,
 ) -> Frame3DMultiCaseResult:
     """3D 골조 멀티 하중케이스 정적 해석.
 
@@ -1396,13 +1686,17 @@ def analyze_frame_3d_multi(
         modal_analysis: True → 정적해석 후 고유치해석 수행 (rigid_diaphragm 자동 활성화)
         story_weights_kN: 층별 중력하중 (kN). None이면 DL 하중에서 자동 추정.
     """
+    # 비정형 여부 판별
+    is_irregular = bool(zones)
+
     # 입력 검증
     if not (1 <= len(stories) <= 20):
         raise ValueError(f"stories: 1~20층 지원 (입력: {len(stories)}층)")
-    if not (1 <= len(bays_x) <= 10):
-        raise ValueError(f"bays_x: 1~10경간 지원 (입력: {len(bays_x)}경간)")
-    if not (1 <= len(bays_y) <= 10):
-        raise ValueError(f"bays_y: 1~10경간 지원 (입력: {len(bays_y)}경간)")
+    if not is_irregular:
+        if not (1 <= len(bays_x) <= 10):
+            raise ValueError(f"bays_x: 1~10경간 지원 (입력: {len(bays_x)}경간)")
+        if not (1 <= len(bays_y) <= 10):
+            raise ValueError(f"bays_y: 1~10경간 지원 (입력: {len(bays_y)}경간)")
 
     # 결과 컨테이너
     multi = Frame3DMultiCaseResult()
@@ -1483,12 +1777,24 @@ def analyze_frame_3d_multi(
     multi.beam_y_tf_mm = by_sec.tf
 
     # 기하 생성
-    nodes, connections, node_grid, base_nodes = _generate_frame_3d_geometry(
-        stories, bays_x, bays_y
-    )
+    story_nodes_map = None
+    member_metadata = None
 
-    n_cols_x = len(bays_x) + 1
-    n_cols_y = len(bays_y) + 1
+    if is_irregular:
+        nodes, connections, story_nodes_map, base_nodes, member_metadata = \
+            _generate_irregular_geometry(stories, zones)
+        node_grid = {}  # 비정형에서는 미사용
+        n_cols_x = 0
+        n_cols_y = 0
+        multi.analysis_metadata["irregular"] = True
+        multi.analysis_metadata["num_zones"] = len(zones)
+    else:
+        nodes, connections, node_grid, base_nodes = _generate_frame_3d_geometry(
+            stories, bays_x, bays_y
+        )
+        n_cols_x = len(bays_x) + 1
+        n_cols_y = len(bays_y) + 1
+        story_nodes_map = _get_story_nodes_from_grid(node_grid, n_cols_x, n_cols_y, len(stories))
 
     # 노드/요소 정보 저장
     multi.nodes = [{"id": n.id, "x_m": n.x, "y_m": n.y, "z_m": n.z} for n in nodes]
@@ -1502,12 +1808,13 @@ def analyze_frame_3d_multi(
             nodes, connections, base_nodes, supports,
             col_sec, bx_sec, by_sec, E, G, num_elements_per_member,
             rigid_diaphragm=rigid_diaphragm,
-            node_grid=node_grid,
+            node_grid=node_grid if not is_irregular else None,
             n_cols_x=n_cols_x,
             n_cols_y=n_cols_y,
             num_stories=len(stories),
             member_releases=member_releases,
             geometric_nonlinearity=geometric_nonlinearity,
+            story_nodes_map=story_nodes_map if is_irregular else None,
         )
 
         if case_name == list(load_cases.keys())[0]:
@@ -1519,10 +1826,16 @@ def analyze_frame_3d_multi(
             ]
 
         # 하중 적용
-        _apply_loads_3d(
-            case_loads, len(stories), n_cols_x, n_cols_y,
-            node_grid, connections, member_to_elements, bays_x, bays_y,
-        )
+        if is_irregular:
+            _apply_loads_3d_irregular(
+                case_loads, story_nodes_map, connections,
+                member_to_elements, member_metadata,
+            )
+        else:
+            _apply_loads_3d(
+                case_loads, len(stories), n_cols_x, n_cols_y,
+                node_grid, connections, member_to_elements, bays_x, bays_y,
+            )
 
         # 해석
         solver_meta = _solve(rigid_diaphragm=rigid_diaphragm, geometric_nonlinearity=geometric_nonlinearity)
@@ -1539,6 +1852,7 @@ def analyze_frame_3d_multi(
         case_result = _extract_case_results_3d(
             nodes, elements_info, base_nodes, stories,
             node_grid, n_cols_x, n_cols_y, supports,
+            story_nodes_map=story_nodes_map,
         )
         multi.case_results[case_name] = case_result
 
@@ -1555,6 +1869,7 @@ def analyze_frame_3d_multi(
                 multi.case_results, combo_factors,
                 nodes, elements_info, base_nodes, stories,
                 node_grid, n_cols_x, n_cols_y,
+                story_nodes_map=story_nodes_map,
             )
             multi.combo_results[combo_name] = combo_result
 
@@ -1590,6 +1905,7 @@ def analyze_frame_3d_multi(
                 bays_x=bays_x, bays_y=bays_y,
                 geometric_nonlinearity=geometric_nonlinearity,
                 member_releases=member_releases,
+                story_nodes_map=story_nodes_map if is_irregular else None,
             )
             if eigen_result:
                 eigen_result["diaphragm_auto_enabled"] = diaphragm_auto

@@ -69,6 +69,252 @@ def _detect_grid(coords: list[float], tolerance: float = 200.0) -> list[float]:
     return bays
 
 
+def _detect_zones_from_occupancy(
+    col_positions: list[tuple[float, float, float]],
+    grid_x_centers: list[float],
+    grid_y_centers: list[float],
+    tolerance: float = 200.0,
+) -> list[dict] | None:
+    """기둥 점유 격자를 분석하여 비정형 zones를 감지.
+
+    모든 격자 교차점에 기둥이 있으면 None (정형).
+    빈 교차점이 있으면 직사각형 존 목록을 반환.
+
+    알고리즘:
+    1. 점유 격자 생성
+    2. 행별 X-범위 프로파일 계산
+    3. 동일 프로파일의 연속 행을 그룹으로 묶기
+    4. 각 그룹을 존으로 변환 (인접 그룹과 1행 중첩하여 노드 공유)
+
+    Returns:
+        None (정형) or list of zone dicts
+    """
+    nx = len(grid_x_centers)
+    ny = len(grid_y_centers)
+    if nx < 2 or ny < 2:
+        return None
+
+    # 점유 격자 생성
+    col_xy = [(p[0], p[1]) for p in col_positions]
+    occupied = [[False] * ny for _ in range(nx)]
+
+    for ix in range(nx):
+        for iy in range(ny):
+            gx, gy = grid_x_centers[ix], grid_y_centers[iy]
+            for cx, cy in col_xy:
+                if abs(cx - gx) <= tolerance and abs(cy - gy) <= tolerance:
+                    occupied[ix][iy] = True
+                    break
+
+    # 전부 점유 → 정형
+    total = nx * ny
+    occupied_count = sum(occupied[ix][iy] for ix in range(nx) for iy in range(ny))
+    if occupied_count >= total:
+        return None
+    if occupied_count < 4:
+        return None
+
+    # 행별 점유 ix 집합 (내부 갭 포함)
+    row_occ_sets = {}
+    for iy in range(ny):
+        occ = frozenset(ix for ix in range(nx) if occupied[ix][iy])
+        row_occ_sets[iy] = occ
+
+    # 행별 X-범위 프로파일: (ix_min, ix_max)
+    # 내부 갭 감지를 위해 실제 점유 set도 비교
+    row_profiles = []
+    for iy in range(ny):
+        occ = row_occ_sets[iy]
+        if occ:
+            row_profiles.append((iy, min(occ), max(occ)))
+        else:
+            row_profiles.append((iy, -1, -1))
+
+    # 동일 X-범위의 연속 행 그룹화
+    # 내부 갭(1~2개 빠진 기둥)은 무시하고 (ix_min, ix_max) 범위로 그룹화.
+    # 내부 갭은 별도 경고로 보고됨.
+    groups = []  # [(iy_start, iy_end, ix_min, ix_max)]
+    for iy, ix_min, ix_max in row_profiles:
+        if ix_min < 0:
+            continue
+        if (groups and groups[-1][3] == ix_max and groups[-1][2] == ix_min
+                and iy == groups[-1][1] + 1):
+            groups[-1] = (groups[-1][0], iy, ix_min, ix_max)
+        else:
+            groups.append((iy, iy, ix_min, ix_max))
+
+    if len(groups) <= 1:
+        return None  # 단일 그룹 → 정형
+
+    # 존 생성 (인접 그룹과 1행 중첩으로 노드 공유)
+    zones = []
+    zone_id = ord('A')
+
+    for gi, (iy_s, iy_e, ix_s, ix_e) in enumerate(groups):
+        actual_iy_s = iy_s
+        actual_iy_e = iy_e
+
+        # 이후 그룹만 이전 그룹의 마지막 행을 포함하여 경계 공유.
+        # 이전 그룹은 확장하지 않음 (확장하면 빈 교차점까지 포함됨).
+        if gi > 0:
+            prev_iy_e = groups[gi - 1][1]
+            if iy_s == prev_iy_e + 1:
+                actual_iy_s = prev_iy_e  # 이전 그룹 마지막 행 포함
+
+        # bays 계산
+        z_bays_x = [
+            round((grid_x_centers[i + 1] - grid_x_centers[i]) / 1000.0, 3)
+            for i in range(ix_s, ix_e)
+        ]
+        z_bays_y = [
+            round((grid_y_centers[j + 1] - grid_y_centers[j]) / 1000.0, 3)
+            for j in range(actual_iy_s, actual_iy_e)
+        ]
+
+        if not z_bays_x or not z_bays_y:
+            continue
+
+        zones.append({
+            "id": chr(zone_id),
+            "bays_x": z_bays_x,
+            "bays_y": z_bays_y,
+            "origin_x": round(grid_x_centers[ix_s] / 1000.0, 3),
+            "origin_y": round(grid_y_centers[actual_iy_s] / 1000.0, 3),
+            "story_from": 1,
+            "story_to": None,
+        })
+        zone_id += 1
+
+    if len(zones) <= 1:
+        return None
+
+    return zones
+
+
+def _get_per_storey_columns(ifc_file, tolerance: float = 200.0) -> dict[str, list[tuple[float, float]]]:
+    """IFC에서 층별 기둥 (x, y) 위치 추출.
+
+    Returns:
+        {storey_name: [(x_mm, y_mm), ...]}
+    """
+    rels = ifc_file.by_type("IfcRelContainedInSpatialStructure")
+    result = {}
+    for rel in rels:
+        structure = rel.RelatingStructure
+        if not structure.is_a("IfcBuildingStorey"):
+            continue
+        cols = []
+        for elem in rel.RelatedElements:
+            if elem.is_a("IfcColumn") and elem.ObjectPlacement:
+                try:
+                    m = ifcopenshell.util.placement.get_local_placement(
+                        elem.ObjectPlacement
+                    )
+                    cols.append((float(m[0][3]), float(m[1][3])))
+                except Exception:
+                    pass
+        if cols:
+            result[structure.Name] = list(set(cols))
+    return result
+
+
+def _refine_zones_by_storey(
+    zones: list[dict],
+    storey_cols: dict[str, list[tuple[float, float]]],
+    stories: list[dict],
+    grid_x_mm: list[float],
+    grid_y_mm: list[float],
+    tolerance: float,
+    warnings: list[str],
+):
+    """층별 기둥 데이터로 zone의 story_to를 정밀 설정 (v2: 경계/고유 분리).
+
+    각 zone 영역 내 기둥이 사라지는 최초 층을 감지하여 story_to를 설정.
+    경계(다른 zone과 공유) 기둥은 제외하고, zone 고유 영역 기둥만 판단.
+    또한 내부 갭(빠진 기둥)을 경고로 보고.
+    """
+    storey_names = [s.get("name", f"{i+1}F") for i, s in enumerate(stories)]
+
+    # 다른 zone과의 경계 그리드 포인트 계산 (공유 영역)
+    def _zone_grid_pts(zone_dict):
+        ox = zone_dict["origin_x"] * 1000
+        oy = zone_dict["origin_y"] * 1000
+        wx = sum(zone_dict["bays_x"]) * 1000
+        wy = sum(zone_dict["bays_y"]) * 1000
+        pts = set()
+        for gx in grid_x_mm:
+            for gy in grid_y_mm:
+                if (ox - tolerance <= gx <= ox + wx + tolerance
+                        and oy - tolerance <= gy <= oy + wy + tolerance):
+                    pts.add((round(gx, 0), round(gy, 0)))
+        return pts
+
+    zone_pts = {i: _zone_grid_pts(z) for i, z in enumerate(zones)}
+
+    for zi, zone in enumerate(zones):
+        all_pts = zone_pts[zi]
+        if not all_pts:
+            continue
+
+        # 다른 zone과 공유하는 경계 포인트
+        shared_pts = set()
+        for zj in range(len(zones)):
+            if zj != zi:
+                shared_pts |= (all_pts & zone_pts[zj])
+
+        # zone 고유 포인트 (경계 제외)
+        unique_pts = all_pts - shared_pts
+        n_total = len(all_pts)
+        n_unique = len(unique_pts)
+
+        # 층별로 zone 영역 내 기둥 수 확인
+        last_active_story = len(stories)
+        for si, sname in enumerate(storey_names):
+            story_num = si + 1
+            cols = storey_cols.get(sname, [])
+
+            # zone 전체 영역 내 기둥
+            found_all = set()
+            for cx, cy in cols:
+                pt = (round(cx, 0), round(cy, 0))
+                if pt in all_pts:
+                    found_all.add(pt)
+
+            zone_cols = len(found_all)
+
+            # 기둥이 하나도 없으면 확실히 비활성
+            if zone_cols == 0:
+                last_active_story = story_num - 1
+                break
+
+            # zone 고유 영역 기둥 확인
+            unique_found = found_all & unique_pts
+            if n_unique > 0 and len(unique_found) == 0:
+                # 고유 영역 기둥 전멸 → 이 zone은 이전 층까지만
+                last_active_story = story_num - 1
+                break
+
+            # 전체 기둥이 75% 미만이면 비활성 (고유 영역이 없는 경우 fallback)
+            if zone_cols < n_total * 0.75:
+                last_active_story = story_num - 1
+                break
+
+            # 내부 갭 감지
+            if 0 < zone_cols < n_total:
+                missing = n_total - zone_cols
+                warnings.append(
+                    f"Zone {zone['id']} {sname}: "
+                    f"격자 교차점 {n_total}개 중 {missing}개에 기둥 없음 (내부 갭)"
+                )
+
+        if last_active_story < len(stories):
+            zone["story_to"] = last_active_story
+            warnings.append(
+                f"Zone {zone['id']}: {last_active_story}층까지만 기둥 존재 "
+                f"(story_to={last_active_story} 자동 설정)"
+            )
+
+
 def _get_column_positions(ifc_file) -> list[tuple[float, float, float]]:
     """IFC 파일에서 기둥 위치 (x, y, z) 추출."""
     positions = []
@@ -657,6 +903,28 @@ def parse_ifc(ifc_path: str, tolerance: float = 200.0) -> dict:
             "slab_thickness_mm": slab_thickness,
         })
 
+    # ── 2.5. 기둥 없는 최상층 → 옥상 레벨로 변환 ──
+    # IFC 최상층에 기둥이 0개면 옥상 슬래브 레벨로 판단
+    if len(stories) >= 2 and roof_elevation is None:
+        try:
+            _storey_cols = _get_per_storey_columns(ifc_file, tolerance)
+            last_story_name = stories[-1]["name"]
+            last_story_cols = _storey_cols.get(last_story_name, [])
+            if len(last_story_cols) == 0:
+                # 최상층에 기둥 없음 → 옥상 레벨
+                roof_story = stories.pop()
+                # 이전 최상층의 높이를 옥상 표고로 재계산
+                if stories:
+                    prev_elev = stories[-1]["elevation"]
+                    stories[-1]["height"] = round(roof_story["elevation"] - prev_elev, 3)
+                warnings.append(
+                    f"'{roof_story['name']}' 레벨에 기둥이 없어 옥상으로 판단하여 "
+                    f"층 수에서 제외 (최상층 높이를 "
+                    f"{stories[-1]['height'] if stories else '?'}m으로 재계산)"
+                )
+        except Exception:
+            pass
+
     # ── 3. 그리드 감지 ──
     col_positions = _get_column_positions(ifc_file)
     grid_source = "column"
@@ -702,7 +970,7 @@ def parse_ifc(ifc_path: str, tolerance: float = 200.0) -> dict:
     grid_x = [round(c / 1000.0, 3) for c in grid_x_centers]
     grid_y = [round(c / 1000.0, 3) for c in grid_y_centers]
 
-    # 비정형 검사
+    # 비정형 검사 — 경간 편차 경고
     if bays_x:
         mean_bx = sum(bays_x) / len(bays_x)
         max_dev = max(abs(b - mean_bx) for b in bays_x)
@@ -719,6 +987,31 @@ def parse_ifc(ifc_path: str, tolerance: float = 200.0) -> dict:
                 f"Y방향 경간 폭 편차가 큽니다: {bays_y}. "
                 f"비정형 그리드일 수 있습니다."
             )
+
+    # 비정형 검사 — 점유 격자 기반 zone 감지
+    detected_zones = None
+    if grid_source == "column" and col_positions and len(grid_x_centers) >= 2 and len(grid_y_centers) >= 2:
+        detected_zones = _detect_zones_from_occupancy(
+            col_positions, grid_x_centers, grid_y_centers, tolerance
+        )
+        if detected_zones:
+            warnings.append(
+                f"비정형 평면 감지: {len(detected_zones)}개 존 "
+                f"({', '.join(z['id'] for z in detected_zones)}). "
+                f"일부 격자 교차점에 기둥이 없습니다."
+            )
+
+    # 층별 기둥 분석 — zone의 story_to 자동 설정 + 내부 갭 경고
+    if detected_zones and grid_source == "column":
+        try:
+            storey_col_positions = _get_per_storey_columns(ifc_file, tolerance)
+            if storey_col_positions:
+                _refine_zones_by_storey(
+                    detected_zones, storey_col_positions, stories,
+                    grid_x_centers, grid_y_centers, tolerance, warnings,
+                )
+        except Exception:
+            pass
 
     # ── 4. 단면 프로파일 추출 ──
     section_profiles = _extract_section_profiles(ifc_file)
@@ -780,6 +1073,7 @@ def parse_ifc(ifc_path: str, tolerance: float = 200.0) -> dict:
         "num_columns": len(col_positions),
         "num_walls": num_walls,
         "grid_source": grid_source,
+        "detected_zones": detected_zones,  # None(정형) or list of zone dicts
         "slabs": slab_info,
         "walls": [
             {
