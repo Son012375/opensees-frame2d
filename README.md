@@ -58,10 +58,20 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - 지역/중요도/층고/경간 자동 추론
 
 ### 3.2 IFC Integration
+
+#### V1 (Grid-based)
 - IFC 파일 업로드 → 벽/기둥 기반 자동 파싱
 - 3D 와이어프레임 미리보기 (Three.js)
 - 3단계 위자드: Upload → Geometry Preview → Config → Analyze
 - 비정형 건물 지원 (L자형/T자형/Setback, Zone 기반)
+
+#### V2 (Node-Element, `v2/node-element` branch)
+- **IFC → 노드/요소 직접 추출** (ifcopenshell.geom 기반 글로벌 좌표)
+- 비정형 건물 완벽 지원 (경사 부재, 불규칙 평면, setback)
+- 요소별 개별 단면/재료/릴리즈 지정
+- 보-기둥 접합 자동 검증 + 스냅
+- **3D 모델 편집**: 노드 배치 (그리드 스냅 + 좌표 입력), 요소 생성, 삭제, 이동, Undo/Redo
+- 마우스 보조선 (X/Y/Z 점선) + 실시간 좌표 표시
 
 ### 3.3 KDS-Based Auto Load Generation
 - **고정하중(DL)**: 슬래브 자중 + 마감 + 설비
@@ -107,7 +117,10 @@ opensees-MCP/
 │       ├── frame_3d.py                # 3D 프레임 (6-DOF + Corotational)
 │       ├── building_model.py          # BuildingModel IR
 │       ├── load_generator.py          # KDS 자동 하중 생성
-│       ├── ifc_parser.py              # IFC → BuildingModel 파싱
+│       ├── ifc_parser.py              # V1 IFC → BuildingModel 파싱
+│       ├── ifc_parser_v2.py           # V2 IFC → Node-Element (StructuralModel)
+│       ├── structural_model.py        # V2 StructuralModel IR (노드-요소 그래프)
+│       ├── visualization_v2.py        # V2 Plotly 3D 뷰어 (독립 HTML)
 │       ├── nl_resolver.py             # 자연어 → Config 변환
 │       ├── design_check.py            # KDS 층간변위 + AISC 부재강도
 │       ├── design_spectrum.py         # KDS 17 10 00 Sa(T) 곡선
@@ -126,11 +139,15 @@ opensees-MCP/
 │       │       ├── auth.py            # 데모 인증 미들웨어
 │       │       └── config.py
 │       ├── templates/                 # HTML 템플릿
-│       │   ├── editor.html            # 3D Building Editor
+│       │   ├── editor.html            # V1 3D Building Editor
+│       │   ├── editor_v2.html         # V2 3D Editor (Node-Element + Edit)
 │       │   └── ...
 │       └── static/                    # JS/CSS
-│           ├── js/editor3d.js         # Three.js 3D 뷰어
-│           └── css/editor.css         # 테마 시스템
+│           ├── js/editor3d.js         # V1 Three.js 3D 뷰어
+│           ├── js/editor3d_v2.js      # V2 3D 뷰어 (V2 IFC + 편집)
+│           ├── js/v2_edit.js          # V2 편집 도구 (Node/Element/Delete/Move)
+│           ├── css/editor.css         # V1 테마 시스템
+│           └── css/editor_v2.css      # V2 테마 + 편집 UI
 │
 ├── tests/                             # 테스트 스위트
 │   ├── benchmark/                     # Midas Gen 비교 (5 cases)

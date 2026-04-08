@@ -359,6 +359,32 @@ bays_y: Y방향 경간 폭 리스트 (m). 예: [8.0, 8.0]
     ifc_path: str | None = Field(default=None, description="IFC 파일 경로 (미구현, 추후 지원 예정)")
 
 
+# ── V2 Input Models ──
+
+class ParseIFCV2Input(BaseModel):
+    ifc_path: str = Field(..., description="IFC 파일 경로")
+    tolerance_mm: float = Field(10.0, description="노드 병합 허용 오차 (mm, 기본 10)")
+    default_column_section: str = Field("H-300x300", description="단면 미지정 기둥의 기본 단면")
+    default_beam_section: str = Field("H-400x200", description="단면 미지정 보의 기본 단면")
+    auto_snap: bool = Field(False, description="True면 보-기둥 접합을 자동 스냅")
+
+
+class SnapModelJointsInput(BaseModel):
+    model_json: dict = Field(..., description="StructuralModel JSON (parse_ifc_v2의 model 출력)")
+    snap_tolerance: float = Field(0.5, description="스냅 최대 거리 (m, 기본 0.5)")
+
+
+class AnalyzeModelV2Input(BaseModel):
+    model_json: dict = Field(..., description="StructuralModel JSON")
+    load_cases: dict = Field(..., description="""하중 케이스. 예:
+{
+  "DL": [{"type": "floor_area", "story": 1, "value": 6.3}],
+  "EQX": [{"type": "lateral_x", "story": 1, "value": 50.0}]
+}
+지원 타입: floor_area(kN/m²), lateral_x/lateral_y(kN), nodal(직접)""")
+    load_combinations: Optional[dict] = Field(None, description='하중 조합. 예: {"1.2DL+EQX": {"DL": 1.2, "EQX": 1.0}}')
+
+
 class ResolveBuildingConfigInput(BaseModel):
     intent: dict = Field(..., description="""Claude가 자연어에서 추출한 건물 설계 의도 JSON.
 
@@ -675,6 +701,58 @@ Supabase DB에서 구역계수(z), 지반증폭계수(Fa, Fv)를 조회하여 �
   1. resolve_building_config → config 생성 + 사용자 확인
   2. analyze_building(config) → 해석 실행""",
             inputSchema=ResolveBuildingConfigInput.model_json_schema(),
+        ),
+
+        # ── V2 Tools ──
+        Tool(
+            name="parse_ifc_v2",
+            description="""IFC 파일을 노드-요소 기반 구조 모델로 변환합니다 (V2 파이프라인).
+
+V1(격자 기반)과 달리 IFC에서 부재의 시작/끝 좌표를 직접 추출하여
+비정형 건물(경사 부재, 불규칙 평면, setback)을 자연스럽게 표현합니다.
+
+동작:
+1. IFC 검증: 구조 부재(IfcColumn/IfcBeam/IfcMember) 존재 확인
+2. 좌표 추출: ifcopenshell.geom으로 글로벌 끝점 좌표 계산
+3. 노드 병합: tolerance 기준 근접 노드 통합
+4. 층 감지: IfcBuildingStorey 또는 Z좌표 클러스터링
+5. 검증 리포트: 누락 단면, 재료, 슬래브 등 WARNING 생성
+
+응답:
+- model: StructuralModel JSON (노드, 요소, 층 정보)
+- validation: 검증 결과 (CRITICAL/WARNING/INFO)
+- needs_user_input: 사용자 확인 필요 항목 (슬래브 두께, 보-기둥 스냅 등)
+
+다음 단계: snap_model_joints → analyze_model_v2""",
+            inputSchema=ParseIFCV2Input.model_json_schema(),
+        ),
+        Tool(
+            name="snap_model_joints",
+            description="""V2 모델의 보-기둥 접합부를 스냅합니다.
+
+IFC에서 보의 끝점이 기둥 노드와 미세하게 떨어져 있는 경우
+(단면 오프셋 등), 보 끝점을 가장 가까운 기둥 노드에 병합합니다.
+
+parse_ifc_v2에서 IFC_DISCONNECTED_JOINTS 경고가 나온 경우 호출하세요.
+사용자에게 스냅 여부를 확인한 후 호출하는 것을 권장합니다.""",
+            inputSchema=SnapModelJointsInput.model_json_schema(),
+        ),
+        Tool(
+            name="analyze_model_v2",
+            description="""V2 StructuralModel에서 직접 3D 구조 해석을 수행합니다.
+
+노드-요소 기반 자유 그래프 모델을 OpenSees로 해석합니다.
+격자(bays_x/y) 제약 없이 비정형 건물도 해석 가능합니다.
+
+지원:
+- 요소별 개별 단면/재료/릴리즈
+- 경사 브레이스 (brace 요소)
+- 하중: floor_area(kN/m²), lateral_x/y(kN), nodal(6-DOF)
+- 하중조합 (선형 중첩)
+- 강체 다이어프램, P-Delta
+
+응답: 케이스별 변위, 부재력, 반력, 층간변위 + HTML 리포트""",
+            inputSchema=AnalyzeModelV2Input.model_json_schema(),
         ),
     ]
 
@@ -1230,6 +1308,139 @@ async def call_tool(name: str, arguments: dict):
                 response["html_report_path"] = html_path
             except Exception:
                 pass
+
+            return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
+
+        # ── V2 Tools ──
+
+        elif name == "parse_ifc_v2":
+            input_data = ParseIFCV2Input(**arguments)
+            from core.ifc_parser_v2 import parse_ifc_v2, snap_beams_to_columns
+            from core.visualization_v2 import generate_model_viewer
+
+            model, validation = parse_ifc_v2(
+                input_data.ifc_path,
+                tolerance_mm=input_data.tolerance_mm,
+                default_beam_section=input_data.default_beam_section,
+                default_column_section=input_data.default_column_section,
+            )
+
+            if input_data.auto_snap and validation.is_valid:
+                snapped = snap_beams_to_columns(model)
+            else:
+                snapped = 0
+
+            # HTML 뷰어 생성
+            html_path = None
+            try:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                html_path = generate_model_viewer(
+                    model,
+                    output_path=os.path.join(OUTPUT_DIR, f"v2_model_{ts}.html"),
+                    title="IFC V2 Model",
+                )
+            except Exception:
+                pass
+
+            response = {
+                "status": "success" if validation.is_valid else "validation_failed",
+                "model": model.to_json(),
+                "validation": {
+                    "is_valid": validation.is_valid,
+                    "summary": validation.summary_text(),
+                    "extracted_nodes": validation.extracted_nodes,
+                    "extracted_elements": validation.extracted_elements,
+                    "failed_elements": validation.failed_elements,
+                    "issues": [
+                        {"severity": i.severity.value, "code": i.code,
+                         "message": i.message, "default_value": i.default_value}
+                        for i in validation.issues
+                    ],
+                    "needs_user_input": [
+                        {"code": i.code, "message": i.message, "default_value": i.default_value}
+                        for i in validation.needs_user_input
+                    ],
+                },
+                "snapped_nodes": snapped,
+                "summary": model.summary(),
+            }
+            if html_path:
+                response["html_viewer_path"] = html_path
+
+            return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
+
+        elif name == "snap_model_joints":
+            input_data = SnapModelJointsInput(**arguments)
+            from core.structural_model import StructuralModel
+            from core.ifc_parser_v2 import snap_beams_to_columns
+
+            model = StructuralModel.from_json(input_data.model_json)
+            nodes_before = len(model.nodes)
+            snapped = snap_beams_to_columns(model, snap_tolerance=input_data.snap_tolerance)
+
+            response = {
+                "status": "success",
+                "snapped_count": snapped,
+                "nodes_before": nodes_before,
+                "nodes_after": len(model.nodes),
+                "model": model.to_json(),
+                "summary": model.summary(),
+            }
+            return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
+
+        elif name == "analyze_model_v2":
+            input_data = AnalyzeModelV2Input(**arguments)
+            from core.structural_model import StructuralModel
+            from core.frame_3d import analyze_from_model
+            from core.visualization_v2 import generate_model_viewer
+
+            model = StructuralModel.from_json(input_data.model_json)
+            result = analyze_from_model(
+                model,
+                load_cases=input_data.load_cases,
+                load_combinations=input_data.load_combinations,
+            )
+
+            # HTML 리포트
+            html_path = None
+            try:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                html_path = generate_model_viewer(
+                    model, result=result,
+                    output_path=os.path.join(OUTPUT_DIR, f"v2_analysis_{ts}.html"),
+                    title="V2 Analysis Results",
+                )
+            except Exception:
+                pass
+
+            # 결과 요약
+            response = {
+                "status": "success",
+                "model_summary": model.summary(),
+                "cases": {},
+                "combos": {},
+            }
+            for cname, cr in result.case_results.items():
+                response["cases"][cname] = {
+                    "max_displacement_x_mm": cr.max_displacement_x,
+                    "max_displacement_y_mm": cr.max_displacement_y,
+                    "max_displacement_z_mm": cr.max_displacement_z,
+                    "max_moment_kNm": cr.max_moment,
+                    "max_axial_kN": cr.max_axial,
+                    "max_shear_kN": cr.max_shear,
+                    "total_reaction_RZ_kN": round(sum(r["RZ_kN"] for r in cr.reactions), 1),
+                    "story_drifts": cr.story_drifts,
+                    "num_reactions": len(cr.reactions),
+                }
+            for cname, cr in result.combo_results.items():
+                response["combos"][cname] = {
+                    "max_displacement_x_mm": cr.max_displacement_x,
+                    "max_moment_kNm": cr.max_moment,
+                    "story_drifts": cr.story_drifts,
+                }
+
+            if html_path:
+                response["html_report_path"] = html_path
 
             return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False, indent=2))]
 

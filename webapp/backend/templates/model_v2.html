@@ -1,0 +1,426 @@
+{% extends "base.html" %}
+
+{% block title %}V2 IFC Model Analysis{% endblock %}
+
+{% block head %}
+<style>
+.v2-container { max-width: 1200px; margin: 0 auto; }
+.step-card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.step-card h2 { font-size: 18px; color: #1a237e; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+.step-num { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: #1a237e; color: #fff; border-radius: 50%; font-size: 14px; font-weight: 700; }
+.step-card.disabled { opacity: 0.4; pointer-events: none; }
+.step-card.active { border-left: 4px solid #1a237e; }
+.step-card.done { border-left: 4px solid #4CAF50; }
+
+.upload-area { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
+.upload-area:hover { border-color: #1a237e; background: #f8f8ff; }
+.upload-area.dragover { border-color: #1a237e; background: #e8eaf6; }
+.upload-area input[type=file] { display: none; }
+
+.val-item { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-size: 13px; }
+.val-CRITICAL { background: #ffebee; border-left: 4px solid #f44336; color: #c62828; }
+.val-WARNING { background: #fff3e0; border-left: 4px solid #ff9800; color: #e65100; }
+.val-INFO { background: #e3f2fd; border-left: 4px solid #42a5f5; color: #1565c0; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+.stat-card { background: #f5f5f5; border-radius: 8px; padding: 12px; text-align: center; }
+.stat-card .num { font-size: 22px; font-weight: 700; color: #1a237e; }
+.stat-card .lbl { font-size: 11px; color: #888; text-transform: uppercase; }
+
+.btn { padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.15s; }
+.btn-primary { background: #1a237e; color: #fff; }
+.btn-primary:hover { background: #283593; }
+.btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+.btn-secondary { background: #e8eaf6; color: #1a237e; }
+.btn-success { background: #4CAF50; color: #fff; }
+.btn-success:hover { background: #388E3C; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+.form-grid.three-col { grid-template-columns: 1fr 1fr 1fr; }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-group label { font-size: 12px; font-weight: 600; color: #555; }
+.form-group input, .form-group select { padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+.form-group input:focus, .form-group select:focus { border-color: #1a237e; outline: none; }
+.form-group small { font-size: 11px; color: #999; }
+
+.result-card { background: #f8f8ff; border-radius: 8px; padding: 16px; margin: 8px 0; border: 1px solid #e8eaf6; }
+.result-card h4 { color: #1a237e; margin-bottom: 8px; font-size: 15px; }
+
+.dc-banner { padding: 16px 20px; border-radius: 8px; margin-bottom: 16px; font-size: 15px; font-weight: 700; }
+.dc-OK { background: #e8f5e9; border-left: 5px solid #4CAF50; color: #2e7d32; }
+.dc-NG { background: #ffebee; border-left: 5px solid #f44336; color: #c62828; }
+
+.spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #1a237e; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+th { background: #f5f5f5; padding: 8px 12px; font-size: 12px; text-align: right; color: #555; }
+th:first-child { text-align: left; }
+td { padding: 6px 12px; font-size: 13px; text-align: right; border-bottom: 1px solid #eee; }
+td:first-child { text-align: left; font-weight: 500; }
+.story-config-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.story-config-row select, .story-config-row input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="v2-container">
+    <div class="page-header">
+        <h1>V2 IFC Model Analysis</h1>
+        <p class="subtitle">IFC Upload &rarr; Configuration &rarr; KDS Load Generation &rarr; Analysis &rarr; Design Check</p>
+    </div>
+
+    <!-- Step 1: IFC Upload -->
+    <div class="step-card active" id="step1">
+        <h2><span class="step-num">1</span> IFC File Upload</h2>
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('ifcFile').click()">
+            <p style="font-size:16px; color:#666">IFC 파일을 드래그하거나 클릭하여 업로드</p>
+            <p style="font-size:12px; color:#999; margin-top:8px">IFC2x3 / IFC4 지원 (max 50MB)</p>
+            <input type="file" id="ifcFile" accept=".ifc" onchange="uploadIFC(this.files[0])">
+        </div>
+        <div id="uploadStatus" style="margin-top:12px"></div>
+    </div>
+
+    <!-- Step 2: Model Review + Snap -->
+    <div class="step-card disabled" id="step2">
+        <h2><span class="step-num">2</span> Model Review</h2>
+        <div id="modelSummary"></div>
+        <div id="validationIssues"></div>
+        <div id="snapSection" style="display:none; margin:12px 0; padding:12px; background:#fff3e0; border-radius:8px;">
+            <b style="color:#e65100">Disconnected Joints</b>
+            <p style="font-size:13px; margin:6px 0">보 끝점이 기둥 노드와 떨어져 있습니다. 스냅하시겠습니까?</p>
+            <button class="btn btn-primary" onclick="snapJoints()">Snap Beams to Columns</button>
+            <span id="snapStatus"></span>
+        </div>
+    </div>
+
+    <!-- Step 3: Building Configuration -->
+    <div class="step-card disabled" id="step3">
+        <h2><span class="step-num">3</span> Building Configuration</h2>
+        <div class="form-grid three-col">
+            <div class="form-group">
+                <label>Region (지역)</label>
+                <input type="text" id="cfgRegion" value="서울" placeholder="서울, 부산, ...">
+                <small>KDS 지진/풍하중 조회용</small>
+            </div>
+            <div class="form-group">
+                <label>Site Class (지반)</label>
+                <select id="cfgSiteClass">
+                    <option value="S1">S1</option><option value="S2">S2</option>
+                    <option value="S3" selected>S3</option><option value="S4">S4</option><option value="S5">S5</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Importance (중요도)</label>
+                <select id="cfgImportance">
+                    <option value="특">특 (IE=1.5)</option>
+                    <option value="I">I (IE=1.2)</option>
+                    <option value="II" selected>II (IE=1.0)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Seismic System</label>
+                <select id="cfgSeismicSystem">
+                    <option value="ordinary_moment_frame" selected>보통 모멘트골조 (R=3.5)</option>
+                    <option value="intermediate_moment_frame">중간 모멘트골조 (R=4.5)</option>
+                    <option value="special_moment_frame">특수 모멘트골조 (R=8.0)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Wind Exposure</label>
+                <select id="cfgExposure">
+                    <option value="A">A</option><option value="B" selected>B</option>
+                    <option value="C">C</option><option value="D">D</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Nonlinearity</label>
+                <select id="cfgNonlinear">
+                    <option value="linear" selected>Linear</option>
+                    <option value="pdelta">P-Delta</option>
+                </select>
+            </div>
+        </div>
+
+        <h3 style="font-size:15px; color:#1a237e; margin:16px 0 8px">Story Configuration</h3>
+        <div id="storyConfig"></div>
+
+        <div style="margin-top:20px; display:flex; gap:12px; align-items:center;">
+            <button class="btn btn-primary" id="analyzeBtn" onclick="runAnalysis()">
+                Run Full Analysis (KDS Load Gen + Design Check)
+            </button>
+            <span id="analysisStatus"></span>
+        </div>
+    </div>
+
+    <!-- Step 4: Results -->
+    <div class="step-card disabled" id="step4">
+        <h2><span class="step-num">4</span> Results</h2>
+        <div id="resultsContent"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentModel = null;
+let viewerUrl = null;
+
+// Drag & drop
+const uploadArea = document.getElementById('uploadArea');
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', e => {
+    e.preventDefault(); uploadArea.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.toLowerCase().endsWith('.ifc')) uploadIFC(file);
+});
+
+async function uploadIFC(file) {
+    if (!file) return;
+    const status = document.getElementById('uploadStatus');
+    status.innerHTML = '<span class="spinner"></span> IFC Parsing... (may take a minute for large files)';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch('/api/v2/parse-ifc', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) { status.innerHTML = `<div class="val-item val-CRITICAL">${data.detail}</div>`; return; }
+
+        currentModel = data.model;
+        viewerUrl = data.viewer_url;
+        status.innerHTML = `<div class="val-item val-INFO">Parsed: ${file.name}</div>`;
+
+        renderModelReview(data);
+        activateStep('step2');
+        renderStoryConfig();
+        activateStep('step3');
+    } catch (err) {
+        status.innerHTML = `<div class="val-item val-CRITICAL">Error: ${err.message}</div>`;
+    }
+}
+
+function renderModelReview(data) {
+    const s = data.summary;
+    document.getElementById('modelSummary').innerHTML = `
+        <div class="summary-grid">
+            ${statCard(s.num_nodes, 'Nodes')}${statCard(s.num_elements, 'Elements')}
+            ${statCard(s.num_columns, 'Columns')}${statCard(s.num_beams, 'Beams')}
+            ${statCard(s.num_braces, 'Braces')}${statCard(s.num_stories, 'Stories')}
+            ${statCard(s.total_height_m+'m', 'Height')}
+        </div>`;
+
+    const issues = data.validation.issues || [];
+    let vh = issues.map(i =>
+        `<div class="val-item val-${i.severity.toUpperCase()}">[${i.severity.toUpperCase()}] ${i.message}${i.default_value ? ' (default: '+i.default_value+')' : ''}</div>`
+    ).join('');
+    document.getElementById('validationIssues').innerHTML = vh;
+
+    if (issues.some(i => i.code === 'IFC_DISCONNECTED_JOINTS'))
+        document.getElementById('snapSection').style.display = 'block';
+}
+
+async function snapJoints() {
+    const status = document.getElementById('snapStatus');
+    status.innerHTML = ' <span class="spinner"></span>';
+    try {
+        const res = await fetch('/api/v2/snap-joints', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ model: currentModel, snap_tolerance: 0.5 }),
+        });
+        const data = await res.json();
+        currentModel = data.model;
+        status.innerHTML = ` Snapped ${data.snapped_count} nodes (${data.nodes_before} -> ${data.nodes_after})`;
+        document.getElementById('snapSection').style.display = 'none';
+        renderModelReview({ summary: data.summary, validation: { issues: [] } });
+        renderStoryConfig();
+    } catch (err) { status.innerHTML = ` Error: ${err.message}`; }
+}
+
+function renderStoryConfig() {
+    if (!currentModel) return;
+    const elevations = currentModel.story_elevations || [];
+    const nStories = elevations.length - 1;
+    const usages = ['office','residential','retail','parking','storage','hospital','school','assembly','mechanical_room'];
+
+    let h = '<div style="font-size:12px; color:#888; margin-bottom:6px">층별 용도를 설정하세요 (KDS 활하중/고정하중 자동 조회)</div>';
+    for (let s = 1; s <= nStories; s++) {
+        const height = (elevations[s] - elevations[s-1]).toFixed(1);
+        const defaultUsage = currentModel.story_usages?.[s] || 'office';
+        h += `<div class="story-config-row">
+            <span style="min-width:50px"><b>${s}F</b></span>
+            <span style="min-width:70px; color:#888">${height}m</span>
+            <select id="usage_${s}" style="flex:1">
+                ${usages.map(u => `<option value="${u}" ${u===defaultUsage?'selected':''}>${u}</option>`).join('')}
+            </select>
+            <input type="number" id="slab_${s}" value="150" min="100" max="500" style="width:70px" placeholder="slab mm">
+            <span style="font-size:11px;color:#999">mm</span>
+        </div>`;
+    }
+    document.getElementById('storyConfig').innerHTML = h;
+}
+
+async function runAnalysis() {
+    if (!currentModel) return;
+    const btn = document.getElementById('analyzeBtn');
+    const status = document.getElementById('analysisStatus');
+    btn.disabled = true;
+    status.innerHTML = ' <span class="spinner"></span> Running KDS load generation + analysis + design check...';
+
+    const elevations = currentModel.story_elevations || [];
+    const nStories = elevations.length - 1;
+
+    // Build config
+    const stories = [];
+    for (let s = 1; s <= nStories; s++) {
+        stories.push({
+            story: s,
+            usage: document.getElementById(`usage_${s}`)?.value || 'office',
+            slab_thickness: (parseInt(document.getElementById(`slab_${s}`)?.value) || 150) / 1000,
+            dead_load_finish: 1.0,
+        });
+    }
+
+    const config = {
+        region: document.getElementById('cfgRegion').value,
+        site_class: document.getElementById('cfgSiteClass').value,
+        importance: document.getElementById('cfgImportance').value,
+        seismic_system: document.getElementById('cfgSeismicSystem').value,
+        exposure_category: document.getElementById('cfgExposure').value,
+        geometric_nonlinearity: document.getElementById('cfgNonlinear').value,
+        stories: stories,
+    };
+
+    try {
+        const res = await fetch('/api/v2/analyze', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ model: currentModel, config: config }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.status !== 'success') {
+            status.innerHTML = ` <span style="color:red">${data.detail || 'Analysis failed'}</span>`;
+            btn.disabled = false; return;
+        }
+
+        status.innerHTML = ' <span style="color:green">Complete!</span>';
+        btn.disabled = false;
+        renderResults(data);
+        activateStep('step4');
+        markDone('step1'); markDone('step2'); markDone('step3');
+    } catch (err) {
+        status.innerHTML = ` <span style="color:red">${err.message}</span>`;
+        btn.disabled = false;
+    }
+}
+
+function renderResults(data) {
+    let h = '';
+
+    // Report link
+    if (data.report_url) {
+        h += `<div style="margin-bottom:16px">
+            <a href="${data.report_url}" target="_blank" class="btn btn-success" style="text-decoration:none; display:inline-block">
+                Open Full Interactive Report
+            </a>
+        </div>`;
+    }
+
+    // Design Check banner
+    if (data.design_check) {
+        const dc = data.design_check;
+        const st = dc.overall_status || 'OK';
+        h += `<div class="dc-banner dc-${st}">
+            Design Check: ${st === 'OK' ? 'ALL PASS' : 'ISSUES FOUND'}
+            ${dc.summary ? ` | Max Drift Ratio: ${(dc.summary.max_drift_ratio||0).toFixed(4)} | Max Interaction: ${(dc.summary.max_interaction_ratio||0).toFixed(2)}` : ''}
+        </div>`;
+    }
+
+    // Load summary
+    if (data.load_summary) {
+        const ls = data.load_summary;
+        h += `<div class="result-card"><h4>Load Generation (KDS)</h4>
+            <div class="summary-grid">
+                ${statCard(ls.num_load_cases || '?', 'Load Cases')}
+                ${statCard(ls.num_combinations || '?', 'Combinations')}
+                ${statCard((ls.total_weight_kN||0).toFixed(0)+' kN', 'Total Weight')}
+            </div>
+            <div style="font-size:12px;color:#888;margin-top:6px">
+                Cases: ${(data.case_names||[]).join(', ')} | Combos: ${(data.combo_names||[]).slice(0,5).join(', ')}${(data.combo_names||[]).length>5?'...':''}
+            </div>
+        </div>`;
+    }
+
+    // Envelope
+    if (data.envelope) {
+        const e = data.envelope;
+        h += `<div class="result-card"><h4>Envelope (Max across all cases/combos)</h4>
+            <div class="summary-grid">
+                ${statCard(e.max_dx_mm.toFixed(2)+' mm', 'Disp X')}
+                ${statCard(e.max_dy_mm.toFixed(2)+' mm', 'Disp Y')}
+                ${statCard((e.max_drift_x*1000).toFixed(2)+' ‰', 'Drift X')}
+                ${statCard((e.max_drift_y*1000).toFixed(2)+' ‰', 'Drift Y')}
+                ${statCard(e.max_moment_kNm.toFixed(1)+' kN·m', 'Moment')}
+                ${statCard(e.max_axial_kN.toFixed(1)+' kN', 'Axial')}
+                ${statCard(e.max_shear_kN.toFixed(1)+' kN', 'Shear')}
+            </div>
+        </div>`;
+    }
+
+    // Per-case results
+    const allCases = data.case_data || {};
+    Object.entries(allCases).forEach(([name, cr]) => {
+        const isCombo = (data.combo_names||[]).includes(name);
+        h += `<div class="result-card"><h4>${name} ${isCombo?'(Combo)':''}</h4>`;
+        if (cr.summary) {
+            h += `<div class="summary-grid">
+                ${statCard((cr.summary.max_dx_mm||0).toFixed(2)+' mm', 'Disp X')}
+                ${statCard((cr.summary.max_dy_mm||0).toFixed(2)+' mm', 'Disp Y')}
+                ${statCard((cr.summary.max_moment_kNm||0).toFixed(1)+' kN·m', 'Moment')}
+                ${statCard((cr.summary.max_axial_kN||0).toFixed(1)+' kN', 'Axial')}
+            </div>`;
+        }
+        if (cr.story_drifts && cr.story_drifts.length) {
+            h += '<table><tr><th style="text-align:left">Story</th><th>Height</th><th>Drift X</th><th>Drift Y</th></tr>';
+            cr.story_drifts.forEach(d => {
+                h += `<tr><td>${d.story}</td><td>${d.height_m}m</td><td>${d.drift_x.toFixed(6)}</td><td>${d.drift_y.toFixed(6)}</td></tr>`;
+            });
+            h += '</table>';
+        }
+        h += '</div>';
+    });
+
+    // Interpretation
+    if (data.interpretation) {
+        const interp = data.interpretation;
+        h += `<div class="result-card"><h4>Interpretation</h4>`;
+        h += `<p><b>Severity:</b> ${interp.severity}</p>`;
+        if (interp.findings) {
+            interp.findings.slice(0, 5).forEach(f => {
+                h += `<div class="val-item val-INFO" style="margin:4px 0">${f.message_ko || f.message_en || ''}</div>`;
+            });
+        }
+        h += '</div>';
+    }
+
+    document.getElementById('resultsContent').innerHTML = h;
+}
+
+function statCard(value, label) {
+    return `<div class="stat-card"><div class="num" style="font-size:16px">${value}</div><div class="lbl">${label}</div></div>`;
+}
+
+function activateStep(id) {
+    const el = document.getElementById(id);
+    el.classList.remove('disabled');
+    el.classList.add('active');
+}
+
+function markDone(id) {
+    document.getElementById(id).classList.remove('active');
+    document.getElementById(id).classList.add('done');
+}
+</script>
+{% endblock %}

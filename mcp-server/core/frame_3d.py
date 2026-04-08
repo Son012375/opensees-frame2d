@@ -1919,3 +1919,683 @@ def analyze_frame_3d_multi(
             )
 
     return multi
+
+
+# ============================================================
+# V2 진입점: StructuralModel → 해석
+# ============================================================
+
+def _get_geom_transf_id(elem_type: str, direction_vector: tuple[float, float, float]) -> int:
+    """요소 방향에 따른 기하변환 ID 결정.
+
+    V2에서는 elem_type이 "beam"(방향 무관)일 수 있으므로,
+    실제 방향벡터로 적절한 변환 ID를 결정한다.
+
+    Returns:
+        1=column(수직), 2=beam_x(X방향), 3=beam_y(Y방향)
+    """
+    if elem_type == "column":
+        return 1
+
+    # beam/brace: 부재 방향의 X, Y 성분으로 주방향 결정
+    dx, dy, _dz = direction_vector
+    if abs(dx) >= abs(dy):
+        return 2  # X방향 보 (beam_x 변환)
+    else:
+        return 3  # Y방향 보 (beam_y 변환)
+
+
+def _get_torsion_dof_v2(transf_id: int) -> int:
+    """V2 기하변환 ID에 따른 비틀림 DOF."""
+    return {1: 6, 2: 4, 3: 5}[transf_id]
+
+
+def _release_type_to_code(release_val) -> int | None:
+    """StructuralElement의 release 값 → 릴리즈 코드.
+
+    V1 호환: 1=i, 2=j, 3=both
+    V2에서는 요소별 개별 지정이므로 i/j를 분리 처리.
+    """
+    if release_val is None:
+        return None
+    # ReleaseType enum의 value 또는 문자열
+    val = release_val.value if hasattr(release_val, 'value') else str(release_val)
+    if val in ("moment_y", "moment_z", "moment_yz", "all"):
+        return True  # 해당 끝점 릴리즈 있음
+    return None
+
+
+def _build_model_v2(
+    model,
+    E: float,
+    G: float,
+    section_cache: dict[str, "BeamSection3D"],
+) -> tuple[list[Node3D], list[Element3D], dict[int, list[int]], list[dict], list[int], int]:
+    """StructuralModel에서 OpenSees 모델 직접 구축.
+
+    기존 _build_frame_3d_model()과 달리 요소별 개별 단면/릴리즈를 지원한다.
+
+    Returns:
+        nodes_3d, elements_info, member_to_elements,
+        member_info_list, base_node_ids, next_node_id
+    """
+    ops.wipe()
+    ops.model('basic', '-ndm', 3, '-ndf', 6)
+
+    # 노드 생성 (m → mm)
+    nodes_3d = []
+    base_node_ids = []
+    for n in sorted(model.nodes.values(), key=lambda n: n.id):
+        ops.node(n.id, n.x * 1000, n.y * 1000, n.z * 1000)
+        nodes_3d.append(Node3D(id=n.id, x=n.x, y=n.y, z=n.z))
+
+        # 경계조건
+        if n.support is not None:
+            sup = n.support.value if hasattr(n.support, 'value') else str(n.support)
+            if sup == "fixed":
+                ops.fix(n.id, 1, 1, 1, 1, 1, 1)
+                base_node_ids.append(n.id)
+            elif sup == "pinned":
+                ops.fix(n.id, 1, 1, 1, 0, 0, 0)
+                base_node_ids.append(n.id)
+            elif sup == "roller_x":
+                ops.fix(n.id, 0, 1, 1, 0, 0, 0)
+                base_node_ids.append(n.id)
+            elif sup == "roller_y":
+                ops.fix(n.id, 1, 0, 1, 0, 0, 0)
+                base_node_ids.append(n.id)
+
+    # 강체 다이어프램
+    if model.rigid_diaphragm and model.story_elevations:
+        for s_idx in range(1, len(model.story_elevations)):
+            snodes = [n.id for n in model.nodes_at_story(s_idx)]
+            if len(snodes) < 2:
+                continue
+            master_nid = snodes[len(snodes) // 2]
+            slave_nids = [n for n in snodes if n != master_nid]
+            if slave_nids:
+                ops.rigidDiaphragm(3, master_nid, *slave_nids)
+
+    # 기하변환
+    transf_type = 'Corotational' if model.geometric_nonlinearity == "pdelta" else 'Linear'
+    ops.geomTransf(transf_type, 1, 1.0, 0.0, 0.0)  # column
+    ops.geomTransf(transf_type, 2, 0.0, 0.0, 1.0)  # beam_x
+    ops.geomTransf(transf_type, 3, 0.0, 0.0, 1.0)  # beam_y
+
+    # 요소 생성
+    elements_info = []
+    member_to_elements = {}
+    member_info_list = []
+    elem_id = 1
+    next_node_id = max(n.id for n in model.nodes.values()) + 1
+    num_sub = model.num_elements_per_member
+
+    for member_id, se in enumerate(
+        sorted(model.elements.values(), key=lambda e: e.id), start=1
+    ):
+        ni_node = model.nodes[se.node_i]
+        nj_node = model.nodes[se.node_j]
+
+        # 단면 조회
+        sec = section_cache.get(se.section)
+        if sec is None:
+            sec = get_section_3d(se.section)
+            section_cache[se.section] = sec
+
+        # 기하변환 결정 (방향벡터 기반)
+        dir_vec = se.direction_vector(model.nodes)
+        transf_id = _get_geom_transf_id(se.elem_type.value, dir_vec)
+        torsion_dof = _get_torsion_dof_v2(transf_id)
+
+        os_Iy = sec.Ix
+        os_Iz = sec.Iy
+
+        # 요소별 개별 릴리즈
+        actual_ni = se.node_i
+        if _release_type_to_code(se.release_i):
+            hinge_ni = next_node_id
+            ops.node(hinge_ni, ni_node.x * 1000, ni_node.y * 1000, ni_node.z * 1000)
+            ops.equalDOF(se.node_i, hinge_ni, 1, 2, 3, torsion_dof)
+            actual_ni = hinge_ni
+            next_node_id += 1
+
+        actual_nj = se.node_j
+        if _release_type_to_code(se.release_j):
+            hinge_nj = next_node_id
+            ops.node(hinge_nj, nj_node.x * 1000, nj_node.y * 1000, nj_node.z * 1000)
+            ops.equalDOF(se.node_j, hinge_nj, 1, 2, 3, torsion_dof)
+            actual_nj = hinge_nj
+            next_node_id += 1
+
+        member_elem_ids = []
+
+        # V1 호환 elem_type 이름 ("beam" → "beam_x" or "beam_y")
+        v1_etype = se.elem_type.value
+        if v1_etype == "beam":
+            v1_etype = "beam_x" if transf_id == 2 else "beam_y"
+        elif v1_etype == "brace":
+            v1_etype = "beam_x" if transf_id == 2 else "beam_y"
+
+        if num_sub <= 1:
+            ops.element('elasticBeamColumn', elem_id, actual_ni, actual_nj,
+                        sec.A, E, G, sec.J, os_Iy, os_Iz, transf_id)
+            elements_info.append(Element3D(elem_id, actual_ni, actual_nj, v1_etype, sec.name))
+            member_elem_ids.append(elem_id)
+            elem_id += 1
+        else:
+            sub_nodes = [actual_ni]
+            for k in range(1, num_sub):
+                ratio = k / num_sub
+                sx = ni_node.x + ratio * (nj_node.x - ni_node.x)
+                sy = ni_node.y + ratio * (nj_node.y - ni_node.y)
+                sz = ni_node.z + ratio * (nj_node.z - ni_node.z)
+                ops.node(next_node_id, sx * 1000, sy * 1000, sz * 1000)
+                sub_nodes.append(next_node_id)
+                next_node_id += 1
+            sub_nodes.append(actual_nj)
+
+            for k in range(num_sub):
+                ops.element('elasticBeamColumn', elem_id,
+                            sub_nodes[k], sub_nodes[k + 1],
+                            sec.A, E, G, sec.J, os_Iy, os_Iz, transf_id)
+                elements_info.append(Element3D(
+                    elem_id, sub_nodes[k], sub_nodes[k + 1], v1_etype, sec.name))
+                member_elem_ids.append(elem_id)
+                elem_id += 1
+
+        member_to_elements[member_id] = member_elem_ids
+
+        length = ni_node.distance_to(nj_node) if hasattr(ni_node, 'distance_to') else math.sqrt(
+            (nj_node.x - ni_node.x) ** 2
+            + (nj_node.y - ni_node.y) ** 2
+            + (nj_node.z - ni_node.z) ** 2
+        )
+        member_info_list.append({
+            "member_id": member_id,
+            "type": v1_etype,
+            "ni": se.node_i,
+            "nj": se.node_j,
+            "length_m": round(length, 4),
+            "section": sec.name,
+            "element_ids": member_elem_ids,
+        })
+
+    return nodes_3d, elements_info, member_to_elements, member_info_list, base_node_ids, next_node_id
+
+
+def _apply_loads_v2(
+    loads: list[dict],
+    model,
+    member_to_elements: dict[int, list[int]],
+    member_info_list: list[dict],
+):
+    """V2 하중 적용 — 노드/요소 기반.
+
+    지원 하중 타입:
+        - floor_area: kN/m² → 보 line load (tributary 기반)
+        - lateral_x, lateral_y: kN → 층별 노드 분배
+        - nodal: 직접 노드 하중 (6-DOF)
+    """
+    ops.timeSeries('Linear', 1)
+    ops.pattern('Plain', 1, 1)
+
+    for load in loads:
+        ltype = load.get("type", "")
+        story = load.get("story")
+        value = load.get("value", 0.0)
+
+        if ltype == "floor_area" and story is not None:
+            # kN/m² → 보 line load
+            # 각 보에 tributary width 기반으로 분배
+            w_area = value  # kN/m²
+
+            for mi, minfo in enumerate(member_info_list, start=1):
+                if minfo["type"] not in ("beam_x", "beam_y"):
+                    continue
+                # 부재의 층 확인
+                ni_node = model.nodes.get(minfo["ni"])
+                if ni_node is None or ni_node.story != story:
+                    continue
+
+                # Tributary width 추정: 인접 보 간격의 절반
+                trib_w = _estimate_tributary_width(model, minfo, mi)
+
+                # 50% X방향, 50% Y방향 분배 (2-way slab)
+                w_line = 0.5 * w_area * trib_w  # kN/m
+                w_Nmm = w_line * 1000 / 1000  # kN/m → N/mm
+
+                for eid in member_to_elements[mi]:
+                    # 수직 방향 등분포하중 (로컬 z축 = 중력방향)
+                    ops.eleLoad('-ele', eid, '-type', '-beamUniform',
+                                0.0, -w_Nmm, 0.0)
+
+        elif ltype in ("lateral_x", "lateral_y") and story is not None:
+            # 층별 수평하중 → 해당 층 노드에 균등 분배
+            story_idx = story
+            snodes = [n for n in model.nodes.values() if n.story == story_idx]
+            if not snodes:
+                continue
+            f_per_node = value / len(snodes) * 1000  # kN → N
+
+            for n in snodes:
+                if ltype == "lateral_x":
+                    ops.load(n.id, f_per_node, 0.0, 0.0, 0.0, 0.0, 0.0)
+                else:
+                    ops.load(n.id, 0.0, f_per_node, 0.0, 0.0, 0.0, 0.0)
+
+        elif ltype == "nodal":
+            # 직접 노드 하중
+            nid = load.get("node")
+            if nid is None:
+                continue
+            fx = load.get("fx", 0.0) * 1000  # kN → N
+            fy = load.get("fy", 0.0) * 1000
+            fz = load.get("fz", 0.0) * 1000
+            mx = load.get("mx", 0.0) * 1e6   # kN·m → N·mm
+            my = load.get("my", 0.0) * 1e6
+            mz = load.get("mz", 0.0) * 1e6
+            ops.load(nid, fx, fy, fz, mx, my, mz)
+
+
+def _estimate_tributary_width(model, minfo: dict, member_id: int) -> float:
+    """보의 tributary width 추정 (m).
+
+    인접 평행 보까지의 평균 거리로 추정.
+    정확한 값은 슬래브 요소 추가 시 개선 예정.
+    """
+    ni = model.nodes.get(minfo["ni"])
+    nj = model.nodes.get(minfo["nj"])
+    if ni is None or nj is None:
+        return 3.0  # 기본값
+
+    # 부재 방향 판별 (X or Y)
+    dx = abs(nj.x - ni.x)
+    dy = abs(nj.y - ni.y)
+    is_x_dir = dx >= dy
+
+    # 직교 방향 좌표
+    if is_x_dir:
+        my_perp = (ni.y + nj.y) / 2
+        # 같은 층, X방향 보의 Y좌표 수집
+        perp_coords = set()
+        for e in model.elements.values():
+            n_i = model.nodes.get(e.node_i)
+            n_j = model.nodes.get(e.node_j)
+            if n_i is None or n_j is None:
+                continue
+            if n_i.story != ni.story:
+                continue
+            e_dx = abs(n_j.x - n_i.x)
+            e_dy = abs(n_j.y - n_i.y)
+            if e_dx >= e_dy:  # X방향 보
+                perp_coords.add(round((n_i.y + n_j.y) / 2, 3))
+        # 인접 Y좌표 거리
+        sorted_perp = sorted(perp_coords)
+    else:
+        my_perp = (ni.x + nj.x) / 2
+        perp_coords = set()
+        for e in model.elements.values():
+            n_i = model.nodes.get(e.node_i)
+            n_j = model.nodes.get(e.node_j)
+            if n_i is None or n_j is None:
+                continue
+            if n_i.story != ni.story:
+                continue
+            e_dx = abs(n_j.x - n_i.x)
+            e_dy = abs(n_j.y - n_i.y)
+            if e_dy >= e_dx:  # Y방향 보
+                perp_coords.add(round((n_i.x + n_j.x) / 2, 3))
+        sorted_perp = sorted(perp_coords)
+
+    if len(sorted_perp) < 2:
+        return 3.0  # 기본값
+
+    # 인접 좌표까지의 반거리 합
+    idx = min(range(len(sorted_perp)), key=lambda i: abs(sorted_perp[i] - my_perp))
+    left = (sorted_perp[idx] - sorted_perp[idx - 1]) / 2 if idx > 0 else 0
+    right = (sorted_perp[idx + 1] - sorted_perp[idx]) / 2 if idx < len(sorted_perp) - 1 else 0
+
+    trib = left + right
+    return max(trib, 0.5)  # 최소 0.5m
+
+
+def analyze_from_model(
+    model,
+    load_cases: dict[str, list[dict]],
+    load_combinations: dict[str, dict[str, float]] | None = None,
+) -> Frame3DMultiCaseResult:
+    """V2 진입점: StructuralModel에서 직접 3D 해석.
+
+    기존 analyze_frame_3d_multi()와 동일한 결과 형식을 반환하되,
+    격자(bays_x/y) 대신 자유 노드-요소 그래프를 입력으로 사용한다.
+
+    Args:
+        model: StructuralModel (core.structural_model)
+        load_cases: 하중 케이스 딕셔너리
+        load_combinations: 하중 조합 딕셔너리 (None이면 조합 없음)
+
+    Returns:
+        Frame3DMultiCaseResult
+    """
+    # 재료 물성 조회
+    # 모델의 첫 번째 요소 재료 사용 (동일 재료 가정 — 향후 멀티 재료 확장)
+    materials_used = set(e.material for e in model.elements.values())
+    primary_material = sorted(materials_used)[0] if materials_used else "SS275"
+
+    mat = get_material_from_db(primary_material)
+    if mat is None:
+        mat = DEFAULT_MATERIALS.get(primary_material, DEFAULT_MATERIALS["SS275"])
+    E = mat.E    # MPa
+    G = E / (2.0 * (1.0 + 0.3))  # ν = 0.3
+    fy = mat.fy  # MPa
+
+    # 단면 캐시
+    section_cache: dict[str, BeamSection3D] = {}
+
+    # story_nodes_map 구축
+    story_nodes_map: dict[int, list[int]] = {}
+    for n in model.nodes.values():
+        if n.story is not None:
+            story_nodes_map.setdefault(n.story, []).append(n.id)
+
+    stories = model.story_heights
+    n_stories = model.num_stories
+
+    # 케이스별 해석
+    case_results = {}
+    member_forces = {}
+    analysis_metadata = {}
+
+    for case_name, case_loads in load_cases.items():
+        # 모델 구축
+        nodes_3d, elements_info, member_to_elements, member_info_list, \
+            base_node_ids, _next_nid = _build_model_v2(model, E, G, section_cache)
+
+        # 하중 적용
+        _apply_loads_v2(case_loads, model, member_to_elements, member_info_list)
+
+        # 해석
+        solver_meta = _solve(model.rigid_diaphragm, model.geometric_nonlinearity)
+        if case_name not in analysis_metadata:
+            analysis_metadata = solver_meta
+
+        if solver_meta["ok"] != 0:
+            case_results[case_name] = Frame3DCaseResult()
+            continue
+
+        # 결과 추출
+        case_result = _extract_case_results_3d(
+            nodes=nodes_3d,
+            elements_info=elements_info,
+            base_nodes=base_node_ids,
+            stories=stories,
+            node_grid=None,
+            n_cols_x=0,
+            n_cols_y=0,
+            supports="fixed",
+            story_nodes_map=story_nodes_map,
+        )
+        case_results[case_name] = case_result
+
+        # 부재력
+        mf = _extract_member_forces_3d(
+            member_info_list, member_to_elements,
+            model.num_elements_per_member,
+        )
+        member_forces[case_name] = mf
+
+    # 하중 조합
+    combo_results = {}
+    if load_combinations:
+        for combo_name, factors in load_combinations.items():
+            combo_results[combo_name] = _superpose_case_results_3d(
+                case_results=case_results,
+                factors=factors,
+                nodes=nodes_3d,
+                elements_info=elements_info,
+                base_nodes=base_node_ids,
+                stories=stories,
+                node_grid=None,
+                n_cols_x=0,
+                n_cols_y=0,
+                story_nodes_map=story_nodes_map,
+            )
+
+    # 결과 조립
+    # 대표 단면 정보 (첫 번째 기둥, 보)
+    from core.structural_model import ElementType as ET
+    col_sections = [e.section for e in model.elements.values() if e.elem_type == ET.COLUMN]
+    beam_sections = [e.section for e in model.elements.values() if e.elem_type == ET.BEAM]
+    col_sec_name = col_sections[0] if col_sections else "H-300x300"
+    beam_sec_name = beam_sections[0] if beam_sections else "H-400x200"
+
+    col_sec = section_cache.get(col_sec_name, get_section_3d(col_sec_name))
+    beam_sec = section_cache.get(beam_sec_name, get_section_3d(beam_sec_name))
+
+    multi = Frame3DMultiCaseResult(
+        num_stories=n_stories,
+        num_bays_x=0,
+        num_bays_y=0,
+        total_height=model.total_height,
+        total_width_x=0.0,
+        total_width_y=0.0,
+        stories=stories,
+        bays_x=[],
+        bays_y=[],
+        nodes=[{"id": n.id, "x": n.x, "y": n.y, "z": n.z,
+                "x_m": n.x, "y_m": n.y, "z_m": n.z}
+               for n in sorted(model.nodes.values(), key=lambda n: n.id)],
+        elements=[{"id": e.id, "ni": e.node_i, "nj": e.node_j,
+                   "type": e.elem_type.value, "section": e.section}
+                  for e in sorted(model.elements.values(), key=lambda e: e.id)],
+        supports="mixed",
+        num_elements_per_member=model.num_elements_per_member,
+        column_section=col_sec_name,
+        beam_x_section=beam_sec_name,
+        beam_y_section=beam_sec_name,
+        material_name=primary_material,
+        E_MPa=E,
+        G_MPa=G,
+        fy_MPa=fy,
+        column_A_mm2=col_sec.A,
+        column_Ix_mm4=col_sec.Ix,
+        column_Iy_mm4=col_sec.Iy,
+        column_J_mm4=col_sec.J,
+        beam_x_A_mm2=beam_sec.A,
+        beam_x_Ix_mm4=beam_sec.Ix,
+        beam_x_Iy_mm4=beam_sec.Iy,
+        beam_x_J_mm4=beam_sec.J,
+        beam_y_A_mm2=beam_sec.A,
+        beam_y_Ix_mm4=beam_sec.Ix,
+        beam_y_Iy_mm4=beam_sec.Iy,
+        beam_y_J_mm4=beam_sec.J,
+        column_h_mm=getattr(col_sec, 'h', 0),
+        column_b_mm=getattr(col_sec, 'b', 0),
+        column_tw_mm=getattr(col_sec, 'tw', 0) or 0,
+        column_tf_mm=getattr(col_sec, 'tf', 0) or 0,
+        beam_x_h_mm=getattr(beam_sec, 'h', 0),
+        beam_x_b_mm=getattr(beam_sec, 'b', 0),
+        beam_x_tw_mm=getattr(beam_sec, 'tw', 0) or 0,
+        beam_x_tf_mm=getattr(beam_sec, 'tf', 0) or 0,
+        beam_y_h_mm=getattr(beam_sec, 'h', 0),
+        beam_y_b_mm=getattr(beam_sec, 'b', 0),
+        beam_y_tw_mm=getattr(beam_sec, 'tw', 0) or 0,
+        beam_y_tf_mm=getattr(beam_sec, 'tf', 0) or 0,
+        member_info=member_info_list if member_info_list else [],
+        load_cases=load_cases,
+        case_results=case_results,
+        load_combinations=load_combinations or {},
+        combo_results=combo_results,
+        member_forces=member_forces,
+        geometric_nonlinearity=model.geometric_nonlinearity,
+        analysis_metadata=analysis_metadata,
+    )
+
+    # ── Modal Analysis ──
+    try:
+        # DL 케이스에서 층별 중량 추정
+        dl_result = case_results.get("DL")
+        if dl_result and dl_result.reactions:
+            total_rz = sum(r["RZ_kN"] for r in dl_result.reactions)
+            if total_rz > 0 and n_stories > 0:
+                # 층별 중량 = 총 중량 / 층 수 (간이 추정)
+                sw = [total_rz / n_stories] * n_stories
+
+                eigen_result = _run_eigen_analysis_v2(
+                    model, E, G, section_cache, sw, story_nodes_map,
+                )
+                if eigen_result:
+                    multi.modal_analysis = eigen_result
+    except Exception as e:
+        print(f"V2 modal analysis skipped: {e}")
+
+    return multi
+
+
+def _run_eigen_analysis_v2(
+    model,
+    E: float,
+    G: float,
+    section_cache: dict,
+    story_weights_kN: list[float],
+    story_nodes_map: dict[int, list[int]],
+    num_modes: int = 0,
+) -> dict:
+    """V2 고유치해석 — StructuralModel 기반.
+
+    _build_model_v2로 모델 재구축 후 질량 배정 + eigen 풀이.
+    """
+    n_stories = model.num_stories
+    if not story_weights_kN or len(story_weights_kN) != n_stories:
+        return {}
+
+    # 1. 모델 재구축 (num_elements_per_member=1, rigid_diaphragm=True)
+    orig_num_elem = model.num_elements_per_member
+    orig_rigid = model.rigid_diaphragm
+    model.num_elements_per_member = 1
+    model.rigid_diaphragm = True
+
+    nodes_3d, _ei, _mte, _mil, _bni, _nni = _build_model_v2(model, E, G, section_cache)
+
+    model.num_elements_per_member = orig_num_elem
+    model.rigid_diaphragm = orig_rigid
+
+    # 2. 질량 배정
+    g_acc = 9810.0  # mm/s²
+    node_map_3d = {n.id: n for n in nodes_3d}
+    floor_masses = []
+
+    for s in range(1, n_stories + 1):
+        snodes = story_nodes_map.get(s, [])
+        if not snodes:
+            continue
+        nodes_per_floor = len(snodes)
+
+        master_nid = snodes[len(snodes) // 2]
+        mx_mm = node_map_3d[master_nid].x * 1000
+        my_mm = node_map_3d[master_nid].y * 1000
+
+        W_N = story_weights_kN[s - 1] * 1000.0
+        m_per_node = W_N / g_acc / nodes_per_floor
+        m_floor = W_N / g_acc
+
+        I_eff = 0.0
+        for nid in snodes:
+            ops.mass(nid, m_per_node, m_per_node, 1e-6, 0.0, 0.0, 0.0)
+            if nid in node_map_3d:
+                dx = node_map_3d[nid].x * 1000 - mx_mm
+                dy = node_map_3d[nid].y * 1000 - my_mm
+                I_eff += m_per_node * (dx ** 2 + dy ** 2)
+
+        floor_masses.append((m_floor, I_eff))
+
+    # 3. 모드 수
+    if num_modes <= 0:
+        num_modes = min(3 * n_stories, 15)
+
+    # 4. 고유치 풀이
+    eigenvalues = None
+    for solver in [lambda: ops.eigen(num_modes),
+                   lambda: ops.eigen('-genBandArpack', num_modes),
+                   lambda: ops.eigen('-fullGenLapack', num_modes)]:
+        try:
+            eigenvalues = solver()
+            break
+        except Exception:
+            continue
+
+    if not eigenvalues:
+        return {}
+
+    # 5. 참여질량 계산
+    total_mass_x = sum(fm[0] for fm in floor_masses)
+    total_mass_rz = sum(fm[1] for fm in floor_masses)
+    stories = model.story_heights
+
+    modes = []
+    cum_x, cum_y, cum_rz = 0.0, 0.0, 0.0
+
+    for i, lam in enumerate(eigenvalues):
+        mode_num = i + 1
+        if lam <= 0:
+            continue
+
+        omega = math.sqrt(lam)
+        T = 2.0 * math.pi / omega
+        f = 1.0 / T
+
+        # 모드 형상 추출
+        shape = {}
+        for n3d in nodes_3d:
+            try:
+                phi = [ops.nodeEigenvector(n3d.id, mode_num, dof) for dof in range(1, 7)]
+                shape[str(n3d.id)] = phi[:3]  # dx, dy, dz
+            except Exception:
+                shape[str(n3d.id)] = [0, 0, 0]
+
+        # 참여질량 (간이)
+        Lx, Ly, Lrz = 0.0, 0.0, 0.0
+        Mx, My, Mrz = 0.0, 0.0, 0.0
+        for s_idx in range(1, n_stories + 1):
+            snodes = story_nodes_map.get(s_idx, [])
+            if not snodes or s_idx - 1 >= len(floor_masses):
+                continue
+            m_f, I_f = floor_masses[s_idx - 1]
+            avg_phi_x = sum(shape.get(str(nid), [0, 0, 0])[0] for nid in snodes) / max(len(snodes), 1)
+            avg_phi_y = sum(shape.get(str(nid), [0, 0, 0])[1] for nid in snodes) / max(len(snodes), 1)
+            Lx += m_f * avg_phi_x
+            Ly += m_f * avg_phi_y
+            Mx += m_f * avg_phi_x ** 2
+            My += m_f * avg_phi_y ** 2
+
+        mp_x = (Lx ** 2 / Mx / total_mass_x * 100) if Mx > 0 and total_mass_x > 0 else 0
+        mp_y = (Ly ** 2 / My / total_mass_x * 100) if My > 0 and total_mass_x > 0 else 0
+
+        direction = "X" if abs(Lx) > abs(Ly) * 1.5 else ("Y" if abs(Ly) > abs(Lx) * 1.5 else "XY")
+        cum_x += mp_x
+        cum_y += mp_y
+
+        modes.append({
+            "mode_num": mode_num,
+            "eigenvalue": round(lam, 4),
+            "frequency_Hz": round(f, 4),
+            "period_s": round(T, 4),
+            "direction": direction,
+            "mass_participation_x_pct": round(mp_x, 2),
+            "mass_participation_y_pct": round(mp_y, 2),
+            "cumulative_x_pct": round(cum_x, 2),
+            "cumulative_y_pct": round(cum_y, 2),
+            "shape": shape,
+        })
+
+    if not modes:
+        return {}
+
+    return {
+        "num_modes": len(modes),
+        "modes": modes,
+        "fundamental_periods": {
+            "T1_x": next((m["period_s"] for m in modes if "X" in m["direction"]), None),
+            "T1_y": next((m["period_s"] for m in modes if "Y" in m["direction"]), None),
+        },
+    }

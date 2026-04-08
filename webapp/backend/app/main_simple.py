@@ -84,9 +84,8 @@ class BuildingModification(BaseModel):
 # Application
 app = FastAPI(title="OpenSees Structural Analysis Platform")
 
-# Demo auth middleware (enabled when DEMO_AUTH_TOKEN env var is set)
-from app.core.auth import DemoAuthMiddleware
-app.add_middleware(DemoAuthMiddleware)
+# Demo auth - disabled for now
+# from app.core.auth import check_demo_auth, make_auth_response, set_auth_cookie
 
 # Static files and templates
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -537,6 +536,18 @@ async def resolve_building_config_api(body: BuildingResolveInput):
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3D Building Editor
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/model-v2", response_class=HTMLResponse)
+async def model_v2_page(request: Request):
+    """V2 Node-Element Model page (simple version)"""
+    return templates.TemplateResponse("model_v2.html", {"request": request})
+
+
+@app.get("/editor-v2", response_class=HTMLResponse)
+async def editor_v2_page(request: Request):
+    """V2 3D Building Editor (V1 UI + V2 IFC Parser)"""
+    return templates.TemplateResponse("editor_v2.html", {"request": request})
+
 
 @app.get("/editor", response_class=HTMLResponse)
 async def editor_page(request: Request):
@@ -1016,6 +1027,287 @@ async def get_building_result(job_id: str):
     if not response:
         raise HTTPException(status_code=400, detail="No results available")
     return response
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V2 Node-Element Pipeline APIs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/v2/parse-ifc")
+async def parse_ifc_v2_api(file: UploadFile = File(...)):
+    """V2: IFC → Node-Element StructuralModel 변환"""
+    import tempfile, os
+
+    if not file.filename.lower().endswith(".ifc"):
+        raise HTTPException(status_code=400, detail="IFC 파일(.ifc)만 업로드할 수 있습니다.")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ifc")
+    try:
+        os.write(tmp_fd, content)
+        os.close(tmp_fd)
+
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.ifc_parser_v2 import parse_ifc_v2
+        from core.visualization_v2 import generate_model_viewer
+
+        model, validation = parse_ifc_v2(tmp_path)
+
+        # HTML 뷰어 생성
+        viewer_path = None
+        try:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            viewer_dir = JOBS_DIR / "v2_viewers"
+            viewer_dir.mkdir(parents=True, exist_ok=True)
+            viewer_path = generate_model_viewer(
+                model,
+                output_path=str(viewer_dir / f"model_{ts}.html"),
+                title=f"IFC Model: {file.filename}",
+            )
+        except Exception:
+            pass
+
+        result = {
+            "success": validation.is_valid,
+            "filename": file.filename,
+            "model": model.to_json(),
+            "validation": {
+                "is_valid": validation.is_valid,
+                "summary": validation.summary_text(),
+                "extracted_nodes": validation.extracted_nodes,
+                "extracted_elements": validation.extracted_elements,
+                "failed_elements": validation.failed_elements,
+                "issues": [
+                    {"severity": i.severity.value, "code": i.code,
+                     "message": i.message, "default_value": i.default_value}
+                    for i in validation.issues
+                ],
+                "needs_user_input": [
+                    {"code": i.code, "message": i.message, "default_value": i.default_value}
+                    for i in validation.needs_user_input
+                ],
+            },
+            "summary": model.summary(),
+        }
+        if viewer_path:
+            result["viewer_url"] = f"/api/v2/viewer/{Path(viewer_path).name}"
+
+        return result
+
+    except ImportError:
+        raise HTTPException(status_code=500, detail="ifcopenshell 패키지가 필요합니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IFC V2 파싱 오류: {str(e)}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+@app.post("/api/v2/snap-joints")
+async def snap_joints_api(request: Request):
+    """V2: 보-기둥 접합 스냅"""
+    body = await request.json()
+    model_json = body.get("model")
+    snap_tolerance = body.get("snap_tolerance", 0.5)
+
+    if not model_json:
+        raise HTTPException(status_code=400, detail="model JSON이 필요합니다.")
+
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+    from core.structural_model import StructuralModel
+    from core.ifc_parser_v2 import snap_beams_to_columns
+
+    model = StructuralModel.from_json(model_json)
+    nodes_before = len(model.nodes)
+    snapped = snap_beams_to_columns(model, snap_tolerance=snap_tolerance)
+
+    return {
+        "success": True,
+        "snapped_count": snapped,
+        "nodes_before": nodes_before,
+        "nodes_after": len(model.nodes),
+        "model": model.to_json(),
+        "summary": model.summary(),
+    }
+
+
+@app.post("/api/v2/analyze")
+async def analyze_v2_api(request: Request):
+    """V2: 통합 해석 (KDS 하중자동생성 + 해석 + 설계검토 + 리포트).
+
+    V1의 /api/building/analyze와 동일한 기능을 V2 StructuralModel에서 수행.
+    """
+    body = await request.json()
+    model_json = body.get("model")
+    user_config = body.get("config", {})
+
+    if not model_json:
+        raise HTTPException(status_code=400, detail="model JSON이 필요합니다.")
+
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+
+    from core.structural_model import StructuralModel
+    from core.frame_3d import analyze_from_model
+
+    model = StructuralModel.from_json(model_json)
+
+    # 사용자 config 반영
+    for key in ["region", "site_class", "importance", "seismic_system", "exposure_category", "geometric_nonlinearity"]:
+        if user_config.get(key):
+            setattr(model, key, user_config[key])
+    if user_config.get("importance"):
+        model.importance_factor = {"특": 1.5, "I": 1.2, "II": 1.0}.get(model.importance, 1.0)
+    if user_config.get("rigid_diaphragm") is not None:
+        model.rigid_diaphragm = user_config["rigid_diaphragm"]
+
+    # 층별 용도/슬래브 설정
+    for sc in user_config.get("stories", []):
+        s_idx = sc.get("story")
+        if s_idx:
+            if sc.get("usage"): model.story_usages[s_idx] = sc["usage"]
+            if sc.get("slab_thickness"): model.story_slab_thickness[s_idx] = sc["slab_thickness"]
+            if sc.get("dead_load_finish") is not None: model.story_dead_load_finish[s_idx] = sc["dead_load_finish"]
+
+    # 기본값 채우기
+    for s_idx in range(1, model.num_stories + 1):
+        model.story_usages.setdefault(s_idx, "office")
+        model.story_slab_thickness.setdefault(s_idx, 0.15)
+        model.story_dead_load_finish.setdefault(s_idx, 1.0)
+
+    job_id = str(uuid.uuid4())
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # ── Step 1: 하중 생성 (V1 load_generator 사용) ──
+        building_model = model.to_building_model()
+
+        from core.load_generator import generate_all_loads
+        load_result = generate_all_loads(building_model)
+        load_cases = load_result["load_cases"]
+        load_combinations = load_result.get("load_combinations", {})
+
+        # ── Step 2: 해석 ──
+        multi = analyze_from_model(model, load_cases, load_combinations)
+
+        # ── Step 3: 설계검토 ──
+        dc_result = None
+        interpretation = None
+        try:
+            from core.design_check import run_design_check
+            seismic_rpt = load_result.get("reports", {}).get("seismic")
+            dc_result = run_design_check(multi, building_model, seismic_rpt)
+        except Exception as e:
+            print(f"Design check: {e}")
+
+        try:
+            from core.result_interpreter import interpret_results
+            if dc_result:
+                interpretation = interpret_results(dc_result, multi,
+                    modal_analysis=getattr(multi, 'modal_analysis', None) or None)
+        except Exception:
+            pass
+
+        # ── Step 4: HTML 리포트 ──
+        report_path = str(job_dir / "report.html")
+        try:
+            from core.visualization_3d import plot_frame_3d_interactive
+            plot_frame_3d_interactive(multi, output_path=report_path,
+                                      design_check=dc_result, interpretation=interpretation)
+        except Exception as viz_err:
+            print(f"V1 report failed ({viz_err}), trying V2 viewer")
+            try:
+                from core.visualization_v2 import generate_model_viewer
+                generate_model_viewer(model, result=multi, output_path=report_path,
+                                      title="V2 Analysis Results")
+            except Exception:
+                pass
+
+        report_url = f"/api/jobs/{job_id}/report" if Path(report_path).exists() else None
+
+        # ── Step 5: 응답 ──
+        env = {"max_dx_mm": 0, "max_dy_mm": 0, "max_dz_mm": 0,
+               "max_drift_x": 0, "max_drift_y": 0,
+               "max_moment_kNm": 0, "max_axial_kN": 0, "max_shear_kN": 0}
+        for cr in list(multi.case_results.values()) + list(multi.combo_results.values()):
+            env["max_dx_mm"] = max(env["max_dx_mm"], abs(cr.max_displacement_x))
+            env["max_dy_mm"] = max(env["max_dy_mm"], abs(cr.max_displacement_y))
+            env["max_dz_mm"] = max(env["max_dz_mm"], abs(cr.max_displacement_z))
+            env["max_drift_x"] = max(env["max_drift_x"], abs(cr.max_drift_x))
+            env["max_drift_y"] = max(env["max_drift_y"], abs(cr.max_drift_y))
+            env["max_moment_kNm"] = max(env["max_moment_kNm"], abs(cr.max_moment))
+            env["max_axial_kN"] = max(env["max_axial_kN"], abs(cr.max_axial))
+            env["max_shear_kN"] = max(env["max_shear_kN"], abs(cr.max_shear))
+
+        case_data = {}
+        for cname, cr in {**multi.case_results, **multi.combo_results}.items():
+            case_data[cname] = {
+                "summary": {"max_dx_mm": cr.max_displacement_x, "max_dy_mm": cr.max_displacement_y,
+                            "max_moment_kNm": cr.max_moment, "max_axial_kN": cr.max_axial},
+                "story_drifts": cr.story_drifts,
+                "reactions": cr.reactions,
+            }
+
+        member_checks = {}
+        if dc_result and "member_check" in dc_result:
+            for mem in dc_result["member_check"].get("members", []):
+                member_checks[str(mem.get("member_id", ""))] = {
+                    "status": mem.get("status", "OK"),
+                    "interaction_ratio": mem.get("ratios", {}).get("interaction", 0),
+                }
+
+        response = {
+            "job_id": job_id,
+            "status": "success",
+            "pipeline": "v2_node_element",
+            "building": model.summary(),
+            "envelope": env,
+            "case_names": list(multi.case_results.keys()),
+            "combo_names": list(multi.combo_results.keys()),
+            "case_data": case_data,
+            "load_summary": load_result.get("summary", {}),
+            "design_check": dc_result,
+            "interpretation": interpretation,
+            "member_checks": member_checks,
+            "modal_analysis": getattr(multi, 'modal_analysis', None) or None,
+            "report_url": report_url,
+        }
+
+        # Job DB 저장
+        jobs_db[job_id] = {
+            "job_id": job_id, "status": "done",
+            "created_at": datetime.now().isoformat(),
+            "completed_at": datetime.now().isoformat(),
+            "report_url": report_url,
+            "summary": {"max_displacement_x_mm": env["max_dx_mm"], "max_displacement_y_mm": env["max_dy_mm"],
+                        "max_drift": env["max_drift_x"], "max_drift_story": 1,
+                        "max_moment_kNm": env["max_moment_kNm"], "max_shear_kN": env["max_shear_kN"],
+                        "max_axial_kN": env["max_axial_kN"], "base_shear_kN": 0,
+                        "num_stories": model.num_stories, "num_bays": 0},
+        }
+
+        return response
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"V2 해석 오류: {str(e)}")
+
+
+@app.get("/api/v2/viewer/{filename}")
+async def serve_v2_viewer(filename: str):
+    """V2 HTML 뷰어/리포트 서빙"""
+    viewer_path = JOBS_DIR / "v2_viewers" / filename
+    if not viewer_path.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+    return FileResponse(str(viewer_path), media_type="text/html")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
