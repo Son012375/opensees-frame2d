@@ -978,6 +978,14 @@ async function uploadIFC() {
         // ── 좌표 원점 보정: 최소 좌표 → (0,0,0) ──
         normalizeV2ModelOrigin(window._v2Model);
 
+        // ── Element 자동 분할: 중간 노드가 있으면 분할 (Midas Gen 방식) ──
+        if (typeof splitElementsAtNodes === 'function') {
+            var splitCount = splitElementsAtNodes(window._v2Model, 0.05);
+            if (splitCount > 0) {
+                console.log('Auto-split: ' + splitCount + ' elements divided at intermediate nodes');
+            }
+        }
+
         // V2 → V1 호환 형식 변환 (스냅 후 모델 기준)
         const currentV2Model = window._v2Model;
         const sm = v2data.summary;
@@ -1065,6 +1073,11 @@ async function uploadIFC() {
 // ─── Step 2: Geometry Preview ───────────────────────────────────────────
 function buildIFCGeometrySummary(data) {
     const container = document.getElementById('ifc-geometry-summary');
+    if (!container) {
+        // Step 2가 도구 팔레트 모드일 때 — tool model info로 대체
+        if (typeof updateToolModelInfo === 'function') updateToolModelInfo();
+        return;
+    }
     const ed = ifcEditedData || data;
     let html = '';
 
@@ -1129,6 +1142,7 @@ function buildIFCGeometrySummary(data) {
 
     // Warnings
     const warnEl = document.getElementById('ifc-warnings-list');
+    if (!warnEl) return;
     if (data.warnings?.length) {
         warnEl.innerHTML = data.warnings.map(w => `<div class="ifc-warning-item">${w}</div>`).join('');
     } else {
@@ -1248,7 +1262,7 @@ function normalizeV2ModelOrigin(model) {
 }
 
 // ─── V2 Preview: 실제 노드-요소 기반 프리뷰 ─────────────────────────────
-function buildV2PreviewScene(v2Model) {
+function buildV2PreviewScene(v2Model, skipCameraFit) {
     clearPreviewScene();
 
     const nodes = v2Model.nodes || [];
@@ -1265,8 +1279,8 @@ function buildV2PreviewScene(v2Model) {
     const braceMat = new THREE.LineBasicMaterial({ color: 0xfbbc04, linewidth: 2 });
     const nodeMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
     const supportMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-    const nodeGeo = new THREE.SphereGeometry(0.12, 6, 6);
-    const supportGeo = new THREE.ConeGeometry(0.25, 0.35, 4);
+    const nodeGeo = new THREE.SphereGeometry(0.25, 8, 8);
+    const supportGeo = new THREE.ConeGeometry(0.3, 0.4, 4);
 
     function addLine(n1, n2, mat) {
         const geo = new THREE.BufferGeometry().setFromPoints([
@@ -1325,8 +1339,8 @@ function buildV2PreviewScene(v2Model) {
         });
     }
 
-    // Fit camera
-    if (nodes.length > 0) {
+    // Fit camera (skip during editing to maintain view)
+    if (nodes.length > 0 && !skipCameraFit) {
         const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y), zs = nodes.map(n => n.z);
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
         const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
@@ -1727,6 +1741,8 @@ async function runAnalysisV2() {
         updateResultsPanel(v1Result);
         updateBottomBar(v1Result);
 
+        // 해석 후 편집 비활성화
+        if (typeof disableEditing === 'function') disableEditing();
         setStatus('V2 해석 완료 (KDS + Design Check)', 'success');
 
     } catch (e) {

@@ -1438,6 +1438,141 @@ hr {
 .coord-buttons .btn-ok { background: var(--accent, #1a73e8); color: #fff; }
 .coord-buttons .btn-cancel { background: #eee; color: #666; }
 
+/* ─── Tool Palette (left panel Step 2) ─── */
+.tool-section {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border, #eee);
+}
+.tool-section:last-of-type { border-bottom: none; }
+.tool-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.tool-button-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+.tool-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-secondary, #666);
+    transition: all 0.15s;
+}
+.tool-btn:hover {
+    background: var(--bg-hover, #f0f0f8);
+    color: var(--accent, #1a73e8);
+    border-color: var(--accent, #1a73e8);
+}
+.tool-btn.active {
+    background: var(--accent, #1a73e8);
+    color: #fff;
+    border-color: var(--accent, #1a73e8);
+}
+.tool-btn[data-mode="delete"].active {
+    background: #ea4335;
+    border-color: #ea4335;
+}
+.tool-icon {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+}
+.tool-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    font-size: 12px;
+}
+.tool-info-item {
+    text-align: center;
+    padding: 4px;
+    background: var(--bg-hover, #f5f5f5);
+    border-radius: 4px;
+}
+.tool-info-item .num { font-size: 16px; font-weight: 700; color: var(--accent, #1a73e8); }
+.tool-info-item .lbl { font-size: 9px; color: var(--text-secondary, #888); text-transform: uppercase; }
+.tool-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.tool-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary, #666);
+}
+.tool-option select { padding: 2px 4px; font-size: 11px; border: 1px solid var(--border, #ddd); border-radius: 3px; }
+.tool-mini-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+}
+.tool-mini-btn:hover, .tool-mini-btn.active { background: var(--accent, #1a73e8); color: #fff; border-color: var(--accent, #1a73e8); }
+.tool-button-row {
+    display: flex;
+    gap: 6px;
+}
+.tool-selected-empty {
+    font-size: 12px;
+    color: var(--text-secondary, #aaa);
+    font-style: italic;
+    padding: 8px 0;
+}
+
+/* Beam Release Hexagon */
+.release-hex {
+    display: inline-grid;
+    grid-template-columns: repeat(3, 22px);
+    grid-template-rows: repeat(2, 22px);
+    gap: 1px;
+    margin: 4px;
+}
+.release-hex-cell {
+    width: 22px; height: 22px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: #999;
+    background: #f5f5f5;
+}
+.release-hex-cell.fixed {
+    background: #1a237e;
+    color: #fff;
+    border-color: #1a237e;
+}
+.release-hex-cell.free {
+    background: #fff;
+    color: #ccc;
+    border-color: #ddd;
+}
+.release-hex-cell:hover {
+    border-color: var(--accent, #1a73e8);
+    transform: scale(1.1);
+}
+
 /* Mouse coordinate display */
 #mouse-coords {
     position: absolute;

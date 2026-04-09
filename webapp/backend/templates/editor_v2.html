@@ -292,17 +292,102 @@
                         </div>
                     </div>
 
-                    <!-- Step 2: Geometry Preview -->
+                    <!-- Step 2: Tool Palette (replaces geometry preview) -->
                     <div id="ifc-step-2" class="ifc-step-content">
-                        <div class="form-section">
-                            <h4>형상 확인</h4>
-                            <p class="ifc-preview-notice">미리보기 전용 — 해석 모델은 Step 3 완료 후 생성됩니다</p>
-                            <div id="ifc-geometry-summary"></div>
+
+                        <!-- Model Info (compact) -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Model Info</div>
+                            <div id="tool-model-info" class="tool-info-grid"></div>
                         </div>
-                        <div id="ifc-warnings-list"></div>
+
+                        <!-- Geometry Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Geometry</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="addNode" onclick="setEditMode('addNode')" title="Add Node">
+                                    <span class="tool-icon">+</span>
+                                    <span>Node</span>
+                                </button>
+                                <button class="tool-btn" data-mode="addElement" onclick="setEditMode('addElement')" title="Add Element">
+                                    <span class="tool-icon">/</span>
+                                    <span>Element</span>
+                                </button>
+                                <button class="tool-btn" data-mode="delete" onclick="setEditMode('delete')" title="Delete">
+                                    <span class="tool-icon">&times;</span>
+                                    <span>Delete</span>
+                                </button>
+                                <button class="tool-btn" data-mode="move" onclick="setEditMode('move')" title="Move Node">
+                                    <span class="tool-icon">&#x21C4;</span>
+                                    <span>Move</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Properties Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Properties</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="release" onclick="setEditMode('release')" title="Beam Release (6-DOF)">
+                                    <span class="tool-icon">&#x2B21;</span>
+                                    <span>Release</span>
+                                </button>
+                                <button class="tool-btn" data-mode="support" onclick="setEditMode('support')" title="Support Conditions">
+                                    <span class="tool-icon">&#x25BC;</span>
+                                    <span>Support</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Display Options -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Display</div>
+                            <div class="tool-options">
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-grid-snap-tool" checked onchange="toggleGridSnap()"> Grid Snap
+                                    <select id="grid-spacing-tool" style="width:55px;margin-left:4px" onchange="document.getElementById('grid-spacing').value=this.value;updateSnapGrid()">
+                                        <option value="0.5">0.5m</option>
+                                        <option value="1.0" selected>1.0m</option>
+                                        <option value="2.0">2.0m</option>
+                                        <option value="4.0">4.0m</option>
+                                    </select>
+                                </label>
+                                <label class="tool-option">
+                                    <button class="tool-mini-btn" id="btn-label-id-tool" onclick="setLabelMode('id')">ID</button>
+                                    <button class="tool-mini-btn" id="btn-label-full-tool" onclick="setLabelMode('full')">XYZ</button>
+                                    Labels
+                                </label>
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-solid-section" onchange="toggleSolidSection()"> Solid Section (3D)
+                                </label>
+                                <label class="tool-option">
+                                    Z Level:
+                                    <select id="edit-z-level-tool" style="width:90px;margin-left:4px" onchange="document.getElementById('edit-z-level').value=this.value"></select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Selected Element Info -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Selected</div>
+                            <div id="tool-selected-info" class="tool-selected-empty">
+                                Click a node or element in 3D view
+                            </div>
+                        </div>
+
+                        <!-- Undo/Redo + Navigation -->
+                        <div class="tool-section">
+                            <div class="tool-button-row">
+                                <button class="btn btn-secondary" onclick="editUndo()" style="flex:1">↩ Undo</button>
+                                <button class="btn btn-secondary" onclick="editRedo()" style="flex:1">↪ Redo</button>
+                            </div>
+                        </div>
+
+                        <hr style="margin:12px 0">
+
                         <div class="ifc-nav-buttons">
                             <button class="btn btn-secondary" onclick="goToIFCStep(1)">&#x2190; 이전</button>
-                            <button class="btn btn-primary" onclick="goToIFCStep(3)">다음: 부가정보 &#x2192;</button>
+                            <button class="btn btn-primary" onclick="goToIFCStep(3)">다음: Config &#x2192;</button>
                         </div>
                     </div>
 
@@ -392,44 +477,21 @@
             <div id="viewer-container">
                 <!-- V2 Edit Toolbar -->
                 <div id="edit-toolbar" style="display:none;">
-                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View (회전/줌)">
-                        <span>&#x1F441;</span> View
-                    </button>
-                    <button class="edit-btn" data-mode="addNode" onclick="setEditMode('addNode')" title="Add Node (클릭으로 노드 배치)">
-                        <span>&#x2795;</span> Node
-                    </button>
-                    <button class="edit-btn" data-mode="addElement" onclick="setEditMode('addElement')" title="Add Element (노드 2개 선택)">
-                        <span>&#x2796;</span> Element
-                    </button>
-                    <button class="edit-btn" data-mode="delete" onclick="setEditMode('delete')" title="Delete (클릭으로 삭제)">
-                        <span>&#x274C;</span> Delete
-                    </button>
-                    <button class="edit-btn" data-mode="move" onclick="setEditMode('move')" title="Move Node (드래그)">
-                        <span>&#x2B05;</span> Move
-                    </button>
+                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View">View</button>
                     <span class="edit-separator"></span>
-                    <button class="edit-btn" onclick="editUndo()" title="Undo (Ctrl+Z)">&#x21A9; Undo</button>
-                    <button class="edit-btn" onclick="editRedo()" title="Redo (Ctrl+Y)">&#x21AA; Redo</button>
-                    <span class="edit-separator"></span>
-                    <button class="edit-btn" id="btn-label-id" onclick="setLabelMode('id')" title="노드 ID 표시">ID</button>
-                    <button class="edit-btn" id="btn-label-full" onclick="setLabelMode('full')" title="노드 ID + 좌표 표시">XYZ</button>
-                    <span class="edit-separator"></span>
-                    <span id="edit-hint" class="edit-hint">View mode — 회전/줌/부재 클릭</span>
-                    <!-- Add Node options (shown in addNode mode) -->
-                    <span id="addnode-options" style="display:none;margin-left:4px;">
-                        <select id="edit-z-level" style="padding:2px 6px;font-size:12px" title="노드 배치 Z 높이"></select>
-                        <span class="edit-separator"></span>
-                        <label style="font-size:11px;cursor:pointer" title="Grid Snap">
+                    <span id="edit-hint" class="edit-hint">View mode</span>
+                    <span id="addnode-options" style="display:none;margin-left:6px;">
+                        <select id="edit-z-level" style="padding:2px 6px;font-size:12px"></select>
+                        <label style="font-size:11px;cursor:pointer;margin-left:4px">
                             <input type="checkbox" id="chk-grid-snap" checked onchange="toggleGridSnap()"> Grid
                         </label>
-                        <select id="grid-spacing" style="padding:2px 4px;font-size:11px;width:55px" onchange="updateSnapGrid()" title="격자 간격">
+                        <select id="grid-spacing" style="padding:2px 4px;font-size:11px;width:55px" onchange="updateSnapGrid()">
                             <option value="0.5">0.5m</option>
                             <option value="1.0" selected>1.0m</option>
                             <option value="2.0">2.0m</option>
                             <option value="4.0">4.0m</option>
                         </select>
-                        <span class="edit-separator"></span>
-                        <button class="edit-btn" onclick="showCoordInputPanel()" title="좌표 직접 입력 (N)">XYZ 입력</button>
+                        <button class="edit-btn" onclick="showCoordInputPanel()" title="좌표 직접 입력 (N)">XYZ</button>
                     </span>
                 </div>
                 <!-- Coordinate Input Panel -->
@@ -618,7 +680,8 @@
         </div>
     </div>
 
-    <script src="/static/js/editor3d_v2.js?v=2"></script>
-    <script src="/static/js/v2_edit.js?v=1"></script>
+    <script src="/static/js/editor3d_v2.js?v=3"></script>
+    <script src="/static/js/v2_edit.js?v=3"></script>
+    <script src="/static/js/v2_tools.js?v=1"></script>
 </body>
 </html>

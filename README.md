@@ -70,8 +70,33 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - 비정형 건물 완벽 지원 (경사 부재, 불규칙 평면, setback)
 - 요소별 개별 단면/재료/릴리즈 지정
 - 보-기둥 접합 자동 검증 + 스냅
-- **3D 모델 편집**: 노드 배치 (그리드 스냅 + 좌표 입력), 요소 생성, 삭제, 이동, Undo/Redo
-- 마우스 보조선 (X/Y/Z 점선) + 실시간 좌표 표시
+- 요소 자동 분할 (중간 노드 감지 시 Midas Gen 방식 분할)
+
+**3D Model Editor (Midas Gen 유사)**:
+- 좌측 도구 팔레트 (Geometry / Properties / Display 섹션)
+- 노드 추가: 그리드 스냅 + XYZ 좌표 직접 입력 (N키)
+- 요소 생성: 노드 2개 선택 → 유형/단면/재료 다이얼로그
+- 삭제: 노드/요소 클릭 삭제 (연결 요소 경고)
+- 이동: 드래그 (연결 요소 자동 추적) + 더블클릭 좌표 입력
+- Beam Release: 6-DOF 육각형 UI (i-end/j-end 개별, 프리셋: Pin i/j/Both/Fixed)
+- Support Conditions: 노드별 경계조건 (Fixed/Pinned/Roller + DOF 미리보기)
+- Undo/Redo (Ctrl+Z/Y, 30단계)
+
+**3D 뷰어 기능**:
+- Wire/Solid Section 토글 (H형강 ExtrudeGeometry + 엣지 윤곽선)
+- 노드 라벨: ID only / XYZ 좌표 (고해상도 Sprite)
+- 마우스 보조선 (X/Y/Z 점선 가이드) + Ghost Node 미리보기
+- 실시간 마우스 좌표 표시 (우측 하단)
+- 편집 모드에서 우클릭 회전 + 스크롤 줌 + Shift 패닝
+
+**향후 개선 필요 (상용 SW 대비 부족)**:
+- 다중 선택 (Ctrl+클릭, 박스 드래그)
+- 복사/미러/배열 생성
+- 3D 뷰어 위 부재력 다이어그램 (M, V, N)
+- 3D 뷰어 위 하중 시각적 배치
+- 단면 방향 표시 (로컬 축)
+- 모델 검증 (고립 노드, 불안정 감지)
+- RC 단면 (직사각형, 원형) 확장
 
 ### 3.3 KDS-Based Auto Load Generation
 - **고정하중(DL)**: 슬래브 자중 + 마감 + 설비

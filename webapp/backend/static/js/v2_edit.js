@@ -8,15 +8,126 @@ let undoStack = [];
 let redoStack = [];
 const MAX_UNDO = 30;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Element Auto-Split: 중간 노드가 있으면 요소를 자동 분할 (Midas Gen 방식)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function pointToLineDistance(px, py, pz, ax, ay, az, bx, by, bz) {
+    // 점 P와 직선 AB 사이의 거리
+    var abx = bx-ax, aby = by-ay, abz = bz-az;
+    var apx = px-ax, apy = py-ay, apz = pz-az;
+    var ab2 = abx*abx + aby*aby + abz*abz;
+    if (ab2 < 1e-12) return Math.sqrt(apx*apx + apy*apy + apz*apz);
+    var t = (apx*abx + apy*aby + apz*abz) / ab2;
+    if (t < 0.001 || t > 0.999) return Infinity;  // 끝점 근처는 무시
+    var cx = ax + t*abx, cy = ay + t*aby, cz = az + t*abz;
+    var dx = px-cx, dy = py-cy, dz = pz-cz;
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+}
+
+function distBetween(a, b) {
+    return Math.sqrt(Math.pow(a.x-b.x,2) + Math.pow(a.y-b.y,2) + Math.pow(a.z-b.z,2));
+}
+
+function splitElementsAtNodes(model, tolerance) {
+    // 모든 요소에 대해 직선 위의 중간 노드를 찾아 분할
+    if (!model || !model.nodes || !model.elements) return 0;
+    tolerance = tolerance || 0.05;  // 5cm
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+
+    var newElements = [];
+    var removedIds = {};
+    var splitCount = 0;
+    var nextId = 1;
+    model.elements.forEach(function(e) { if (e.id >= nextId) nextId = e.id + 1; });
+
+    model.elements.forEach(function(elem) {
+        var ni = nodeMap[elem.node_i];
+        var nj = nodeMap[elem.node_j];
+        if (!ni || !nj) return;
+
+        // 이 요소의 직선 위에 있는 중간 노드 찾기
+        var midNodes = [];
+        model.nodes.forEach(function(n) {
+            if (n.id === elem.node_i || n.id === elem.node_j) return;
+            var dist = pointToLineDistance(
+                n.x, n.y, n.z,
+                ni.x, ni.y, ni.z,
+                nj.x, nj.y, nj.z
+            );
+            if (dist < tolerance) {
+                // ni에서의 거리 (정렬용)
+                var fromI = distBetween(n, ni);
+                midNodes.push({ node: n, dist: fromI });
+            }
+        });
+
+        if (midNodes.length === 0) return;  // 중간 노드 없으면 skip
+
+        // ni에서 가까운 순으로 정렬
+        midNodes.sort(function(a, b) { return a.dist - b.dist; });
+
+        // 기존 요소 삭제 예약
+        removedIds[elem.id] = true;
+        splitCount++;
+
+        // 분할된 요소 생성: ni → mid1 → mid2 → ... → nj
+        var chain = [elem.node_i];
+        midNodes.forEach(function(m) { chain.push(m.node.id); });
+        chain.push(elem.node_j);
+
+        for (var k = 0; k < chain.length - 1; k++) {
+            newElements.push({
+                id: nextId++,
+                node_i: chain[k],
+                node_j: chain[k + 1],
+                elem_type: elem.elem_type,
+                section: elem.section,
+                material: elem.material,
+                release_i: (k === 0) ? elem.release_i : null,
+                release_j: (k === chain.length - 2) ? elem.release_j : null,
+                beta_angle: elem.beta_angle || 0,
+            });
+        }
+    });
+
+    if (splitCount === 0) return 0;
+
+    // 삭제된 요소 제거 + 새 요소 추가
+    model.elements = model.elements.filter(function(e) { return !removedIds[e.id]; });
+    model.elements = model.elements.concat(newElements);
+
+    console.log('Split ' + splitCount + ' elements → ' + newElements.length + ' new segments');
+    return splitCount;
+}
+
 const EDIT_HINTS = {
     view: 'View mode — rotate/zoom/click members',
     addNode: 'Add Node — click on 3D plane to place node',
     addElement: 'Add Element — click start node, then end node',
     delete: 'Delete — click node or element to remove',
-    move: 'Move — click node, enter new coordinates',
+    move: 'Move — drag node or double-click for coordinates',
+    release: 'Beam Release — click element to edit 6-DOF releases',
+    support: 'Support — click base node to edit boundary conditions',
 };
 
+window._editingEnabled = false;
+window._currentIFCStep = 0;
+
+function disableEditing() {
+    window._editingEnabled = false;
+    setEditMode('view');
+    var tb = document.getElementById('edit-toolbar');
+    if (tb) tb.style.display = 'none';
+    removeSnapGrid();
+    hideCoordInputPanel();
+    closeEditDialog();
+}
+
 function showEditToolbar() {
+    window._editingEnabled = true;
     const tb = document.getElementById('edit-toolbar');
     if (tb) { tb.style.display = 'flex'; populateZLevelSelector(); }
 }
@@ -24,6 +135,8 @@ function showEditToolbar() {
 function setEditMode(mode) {
     editMode = mode;
     document.querySelectorAll('.edit-btn[data-mode]').forEach(b =>
+        b.classList.toggle('active', b.dataset.mode === mode));
+    document.querySelectorAll('.tool-btn[data-mode]').forEach(b =>
         b.classList.toggle('active', b.dataset.mode === mode));
     const hint = document.getElementById('edit-hint');
     if (hint) hint.textContent = EDIT_HINTS[mode] || '';
@@ -94,7 +207,7 @@ function editRedo() {
 }
 function refreshEditPreview() {
     if (window._v2Model && typeof buildV2PreviewScene === 'function')
-        buildV2PreviewScene(window._v2Model);
+        buildV2PreviewScene(window._v2Model, true);
 }
 
 document.addEventListener('keydown', function(e) {
@@ -115,7 +228,7 @@ function getNextElemId() {
 
 // ─── Click dispatcher ───────────────────────────────────────────────────
 function handleEditClick(event) {
-    if (!window._v2Model || editMode === 'view') return;
+    if (!window._editingEnabled || !window._v2Model || editMode === 'view') return;
     var rect = renderer.domElement.getBoundingClientRect();
     var mouse = new THREE.Vector2(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -124,7 +237,9 @@ function handleEditClick(event) {
     if (editMode === 'addNode') handleAddNode(mouse);
     else if (editMode === 'addElement') handleAddElement(mouse);
     else if (editMode === 'delete') handleDelete(mouse);
-    else if (editMode === 'move') handleMoveNode(mouse);
+    else if (editMode === 'release') handleRelease(mouse);
+    else if (editMode === 'support') handleSupport(mouse);
+    // move는 mousedown/drag로 처리, 더블클릭으로 다이얼로그
 }
 
 // ─── Add Node (Grid Snap support) ───────────────────────────────────────
@@ -184,7 +299,10 @@ function handleAddNode(mouse) {
     });
     refreshEditPreview();
     updateSnapGrid();
-    setStatus('Node N' + nid + ' added at (' + sx + ', ' + sy + ', ' + targetZ + ')', 'success');
+    // 새 노드가 기존 요소 위에 있으면 자동 분할
+    var splits = splitElementsAtNodes(window._v2Model, 0.05);
+    setStatus('Node N' + nid + ' added at (' + sx + ', ' + sy + ', ' + targetZ + ')' +
+        (splits > 0 ? ' [' + splits + ' elements split]' : ''), 'success');
 }
 
 // ─── Grid Helper (Z plane) ──────────────────────────────────────────────
@@ -252,7 +370,7 @@ function removeGhostNode() {
 }
 
 function updateGhostNode(event) {
-    if (editMode !== 'addNode' || !window._v2Model) { removeGhostNode(); return; }
+    if (!window._editingEnabled || editMode !== 'addNode' || !window._v2Model) { removeGhostNode(); return; }
 
     var rect = renderer.domElement.getBoundingClientRect();
     var mouse = new THREE.Vector2(
@@ -366,9 +484,12 @@ function createNodeFromCoords() {
         id: nid, x: x, y: y, z: z,
         story: null, support: support, mass: null
     });
+    // 새 노드가 기존 요소 위에 있으면 자동 분할
+    var splits = splitElementsAtNodes(window._v2Model, 0.05);
     refreshEditPreview();
     updateSnapGrid();
     setStatus('Node N' + nid + ' created at (' + x + ', ' + y + ', ' + z + ')' +
+        (splits > 0 ? ' [' + splits + ' elements split]' : '') +
         (support ? ' [' + support + ']' : ''), 'success');
 
     // Keep panel open for continuous input, clear X/Y
@@ -500,8 +621,14 @@ function handleDelete(mouse) {
     }
 }
 
-// ─── Move Node ──────────────────────────────────────────────────────────
+// ─── Move Node (Dialog + Drag) ──────────────────────────────────────────
+var dragNode = null;
+var isDragging = false;
+var lastDragRender = 0;
+var DRAG_THROTTLE = 50; // ms
+
 function handleMoveNode(mouse) {
+    // Click on node → show move dialog
     var rc = new THREE.Raycaster();
     rc.setFromCamera(mouse, camera);
     var spheres = previewMeshes.filter(function(m){return m.geometry && m.geometry.type === 'SphereGeometry';});
@@ -510,16 +637,136 @@ function handleMoveNode(mouse) {
     var pos = hits[0].object.position;
     var node = findClosestV2Node(pos.x, -pos.z, pos.y);
     if (!node) return;
-    var nx = prompt('N' + node.id + ' X (current: ' + node.x + '):', node.x);
-    if (nx === null) return;
-    var ny = prompt('N' + node.id + ' Y (current: ' + node.y + '):', node.y);
-    if (ny === null) return;
-    var nz = prompt('N' + node.id + ' Z (current: ' + node.z + '):', node.z);
-    if (nz === null) return;
+    showMoveDialog(node);
+}
+
+function showMoveDialog(node) {
+    closeEditDialog();
+    var d = document.createElement('div');
+    d.id = 'edit-dialog';
+    d.style.cssText = 'left:50%;top:50%;transform:translate(-50%,-50%)';
+    d.innerHTML =
+        '<h4>Move Node N' + node.id + '</h4>' +
+        '<div style="display:grid;grid-template-columns:30px 1fr;gap:6px;align-items:center">' +
+        '<label style="font-weight:600">X</label><input type="number" id="dlg-move-x" step="0.1" value="' + node.x + '">' +
+        '<label style="font-weight:600">Y</label><input type="number" id="dlg-move-y" step="0.1" value="' + node.y + '">' +
+        '<label style="font-weight:600">Z</label><input type="number" id="dlg-move-z" step="0.1" value="' + node.z + '">' +
+        '</div>' +
+        '<div class="dialog-buttons">' +
+        '<button class="btn-cancel" onclick="closeEditDialog()">Cancel</button>' +
+        '<button class="btn-ok" onclick="confirmMoveNode(' + node.id + ')">Apply</button>' +
+        '</div>';
+    document.getElementById('viewer-container').appendChild(d);
+    document.getElementById('dlg-move-x').focus();
+    document.getElementById('dlg-move-x').select();
+
+    // Enter key to apply
+    d.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); confirmMoveNode(node.id); }
+        if (e.key === 'Escape') { closeEditDialog(); }
+    });
+}
+
+function confirmMoveNode(nodeId) {
+    var node = window._v2Model.nodes.find(function(n){return n.id === nodeId;});
+    if (!node) return;
+    var nx = parseFloat(document.getElementById('dlg-move-x').value);
+    var ny = parseFloat(document.getElementById('dlg-move-y').value);
+    var nz = parseFloat(document.getElementById('dlg-move-z').value);
+    if (isNaN(nx) || isNaN(ny) || isNaN(nz)) { alert('Invalid coordinates'); return; }
     pushUndo();
-    node.x = parseFloat(nx); node.y = parseFloat(ny); node.z = parseFloat(nz);
+    node.x = nx; node.y = ny; node.z = nz;
+    closeEditDialog();
     refreshEditPreview();
-    setStatus('Node N' + node.id + ' moved', 'success');
+    setStatus('Node N' + nodeId + ' moved to (' + nx + ', ' + ny + ', ' + nz + ')', 'success');
+}
+
+// ─── Drag Move ──────────────────────────────────────────────────────────
+function startDrag(event) {
+    if (!window._editingEnabled || editMode !== 'move' || !window._v2Model) return;
+    var rect = renderer.domElement.getBoundingClientRect();
+    var mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    var rc = new THREE.Raycaster();
+    rc.setFromCamera(mouse, camera);
+    var spheres = previewMeshes.filter(function(m){return m.geometry && m.geometry.type === 'SphereGeometry';});
+    var hits = rc.intersectObjects(spheres);
+    if (!hits.length) return;
+    var pos = hits[0].object.position;
+    var node = findClosestV2Node(pos.x, -pos.z, pos.y);
+    if (!node) return;
+
+    pushUndo();
+    dragNode = node;
+    isDragging = true;
+    // Highlight
+    hits[0].object.material.color.setHex(0xff4081);
+    // Disable orbit controls during drag
+    if (controls) controls.enabled = false;
+}
+
+function duringDrag(event) {
+    if (!isDragging || !dragNode) return;
+    var now = Date.now();
+    if (now - lastDragRender < DRAG_THROTTLE) return;
+    lastDragRender = now;
+
+    var rect = renderer.domElement.getBoundingClientRect();
+    var mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    var rc = new THREE.Raycaster();
+    rc.setFromCamera(mouse, camera);
+    // Move on the same Z plane as the node
+    var plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dragNode.z);
+    var pt = new THREE.Vector3();
+    if (!rc.ray.intersectPlane(plane, pt)) return;
+
+    var sx = pt.x, sy = -pt.z;
+    if (isGridSnapOn()) {
+        var spacing = getGridSpacing();
+        sx = snapToGrid(sx, spacing);
+        sy = snapToGrid(sy, spacing);
+    } else {
+        sx = Math.round(sx * 10) / 10;
+        sy = Math.round(sy * 10) / 10;
+    }
+
+    dragNode.x = sx;
+    dragNode.y = sy;
+
+    // Update coordinate display
+    var mcDiv = document.getElementById('mouse-coords');
+    if (mcDiv) {
+        mcDiv.style.display = 'block';
+        document.getElementById('mc-x').textContent = sx.toFixed(1);
+        document.getElementById('mc-y').textContent = sy.toFixed(1);
+        document.getElementById('mc-z').textContent = dragNode.z.toFixed(1);
+    }
+
+    refreshEditPreview();
+}
+
+function endDrag() {
+    if (!isDragging) return;
+    isDragging = false;
+    if (dragNode) {
+        setStatus('Node N' + dragNode.id + ' moved to (' + dragNode.x + ', ' + dragNode.y + ', ' + dragNode.z + ')', 'success');
+    }
+    dragNode = null;
+    // Re-enable orbit controls for move mode
+    if (controls) {
+        controls.enabled = true;
+        controls.enableRotate = true;
+        controls.mouseButtons.LEFT = -1;
+        controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    }
+    var mcDiv = document.getElementById('mouse-coords');
+    if (mcDiv) mcDiv.style.display = 'none';
 }
 
 // ─── Utility ────────────────────────────────────────────────────────────
@@ -589,11 +836,12 @@ function setLabelMode(mode) {
         var orig = goToIFCStep;
         window.goToIFCStep = function(step) {
             orig(step);
-            if (step === 2 && window._v2Model) showEditToolbar();
-            else {
-                var tb = document.getElementById('edit-toolbar');
-                if (tb) tb.style.display = 'none';
-                removeSnapGrid();
+            window._currentIFCStep = step;
+            if (step === 2 && window._v2Model) {
+                showEditToolbar();
+            } else {
+                // Step 1, 3 → 편집 비활성
+                disableEditing();
             }
         };
     }
@@ -601,9 +849,10 @@ function setLabelMode(mode) {
     document.addEventListener('DOMContentLoaded', function() {
         var canvas = document.getElementById('three-canvas');
         if (canvas) {
-            // Edit click
+            // Edit click (for addNode, addElement, delete — not move drag)
             canvas.addEventListener('click', function(e) {
-                if (editMode !== 'view' && window._v2Model) handleEditClick(e);
+                if (isDragging) return;
+                if (window._editingEnabled && editMode !== 'view' && window._v2Model) handleEditClick(e);
             });
             // Ghost node on mousemove
             canvas.addEventListener('mousemove', function(e) {
@@ -611,7 +860,41 @@ function setLabelMode(mode) {
             });
             canvas.addEventListener('mouseleave', function() {
                 removeGhostNode();
+                if (isDragging) endDrag();
             });
+            // Drag: mousedown on node in move mode (must use capture to beat OrbitControls)
+            canvas.addEventListener('pointerdown', function(e) {
+                if (e.button === 0 && editMode === 'move' && window._v2Model) {
+                    startDrag(e);
+                    if (isDragging) {
+                        e.stopPropagation(); // prevent OrbitControls from grabbing
+                    }
+                }
+            }, true); // capture phase — runs before OrbitControls
+            canvas.addEventListener('pointerup', function(e) {
+                if (e.button === 0 && isDragging) {
+                    endDrag();
+                    e.stopPropagation();
+                }
+            }, true);
+            canvas.addEventListener('pointermove', function(e) {
+                if (isDragging) {
+                    duringDrag(e);
+                    e.stopPropagation();
+                }
+            }, true);
+            // Double-click: open move dialog for precise input
+            canvas.addEventListener('dblclick', function(e) {
+                if (editMode === 'move' && window._v2Model) {
+                    var rect = renderer.domElement.getBoundingClientRect();
+                    var mouse = new THREE.Vector2(
+                        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                        -((e.clientY - rect.top) / rect.height) * 2 + 1
+                    );
+                    handleMoveNode(mouse);
+                }
+            });
+            // (mouseup replaced by pointerup in capture phase above)
         }
     });
     // Keyboard: N key opens coord panel, Enter creates node from coord panel
