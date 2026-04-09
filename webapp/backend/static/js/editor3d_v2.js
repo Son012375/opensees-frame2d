@@ -1712,6 +1712,10 @@ async function runAnalysisV2() {
         exposure_category: 'B',
         geometric_nonlinearity: 'linear',
         stories: storyConfigs,
+        // Seismic method (ELF / RSA)
+        seismic_method: document.getElementById('ifc-seismic-method')?.value || 'ELF',
+        rsa_combination: document.getElementById('ifc-rsa-combination')?.value || 'CQC',
+        rsa_direction: document.getElementById('ifc-rsa-direction')?.value || '30pct',
     };
 
     try {
@@ -1741,8 +1745,12 @@ async function runAnalysisV2() {
         updateResultsPanel(v1Result);
         updateBottomBar(v1Result);
 
-        // 해석 후 편집 비활성화
+        // 해석 후 편집 비활성화 + Solid Section 끄기
         if (typeof disableEditing === 'function') disableEditing();
+        if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
+        window.solidMode = false;
+        var chkSolid = document.getElementById('chk-solid-section');
+        if (chkSolid) chkSolid.checked = false;
         setStatus('V2 해석 완료 (KDS + Design Check)', 'success');
 
     } catch (e) {
@@ -1834,6 +1842,8 @@ function convertV2ResultToV1(v2Result) {
         member_checks: v2Result.member_checks || {},
         report_url: v2Result.report_url,
         modal_analysis: v2Result.modal_analysis || null,
+        rsa: v2Result.rsa || null,
+        seismic_method: v2Result.seismic_method || 'ELF',
         load_summary: v2Result.load_summary,
     };
 }
@@ -2118,6 +2128,8 @@ async function applyGlobalSection(memberType) {
 function buildScene(result) {
     // Clear preview wireframe (IFC wizard) if present
     clearPreviewScene();
+    // Clear V2 solid meshes if present
+    if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
 
     // Clear existing members
     memberMeshes.forEach(m => scene.remove(m.mesh));
@@ -2142,9 +2154,9 @@ function buildScene(result) {
         const nj = nodeMap[elem.nj];
         if (!ni || !nj) return;
 
-        // Three.js: Y=up, so map Z→Y
-        const start = new THREE.Vector3(ni.x, ni.z, ni.y);
-        const end = new THREE.Vector3(nj.x, nj.z, nj.y);
+        // Three.js: Y=up, so map (x, z, -y) — consistent with V2 preview
+        const start = new THREE.Vector3(ni.x, ni.z, -ni.y);
+        const end = new THREE.Vector3(nj.x, nj.z, -nj.y);
 
         const dir = new THREE.Vector3().subVectors(end, start);
         const length = dir.length();
@@ -2185,7 +2197,7 @@ function buildScene(result) {
             opacity: isSupport ? 1.0 : 0.4,
         });
         const sphere = new THREE.Mesh(geo, mat);
-        sphere.position.set(n.x, n.z, n.y);
+        sphere.position.set(n.x, n.z, -n.y);
         sphere.userData.nodeId = n.id;
         scene.add(sphere);
         nodeMeshes.push(sphere);
@@ -2725,18 +2737,18 @@ function applyDeformedShape(displacements) {
     const viewer = currentResult.viewer;
     const nodes = viewer.nodes;
 
-    // Build deformed node positions in Three.js coords (X, Z→Y, Y→-Z)
+    // Build deformed node positions in Three.js coords (X, Z→Y, -Y→Z)
     const deformedPos = {};  // nodeId -> THREE.Vector3
     nodes.forEach(n => {
         const d = displacements[String(n.id)];
         const dx = d ? d[0] / 1000 * scale : 0;  // mm→m, scaled
         const dy = d ? d[1] / 1000 * scale : 0;
         const dz = d ? d[2] / 1000 * scale : 0;
-        // Three.js: X=structural X, Y=structural Z, Z=structural Y
+        // Three.js: (x, z, -y) — consistent with buildScene
         deformedPos[n.id] = new THREE.Vector3(
             n.x + dx,
             n.z + dz,
-            n.y + dy,
+            -(n.y + dy),
         );
     });
 
@@ -2896,7 +2908,8 @@ function applyModeShape(shape, amplitude) {
         const dx = s ? s[0] * scale : 0;
         const dy = s ? s[1] * scale : 0;
         const dz = s ? s[2] * scale : 0;
-        deformedPos[n.id] = new THREE.Vector3(n.x + dx, n.z + dz, n.y + dy);
+        // Three.js: (x, z, -y) — consistent with buildScene
+        deformedPos[n.id] = new THREE.Vector3(n.x + dx, n.z + dz, -(n.y + dy));
     });
 
     const yAxis = new THREE.Vector3(0, 1, 0);

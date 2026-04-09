@@ -1256,6 +1256,52 @@ async def analyze_v2_api(request: Request):
                 "reactions": cr.reactions,
             }
 
+        # ── Response Spectrum Analysis (if requested) ──
+        rsa_result = None
+        seismic_method = user_config.get("seismic_method", "ELF")
+        modal_analysis_result = getattr(multi, 'modal_analysis', None) or None
+        extra_combo_names = []
+        if seismic_method == "RSA" and modal_analysis_result:
+            try:
+                from core.design_spectrum import compute_design_spectrum
+                from core.response_spectrum_analysis import (
+                    run_response_spectrum_analysis, rsa_result_to_case_data,
+                )
+                seismic_sys = user_config.get("seismic_system", model.seismic_system)
+                R_map = {"special_moment_frame": 8.0, "intermediate_moment_frame": 4.5,
+                         "ordinary_moment_frame": 3.5, "special_concentric_braced": 8.0}
+                R = R_map.get(seismic_sys, 3.5)
+                IE = model.importance_factor
+                region = model.region or "서울"
+                site_class = model.site_class or "S3"
+
+                spectrum = compute_design_spectrum(region, site_class, IE)
+                if spectrum.get("status") == "success":
+                    # V2 viewer_nodes format
+                    viewer_nodes_rsa = [
+                        {"id": n.id, "x_m": n.x, "y_m": n.y, "z_m": n.z}
+                        for n in sorted(model.nodes.values(), key=lambda n: n.id)
+                    ]
+                    rsa_result = run_response_spectrum_analysis(
+                        modal_analysis=modal_analysis_result,
+                        spectrum_result=spectrum,
+                        viewer_nodes=viewer_nodes_rsa,
+                        stories=list(multi.stories),
+                        bays_x=list(multi.bays_x) if multi.bays_x else [8.0],
+                        bays_y=list(multi.bays_y) if multi.bays_y else [8.0],
+                        combination_rule=user_config.get("rsa_combination", "CQC"),
+                        direction_rule=user_config.get("rsa_direction", "30pct"),
+                        IE=IE, R=R,
+                    )
+                    # Merge RSA case_data
+                    rsa_cases = rsa_result_to_case_data(rsa_result)
+                    case_data.update(rsa_cases)
+                    extra_combo_names = list(rsa_cases.keys())
+            except Exception as rsa_err:
+                print(f"V2 RSA error: {rsa_err}")
+                import traceback
+                traceback.print_exc()
+
         member_checks = {}
         if dc_result and "member_check" in dc_result:
             for mem in dc_result["member_check"].get("members", []):
@@ -1270,14 +1316,16 @@ async def analyze_v2_api(request: Request):
             "pipeline": "v2_node_element",
             "building": model.summary(),
             "envelope": env,
-            "case_names": list(multi.case_results.keys()),
-            "combo_names": list(multi.combo_results.keys()),
+            "case_names": list(multi.case_results.keys()) + (["__RSA__"] if rsa_result else []),
+            "combo_names": list(multi.combo_results.keys()) + extra_combo_names,
             "case_data": case_data,
             "load_summary": load_result.get("summary", {}),
             "design_check": dc_result,
             "interpretation": interpretation,
             "member_checks": member_checks,
-            "modal_analysis": getattr(multi, 'modal_analysis', None) or None,
+            "modal_analysis": modal_analysis_result,
+            "rsa": rsa_result,
+            "seismic_method": seismic_method,
             "report_url": report_url,
         }
 

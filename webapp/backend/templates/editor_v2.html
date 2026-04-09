@@ -451,6 +451,33 @@
                                 </select>
                             </div>
                         </div>
+                        <!-- Seismic Analysis Method -->
+                        <div class="form-section">
+                            <h4>지진해석 방법</h4>
+                            <div class="form-group">
+                                <label>Method</label>
+                                <select id="ifc-seismic-method" onchange="document.getElementById('ifc-rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                    <option value="ELF" selected>ELF (등가정적)</option>
+                                    <option value="RSA">RSA (응답스펙트럼)</option>
+                                </select>
+                            </div>
+                            <div id="ifc-rsa-options" style="display:none;">
+                                <div class="form-group">
+                                    <label>Modal Combination</label>
+                                    <select id="ifc-rsa-combination">
+                                        <option value="CQC" selected>CQC</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Direction Rule</label>
+                                    <select id="ifc-rsa-direction">
+                                        <option value="30pct" selected>30% Rule (KDS)</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         <div class="ifc-nav-buttons">
                             <button class="btn btn-secondary" onclick="goToIFCStep(2)">&#x2190; 이전</button>
                             <button class="btn btn-primary" onclick="runAnalysisFromIFCWizard()">해석 실행 (Analyze)</button>

@@ -259,13 +259,13 @@ function confirmSupport(nodeId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // sectionPropsCache는 editor3d_v2.js에서 이미 선언됨 — 재사용
-var solidMeshes = [];
-var solidMode = false;
+window.solidMeshes = window.solidMeshes || [];
+window.solidMode = window.solidMode || false;
 
 function toggleSolidSection() {
     var chk = document.getElementById('chk-solid-section');
-    solidMode = chk ? chk.checked : false;
-    if (solidMode) {
+    window.solidMode = chk ? chk.checked : false;
+    if (window.solidMode) {
         loadSectionPropsAndBuild();
     } else {
         removeSolidMeshes();
@@ -273,8 +273,8 @@ function toggleSolidSection() {
 }
 
 function removeSolidMeshes() {
-    solidMeshes.forEach(function(m) { scene.remove(m); });
-    solidMeshes = [];
+    (window.solidMeshes || []).forEach(function(m) { scene.remove(m); });
+    window.solidMeshes = [];
 }
 
 async function loadSectionPropsAndBuild() {
@@ -351,7 +351,7 @@ function buildHSectionShape(h, b, tw, tf) {
 
 function buildSolidMeshes() {
     removeSolidMeshes();
-    if (!window._v2Model || !solidMode) return;
+    if (!window._v2Model || !window.solidMode) return;
 
     var nodeMap = {};
     window._v2Model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
@@ -419,14 +419,14 @@ function buildSolidMeshes() {
         mesh.setRotationFromQuaternion(quat);
 
         scene.add(mesh);
-        solidMeshes.push(mesh);
+        window.solidMeshes.push(mesh);
         // 엣지 윤곽선
         var edges = new THREE.EdgesGeometry(geometry, 15);
         var edgeLine = new THREE.LineSegments(edges, edgeMat);
         edgeLine.position.copy(mesh.position);
         edgeLine.rotation.copy(mesh.rotation);
         scene.add(edgeLine);
-        solidMeshes.push(edgeLine);
+        window.solidMeshes.push(edgeLine);
         built++;
     });
     console.log('Solid meshes: built=' + built + ', skipped=' + skipped + ', total in scene=' + solidMeshes.length);
@@ -437,7 +437,7 @@ function buildSolidMeshes() {
     var _origRefresh2 = refreshEditPreview;
     refreshEditPreview = function() {
         _origRefresh2();
-        if (solidMode) buildSolidMeshes();
+        if (window.solidMode) buildSolidMeshes();
     };
 })();
 
