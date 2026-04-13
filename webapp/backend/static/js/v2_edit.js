@@ -107,6 +107,7 @@ const EDIT_HINTS = {
     view: 'View mode — rotate/zoom/click members',
     addNode: 'Add Node — click on 3D plane to place node',
     addElement: 'Add Element — click start node, then end node',
+    select: 'Select — click or drag to select members (Ctrl+click to add, Esc to clear)',
     delete: 'Delete — click node or element to remove',
     move: 'Move — drag node or double-click for coordinates',
     release: 'Beam Release — click element to edit 6-DOF releases',
@@ -145,7 +146,12 @@ function setEditMode(mode) {
     if (mode !== 'view') vc.classList.add('mode-' + mode);
     const zSel = document.getElementById('edit-z-level');
     if (zSel) zSel.style.display = mode === 'addNode' ? 'inline-block' : 'none';
-    // 카메라 컨트롤: 편집 모드에서도 줌/패닝 허용, 좌클릭 회전만 비활성화
+    // Show/hide selection filter options
+    const selOpts = document.getElementById('select-options');
+    if (selOpts) selOpts.style.display = mode === 'select' ? 'inline-flex' : 'none';
+    // Populate story selector when entering select mode
+    if (mode === 'select') populateStorySelector();
+    // 카메라 컨트롤: 모드별 마우스 버튼 배정
     if (typeof controls !== 'undefined' && controls) {
         if (mode === 'view') {
             controls.enabled = true;
@@ -156,12 +162,13 @@ function setEditMode(mode) {
             controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
             controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
         } else {
+            // select / addNode / addElement / delete / move / release / support
+            // 좌클릭=편집/선택, 우클릭=회전, 중간=줌
             controls.enabled = true;
             controls.enableZoom = true;
             controls.enablePan = true;
             controls.enableRotate = true;
-            // 좌클릭=편집, 우클릭=회전, 중간=줌
-            controls.mouseButtons.LEFT = -1;  // 좌클릭 비활성 (편집용)
+            controls.mouseButtons.LEFT = -1;  // 좌클릭 비활성 (편집/선택용)
             controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
             controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
         }
@@ -213,7 +220,14 @@ function refreshEditPreview() {
 document.addEventListener('keydown', function(e) {
     if (e.ctrlKey && e.key === 'z') { e.preventDefault(); editUndo(); }
     if (e.ctrlKey && e.key === 'y') { e.preventDefault(); editRedo(); }
-    if (e.key === 'Escape') setEditMode('view');
+    if (e.key === 'Escape') {
+        // In select mode: first clear selection, second press goes to view
+        if (editMode === 'select' && typeof selectedMeshSet !== 'undefined' && selectedMeshSet.size > 0) {
+            clearAllSelection();
+            return;
+        }
+        setEditMode('view');
+    }
 });
 
 // ─── ID generators ──────────────────────────────────────────────────────

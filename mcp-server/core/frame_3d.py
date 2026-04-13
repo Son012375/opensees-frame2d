@@ -2433,21 +2433,52 @@ def analyze_from_model(
 
     # ── Modal Analysis ──
     try:
-        # DL 케이스에서 층별 중량 추정
-        dl_result = case_results.get("DL")
-        if dl_result and dl_result.reactions:
-            total_rz = sum(r["RZ_kN"] for r in dl_result.reactions)
-            if total_rz > 0 and n_stories > 0:
-                # 층별 중량 = 총 중량 / 층 수 (간이 추정)
-                sw = [total_rz / n_stories] * n_stories
+        ns = n_stories or (len(story_nodes_map) - 1 if story_nodes_map else 0)
+        if ns > 0:
+            # 층별 중량 추정: 반력 > 하중 데이터 > 기본값 순서
+            sw = None
+            dl_result = case_results.get("DL")
+            if dl_result and dl_result.reactions:
+                total_rz = sum(r["RZ_kN"] for r in dl_result.reactions)
+                if total_rz > 0:
+                    sw = [total_rz / ns] * ns
 
+            if sw is None:
+                # 반력이 없으면 DL 하중 데이터에서 직접 추정
+                dl_loads = load_cases.get("DL", [])
+                total_load_kN = 0.0
+                for ld in dl_loads:
+                    lt = ld.get("type", "")
+                    if lt == "floor_area":
+                        total_load_kN += abs(ld.get("qz_kN_m2", 0)) * ld.get("area_m2", 0)
+                    elif lt == "floor":
+                        total_load_kN += abs(ld.get("w_kN_m", 0)) * ld.get("L_m", 1)
+                    elif lt == "nodal":
+                        total_load_kN += abs(ld.get("Fz_kN", 0))
+                if total_load_kN > 0:
+                    sw = [total_load_kN / ns] * ns
+
+            if sw is None:
+                # 최후 수단: 단위면적 기본하중으로 추정
+                area = 0.0
+                for e in model.elements.values():
+                    if e.elem_type.value in ("beam", "beam_x", "beam_y"):
+                        ni, nj = model.nodes[e.node_i], model.nodes[e.node_j]
+                        dx, dy, dz = nj.x-ni.x, nj.y-ni.y, nj.z-ni.z
+                        area += (dx**2+dy**2+dz**2)**0.5 * 4.0  # 보 길이 × 가정 폭 4m
+                if area > 0:
+                    sw = [area * 5.0 / ns] * ns  # 5 kN/m² 기본 가정
+
+            if sw:
                 eigen_result = _run_eigen_analysis_v2(
                     model, E, G, section_cache, sw, story_nodes_map,
                 )
                 if eigen_result:
                     multi.modal_analysis = eigen_result
     except Exception as e:
+        import traceback
         print(f"V2 modal analysis skipped: {e}")
+        traceback.print_exc()
 
     return multi
 
@@ -2469,16 +2500,26 @@ def _run_eigen_analysis_v2(
     if not story_weights_kN or len(story_weights_kN) != n_stories:
         return {}
 
-    # 1. 모델 재구축 (num_elements_per_member=1, rigid_diaphragm=True)
+    # 1. 모델 재구축 (num_elements_per_member=1, rigid_diaphragm 시도)
     orig_num_elem = model.num_elements_per_member
     orig_rigid = model.rigid_diaphragm
     model.num_elements_per_member = 1
-    model.rigid_diaphragm = True
 
-    nodes_3d, _ei, _mte, _mil, _bni, _nni = _build_model_v2(model, E, G, section_cache)
+    # rigid diaphragm 시도, 실패 시 without
+    nodes_3d = None
+    for try_rigid in [True, False]:
+        try:
+            model.rigid_diaphragm = try_rigid
+            nodes_3d, _ei, _mte, _mil, _bni, _nni = _build_model_v2(model, E, G, section_cache)
+            break
+        except Exception:
+            continue
 
     model.num_elements_per_member = orig_num_elem
     model.rigid_diaphragm = orig_rigid
+
+    if nodes_3d is None:
+        return {}
 
     # 2. 질량 배정
     g_acc = 9810.0  # mm/s²

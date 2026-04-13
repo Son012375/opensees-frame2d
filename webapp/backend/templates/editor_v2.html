@@ -371,7 +371,7 @@
                         <div class="tool-section">
                             <div class="tool-section-title">Selected</div>
                             <div id="tool-selected-info" class="tool-selected-empty">
-                                Click a node or element in 3D view
+                                Use <b>Select</b> mode — click or drag to select members
                             </div>
                         </div>
 
@@ -495,6 +495,11 @@
                     <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
                     <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
                     <button class="btn-icon" onclick="toggleAxes()" title="Axes">&#x2725;</button>
+                    <span class="view-separator"></span>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('front')" title="Front (XZ)">F</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('right')" title="Right (YZ)">R</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('top')" title="Top (XY)">T</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('iso')" title="Isometric">3D</button>
                     <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
                         <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
                         <span>DC Colors</span>
@@ -504,7 +509,21 @@
             <div id="viewer-container">
                 <!-- V2 Edit Toolbar -->
                 <div id="edit-toolbar" style="display:none;">
-                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View">View</button>
+                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View (orbit/zoom)">View</button>
+                    <button class="edit-btn" data-mode="select" onclick="setEditMode('select')" title="Select (click/drag to select members)">Select</button>
+                    <span class="edit-separator"></span>
+                    <span id="select-options" style="display:none;">
+                        <select id="select-filter" class="select-filter" title="Selection filter">
+                            <option value="all">All</option>
+                            <option value="elements">Elements only</option>
+                            <option value="nodes">Nodes only</option>
+                            <option value="column">Columns</option>
+                            <option value="beam">Beams</option>
+                        </select>
+                        <select id="select-story" class="select-filter" title="Select by story" onchange="selectByStory(this.value)">
+                            <option value="">Story...</option>
+                        </select>
+                    </span>
                     <span class="edit-separator"></span>
                     <span id="edit-hint" class="edit-hint">View mode</span>
                     <span id="addnode-options" style="display:none;margin-left:6px;">
@@ -585,7 +604,21 @@
                     <p class="hint">Click a member in the 3D view to inspect properties.</p>
                 </div>
 
-                <!-- Selected member properties -->
+                <!-- Single node properties -->
+                <div id="prop-node" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type node">Node</span>
+                        <span class="prop-id" id="prop-node-id">#1</span>
+                    </div>
+                    <table class="prop-table">
+                        <tr><td>X</td><td id="prop-node-x">0.0</td></tr>
+                        <tr><td>Y</td><td id="prop-node-y">0.0</td></tr>
+                        <tr><td>Z</td><td id="prop-node-z">0.0</td></tr>
+                        <tr><td>Support</td><td id="prop-node-support">free</td></tr>
+                    </table>
+                </div>
+
+                <!-- Single member properties -->
                 <div id="prop-member" class="prop-section" style="display:none;">
                     <div class="prop-header">
                         <span class="prop-type" id="prop-elem-type">Column</span>
@@ -618,6 +651,88 @@
                     </div>
                     <button class="btn btn-secondary btn-block" id="btn-apply-member" onclick="applyMemberChange()">
                         Apply & Re-analyze
+                    </button>
+                </div>
+
+                <!-- Multi-selection panel -->
+                <div id="prop-multi" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type multi">Multi</span>
+                        <span class="prop-id" id="prop-multi-count">0 selected</span>
+                    </div>
+
+                    <table class="prop-table" id="prop-multi-summary"></table>
+
+                    <hr>
+                    <h4>Bulk Edit</h4>
+
+                    <div class="bulk-edit-group">
+                        <label>Section</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-section"><option value="">— keep —</option></select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplySection()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group">
+                        <label>Material</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-material">
+                                <option value="">— keep —</option>
+                                <option value="SS275">SS275</option>
+                                <option value="SS400">SS400</option>
+                                <option value="SM490">SM490</option>
+                                <option value="SM520">SM520</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyMaterial()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group">
+                        <label>Type</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-type">
+                                <option value="">— keep —</option>
+                                <option value="column">Column</option>
+                                <option value="beam">Beam</option>
+                                <option value="brace">Brace</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyType()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group" id="bulk-release-group" style="display:none;">
+                        <label>Release (elements)</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-release">
+                                <option value="">— keep —</option>
+                                <option value="fixed">All Fixed</option>
+                                <option value="pin_i">Pin i-end</option>
+                                <option value="pin_j">Pin j-end</option>
+                                <option value="pin_both">Pin Both ends</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyRelease()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group" id="bulk-support-group" style="display:none;">
+                        <label>Support (nodes)</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-support">
+                                <option value="">— keep —</option>
+                                <option value="fixed">Fixed (6-DOF)</option>
+                                <option value="pinned">Pinned (3-DOF)</option>
+                                <option value="roller_x">Roller X</option>
+                                <option value="roller_y">Roller Y</option>
+                                <option value="free">Free</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplySupport()">Apply</button>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <button class="btn btn-danger btn-block" onclick="bulkDeleteSelected()">
+                        Delete Selected
                     </button>
                 </div>
 

@@ -9,7 +9,8 @@ let scene, camera, renderer, controls;
 let raycaster, mouse;
 let memberMeshes = [];      // { mesh, elementData }
 let nodeMeshes = [];
-let selectedMesh = null;
+let selectedMesh = null;       // primary selection (last clicked) for property panel
+let selectedMeshSet = new Set(); // multi-selection set
 let currentJobId = null;
 let currentResult = null;
 let sectionsList = {};      // {type: [names]}
@@ -208,11 +209,14 @@ function initThreeJS() {
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
 
-    // Events
-    canvas.addEventListener('click', onCanvasClick, false);
-    canvas.addEventListener('mousemove', onCanvasHover, false);
-    canvas.addEventListener('mouseleave', () => hideHoverTooltip(), false);
+    // Events — selection on canvas only (not container, to avoid blocking UI buttons)
+    canvas.addEventListener('pointerdown', onCanvasMouseDown, false);
+    canvas.addEventListener('pointermove', onCanvasMouseMove, false);
+    canvas.addEventListener('pointerup', onCanvasMouseUp, false);
+    window.addEventListener('pointerup', onCanvasMouseUpWindow, false); // finish box drag outside canvas
+    canvas.addEventListener('mouseleave', () => { hideHoverTooltip(); }, false);
     window.addEventListener('resize', onResize, false);
+    window.addEventListener('keydown', onSelectionKeyDown, false);
 }
 
 function animate() {
@@ -651,6 +655,7 @@ function updateManualPreview() {
         memberMeshes = [];
         nodeMeshes = [];
         selectedMesh = null;
+        selectedMeshSet.clear();
         currentResult = null;
         currentJobId = null;
     }
@@ -1273,23 +1278,34 @@ function buildV2PreviewScene(v2Model, skipCameraFit) {
     const nodeMap = {};
     nodes.forEach(n => { nodeMap[n.id] = n; });
 
-    // Materials
-    const colMat = new THREE.LineBasicMaterial({ color: 0x4285f4, linewidth: 2 });
-    const beamMat = new THREE.LineBasicMaterial({ color: 0x34a853, linewidth: 2 });
-    const braceMat = new THREE.LineBasicMaterial({ color: 0xfbbc04, linewidth: 2 });
+    // Materials — MeshBasicMaterial for selectable tube geometry
+    const colMat = new THREE.MeshBasicMaterial({ color: 0x4285f4, transparent: true, opacity: 0.85 });
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0x34a853, transparent: true, opacity: 0.85 });
+    const braceMat = new THREE.MeshBasicMaterial({ color: 0xfbbc04, transparent: true, opacity: 0.85 });
     const nodeMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
     const supportMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
     const nodeGeo = new THREE.SphereGeometry(0.25, 8, 8);
     const supportGeo = new THREE.ConeGeometry(0.3, 0.4, 4);
+    const TUBE_RADIUS = 0.12;
+    const TUBE_SEGMENTS = 6;
 
-    function addLine(n1, n2, mat) {
-        const geo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(n1.x, n1.z, -n1.y),
-            new THREE.Vector3(n2.x, n2.z, -n2.y),
-        ]);
-        const line = new THREE.Line(geo, mat);
-        scene.add(line);
-        previewMeshes.push(line);
+    function addTube(n1, n2, mat, elemData) {
+        const p1 = new THREE.Vector3(n1.x, n1.z, -n1.y);
+        const p2 = new THREE.Vector3(n2.x, n2.z, -n2.y);
+        const dir = new THREE.Vector3().subVectors(p2, p1);
+        const len = dir.length();
+        if (len < 0.001) return;
+        const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+        const geo = new THREE.CylinderGeometry(TUBE_RADIUS, TUBE_RADIUS, len, TUBE_SEGMENTS);
+        const mesh = new THREE.Mesh(geo, mat.clone());
+        mesh.position.copy(mid);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        mesh.userData.elementData = elemData;
+        mesh.userData._isPreviewElement = true;
+        scene.add(mesh);
+        previewMeshes.push(mesh);
+        // Also register in memberMeshes for selection
+        memberMeshes.push({ mesh, elementData: elemData });
     }
 
     // Draw elements
@@ -1302,16 +1318,35 @@ function buildV2PreviewScene(v2Model, skipCameraFit) {
         if (e.elem_type === 'column') mat = colMat;
         else if (e.elem_type === 'brace') mat = braceMat;
 
-        addLine(ni, nj, mat);
+        // Build elementData compatible with selection system
+        const elemData = {
+            id: e.id,
+            type: e.elem_type || 'beam_x',
+            section: e.section || '-',
+            ni: e.node_i,
+            nj: e.node_j,
+        };
+        addTube(ni, nj, mat, elemData);
     });
 
     // Draw nodes
     nodes.forEach(n => {
         const isSupport = n.support === 'fixed' || n.support === 'pinned';
-        const sphere = new THREE.Mesh(nodeGeo, isSupport ? supportMat : nodeMat);
+        const mat = isSupport ? supportMat.clone() : nodeMat.clone();
+        mat.transparent = true;
+        mat.opacity = 0.85;
+        const sphere = new THREE.Mesh(nodeGeo, mat);
         sphere.position.set(n.x, n.z, -n.y);
+        const nodeData = {
+            id: n.id, type: 'node',
+            support: n.support || 'free',
+            x: n.x, y: n.y, z: n.z,
+        };
+        sphere.userData.elementData = nodeData;
+        sphere.userData._isPreviewElement = true;
         scene.add(sphere);
         previewMeshes.push(sphere);
+        memberMeshes.push({ mesh: sphere, elementData: nodeData });
 
         // Support triangle
         if (isSupport) {
@@ -1525,6 +1560,10 @@ function clearPreviewScene() {
         if (m.material) m.material.dispose();
     });
     previewMeshes = [];
+    // Remove preview elements from memberMeshes
+    memberMeshes = memberMeshes.filter(({ mesh }) => !mesh.userData._isPreviewElement);
+    selectedMeshSet.clear();
+    selectedMesh = null;
     document.getElementById('preview-badge').style.display = 'none';
 }
 
@@ -2137,6 +2176,7 @@ function buildScene(result) {
     memberMeshes = [];
     nodeMeshes = [];
     selectedMesh = null;
+    selectedMeshSet.clear();
 
     const viewer = result.viewer;
     if (!viewer) return;
@@ -2219,6 +2259,7 @@ function getElementColor(elem) {
     if (elem.type === 'column') return COLORS.column;
     if (elem.type === 'beam_x') return COLORS.beam_x;
     if (elem.type === 'beam_y') return COLORS.beam_y;
+    if (elem.type === 'node') return elem.support && elem.support !== 'free' ? 0xff6600 : COLORS.node;
     return 0xaaaaaa;
 }
 
@@ -2332,48 +2373,383 @@ function hideHoverTooltip() {
     tooltip.classList.remove('visible');
 }
 
-// ─── Raycaster Click ──────────────────────────────────────────────────────
-function onCanvasClick(event) {
+// ─── Multi-Selection + Box Selection ─────────────────────────────────────
+let _boxSelect = { active: false, startX: 0, startY: 0, el: null, didDrag: false };
+const BOX_DRAG_THRESHOLD = 5; // px — distinguish click from drag
+
+function highlightMesh(mesh) {
+    if (!mesh.userData._origColor) {
+        mesh.userData._origColor = mesh.material.color.getHex();
+    }
+    mesh.material.color.setHex(COLORS.selected);
+    mesh.material.opacity = 1.0;
+    selectedMeshSet.add(mesh);
+}
+
+function unhighlightMesh(mesh) {
+    const orig = mesh.userData._origColor;
+    if (orig !== undefined) {
+        mesh.material.color.setHex(orig);
+    } else {
+        mesh.material.color.setHex(getElementColor(mesh.userData.elementData));
+    }
+    mesh.material.opacity = 0.85;
+    delete mesh.userData._origColor;
+    selectedMeshSet.delete(mesh);
+}
+
+function clearAllSelection() {
+    selectedMeshSet.forEach(m => unhighlightMesh(m));
+    selectedMeshSet.clear();
+    selectedMesh = null;
+    hideMemberProperties();
+    updateSelectionCount();
+}
+
+function updateSelectionCount() {
+    // Bottom badge on viewer
+    let el = document.getElementById('selection-count');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'selection-count';
+        el.className = 'selection-count';
+        document.getElementById('viewer-container').appendChild(el);
+    }
+    const n = selectedMeshSet.size;
+    // Count by type
+    const counts = {};
+    selectedMeshSet.forEach(m => {
+        const t = m.userData.elementData?.type || 'unknown';
+        counts[t] = (counts[t] || 0) + 1;
+    });
+    const parts = Object.entries(counts).map(([t, c]) => `${t.replace('_',' ')}: ${c}`);
+
+    if (n === 0) {
+        el.style.display = 'none';
+    } else {
+        el.textContent = `${n} selected (${parts.join(', ')})`;
+        el.style.display = 'block';
+    }
+
+    // Left panel "Selected" section
+    const toolSel = document.getElementById('tool-selected-info');
+    if (toolSel) {
+        if (n === 0) {
+            toolSel.className = 'tool-selected-empty';
+            toolSel.innerHTML = 'Use <b>Select</b> mode — click or drag to select members';
+        } else {
+            toolSel.className = 'tool-selected-active';
+            toolSel.innerHTML = `<b>${n}</b> members selected<br><small>${parts.join(', ')}</small>`;
+        }
+    }
+
+    // Right panel: switch between single / multi / empty
+    // But preserve prop-results visibility (analysis results always stay visible)
+    if (n === 0) {
+        document.getElementById('prop-member').style.display = 'none';
+        document.getElementById('prop-node').style.display = 'none';
+        document.getElementById('prop-multi').style.display = 'none';
+        // Only show prop-empty if no analysis results are displayed
+        const hasResults = document.getElementById('prop-results')?.style.display === 'block';
+        document.getElementById('prop-empty').style.display = hasResults ? 'none' : 'block';
+    } else if (n === 1) {
+        const mesh = [...selectedMeshSet][0];
+        if (mesh?.userData?.elementData) {
+            document.getElementById('prop-multi').style.display = 'none';
+            showMemberProperties(mesh.userData.elementData);
+        }
+    } else {
+        showMultiSelectionPanel();
+    }
+}
+
+function onSelectionKeyDown(e) {
+    if (e.key === 'Delete' && selectedMeshSet.size > 0 && isSelectMode()) {
+        e.preventDefault();
+        bulkDeleteSelected();
+    }
+}
+
+// ─── Selection Filter ────────────────────────────────────────────────────
+function getSelectionFilter() {
+    const el = document.getElementById('select-filter');
+    return el ? el.value : 'all';
+}
+
+function meshPassesFilter(mesh) {
+    const filter = getSelectionFilter();
+    if (filter === 'all') return true;
+    const d = mesh.userData.elementData;
+    if (!d) return false;
+    if (filter === 'nodes') return d.type === 'node';
+    if (filter === 'elements') return d.type !== 'node';
+    if (filter === 'column') return d.type === 'column';
+    if (filter === 'beam') return d.type === 'beam' || d.type === 'beam_x' || d.type === 'beam_y';
+    return true;
+}
+
+// ─── Story Selection ─────────────────────────────────────────────────────
+function populateStorySelector() {
+    const sel = document.getElementById('select-story');
+    if (!sel || !window._v2Model) return;
+    sel.innerHTML = '<option value="">Story...</option>';
+    const elevations = window._v2Model.story_elevations || [];
+    elevations.forEach((z, i) => {
+        const label = i === 0 ? `Base (${z}m)` : `${i}F (${z}m)`;
+        sel.innerHTML += `<option value="${i}">${label}</option>`;
+    });
+    // Add "All" option
+    sel.innerHTML += '<option value="all">All Stories</option>';
+}
+
+function selectByStory(storyIdx) {
+    if (storyIdx === '' || !window._v2Model) return;
+
+    const elevations = window._v2Model.story_elevations || [];
+    const filter = getSelectionFilter();
+
+    // Determine Z ranges for the story
+    let zMin, zMax;
+    if (storyIdx === 'all') {
+        zMin = -Infinity;
+        zMax = Infinity;
+    } else {
+        const idx = parseInt(storyIdx);
+        zMin = elevations[idx] - 0.01;
+        zMax = (idx + 1 < elevations.length) ? elevations[idx + 1] + 0.01 : Infinity;
+    }
+
+    // Select matching meshes
+    memberMeshes.forEach(({ mesh }) => {
+        if (!meshPassesFilter(mesh)) return;
+        const d = mesh.userData.elementData;
+        if (!d) return;
+
+        let match = false;
+        if (d.type === 'node') {
+            match = d.z >= zMin && d.z <= zMax;
+        } else {
+            // Element: check if either endpoint is in this story range
+            const model = window._v2Model;
+            const ni = model.nodes.find(n => n.id === d.ni);
+            const nj = model.nodes.find(n => n.id === d.nj);
+            if (ni && nj) {
+                const eZmin = Math.min(ni.z, nj.z);
+                const eZmax = Math.max(ni.z, nj.z);
+                // Element belongs to story if its lower node is at story base
+                match = eZmin >= zMin - 0.01 && eZmin < zMax;
+            }
+        }
+        if (match && !selectedMeshSet.has(mesh)) highlightMesh(mesh);
+    });
+
+    updateSelectionCount();
+    // Reset dropdown
+    document.getElementById('select-story').value = '';
+}
+
+// --- Mouse events for click + box drag ---
+function isSelectionAllowed() {
+    // Selection works in: view mode, select mode, or when editing is disabled
+    if (!window._editingEnabled) return true;
+    if (typeof editMode === 'undefined') return true;
+    return editMode === 'view' || editMode === 'select';
+}
+
+function isSelectMode() {
+    return typeof editMode !== 'undefined' && editMode === 'select';
+}
+
+function onCanvasMouseDown(event) {
+    if (event.button !== 0) return;
+    if (!isSelectionAllowed()) return;
     const container = document.getElementById('viewer-container');
     const rect = container.getBoundingClientRect();
+    _boxSelect.startX = event.clientX;
+    _boxSelect.startY = event.clientY;
+    _boxSelect.didDrag = false;
+    _boxSelect.rect = rect;
+    _boxSelect.allowBox = isSelectMode();
+    // Capture pointer so we get move/up even if cursor leaves canvas
+    if (_boxSelect.allowBox) {
+        event.target.setPointerCapture(event.pointerId);
+    }
+}
 
+function onCanvasMouseMove(event) {
+    // Hover tooltip
+    if (!_boxSelect.active) onCanvasHover(event);
+
+    // Box selection drag detection
+    if (event.buttons !== 1 || !isSelectionAllowed()) return;
+    const dx = event.clientX - _boxSelect.startX;
+    const dy = event.clientY - _boxSelect.startY;
+    if (!_boxSelect.active && _boxSelect.allowBox && (Math.abs(dx) > BOX_DRAG_THRESHOLD || Math.abs(dy) > BOX_DRAG_THRESHOLD)) {
+        // Disable orbit controls during box select
+        controls.enabled = false;
+        _boxSelect.active = true;
+        if (!_boxSelect.el) {
+            _boxSelect.el = document.createElement('div');
+            _boxSelect.el.id = 'box-select-rect';
+            _boxSelect.el.className = 'box-select-rect';
+            document.getElementById('viewer-container').appendChild(_boxSelect.el);
+        }
+        _boxSelect.el.style.display = 'block';
+    }
+    if (_boxSelect.active) {
+        _boxSelect.didDrag = true;
+        const r = _boxSelect.rect;
+        const x1 = Math.min(_boxSelect.startX, event.clientX) - r.left;
+        const y1 = Math.min(_boxSelect.startY, event.clientY) - r.top;
+        const w = Math.abs(dx);
+        const h = Math.abs(dy);
+        const el = _boxSelect.el;
+        el.style.left = x1 + 'px';
+        el.style.top = y1 + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+        // Left→Right = Window (blue), Right→Left = Crossing (green dashed)
+        if (dx >= 0) {
+            el.className = 'box-select-rect box-window';
+        } else {
+            el.className = 'box-select-rect box-crossing';
+        }
+    }
+}
+
+function onCanvasMouseUpWindow(event) {
+    // Only handles finishing box select when pointer released outside canvas
+    if (event.button !== 0) return;
+    if (_boxSelect.active && _boxSelect.didDrag) {
+        controls.enabled = true;
+        finishBoxSelect(event);
+        cancelBoxSelect();
+    }
+}
+
+function onCanvasMouseUp(event) {
+    if (event.button !== 0) return;
+
+    if (_boxSelect.active && _boxSelect.didDrag) {
+        controls.enabled = true;
+        finishBoxSelect(event);
+        cancelBoxSelect();
+        return;
+    }
+    cancelBoxSelect();
+
+    if (!isSelectionAllowed()) return;
+
+    // Normal click — raycaster pick (use canvas rect, not container)
+    const canvasEl = renderer.domElement;
+    const rect = canvasEl.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
-
     const meshes = memberMeshes.map(m => m.mesh);
     const intersects = raycaster.intersectObjects(meshes);
 
-    // Reset previous selection to its original color
-    if (selectedMesh) {
-        const origColor = selectedMesh.userData.originalColor;
-        if (origColor !== undefined) {
-            selectedMesh.material.color.setHex(origColor);
-        } else {
-            selectedMesh.material.color.setHex(getElementColor(selectedMesh.userData.elementData));
+    if (event.ctrlKey) {
+        // Ctrl+click: toggle in multi-selection
+        if (intersects.length > 0) {
+            const mesh = intersects[0].object;
+            if (selectedMeshSet.has(mesh)) {
+                unhighlightMesh(mesh);
+                if (selectedMesh === mesh) selectedMesh = null;
+            } else if (meshPassesFilter(mesh)) {
+                highlightMesh(mesh);
+                selectedMesh = mesh;
+            }
         }
-        selectedMesh.material.opacity = 0.85;
-        delete selectedMesh.userData.originalColor;
-    }
-
-    if (intersects.length > 0) {
-        selectedMesh = intersects[0].object;
-        // Save current color before overwriting
-        selectedMesh.userData.originalColor = selectedMesh.material.color.getHex();
-        selectedMesh.material.color.setHex(COLORS.selected);
-        selectedMesh.material.opacity = 1.0;
-
-        showMemberProperties(selectedMesh.userData.elementData);
     } else {
-        selectedMesh = null;
-        hideMemberProperties();
+        // Normal click: clear all, select one
+        clearAllSelection();
+        if (intersects.length > 0) {
+            const mesh = intersects[0].object;
+            if (meshPassesFilter(mesh)) {
+                highlightMesh(mesh);
+                selectedMesh = mesh;
+                showMemberProperties(mesh.userData.elementData);
+            }
+        }
     }
+    // Show properties for primary selection
+    if (selectedMesh) {
+        showMemberProperties(selectedMesh.userData.elementData);
+    }
+    updateSelectionCount();
+}
+
+function cancelBoxSelect() {
+    _boxSelect.active = false;
+    _boxSelect.didDrag = false;
+    if (_boxSelect.el) _boxSelect.el.style.display = 'none';
+}
+
+function finishBoxSelect(event) {
+    // Use canvas (renderer) rect for accurate screen projection matching
+    const canvasRect = renderer.domElement.getBoundingClientRect();
+    const x1 = (Math.min(_boxSelect.startX, event.clientX) - canvasRect.left) / canvasRect.width;
+    const y1 = (Math.min(_boxSelect.startY, event.clientY) - canvasRect.top) / canvasRect.height;
+    const x2 = (Math.max(_boxSelect.startX, event.clientX) - canvasRect.left) / canvasRect.width;
+    const y2 = (Math.max(_boxSelect.startY, event.clientY) - canvasRect.top) / canvasRect.height;
+    const isWindow = (event.clientX - _boxSelect.startX) >= 0; // L→R = window
+
+    if (!event.ctrlKey) clearAllSelection();
+
+    memberMeshes.forEach(({ mesh }) => {
+        const geo = mesh.geometry;
+        let points;
+
+        if (geo.parameters && geo.parameters.height) {
+            // Element (CylinderGeometry): project endpoints + midpoint
+            const pos = mesh.position.clone();
+            const halfH = geo.parameters.height / 2;
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(mesh.quaternion);
+            points = [
+                pos.clone().add(up.clone().multiplyScalar(halfH)),
+                pos.clone().add(up.clone().multiplyScalar(-halfH)),
+                pos.clone()
+            ];
+        } else {
+            // Node (SphereGeometry): project center point only
+            points = [mesh.position.clone()];
+        }
+
+        let allInside = true, anyInside = false;
+        points.forEach(p => {
+            p.project(camera);
+            const sx = (p.x + 1) / 2;
+            const sy = (1 - p.y) / 2;
+            const inside = sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2;
+            if (inside) anyInside = true; else allInside = false;
+        });
+
+        const hit = isWindow ? allInside : anyInside;
+        if (hit && meshPassesFilter(mesh)) highlightMesh(mesh);
+    });
+    updateSelectionCount();
 }
 
 // ─── Property Panel ───────────────────────────────────────────────────────
 function showMemberProperties(elem) {
     document.getElementById('prop-empty').style.display = 'none';
+    document.getElementById('prop-node').style.display = 'none';
+    document.getElementById('prop-member').style.display = 'none';
+    document.getElementById('prop-multi').style.display = 'none';
+
+    // Node: show node-specific panel
+    if (elem.type === 'node') {
+        document.getElementById('prop-node').style.display = 'block';
+        document.getElementById('prop-node-id').textContent = '#' + elem.id;
+        document.getElementById('prop-node-x').textContent = (elem.x ?? 0).toFixed(2) + ' m';
+        document.getElementById('prop-node-y').textContent = (elem.y ?? 0).toFixed(2) + ' m';
+        document.getElementById('prop-node-z').textContent = (elem.z ?? 0).toFixed(2) + ' m';
+        document.getElementById('prop-node-support').textContent = elem.support || 'free';
+        return;
+    }
+
     document.getElementById('prop-member').style.display = 'block';
 
     // Type badge
@@ -2429,14 +2805,234 @@ function showMemberProperties(elem) {
 }
 
 function hideMemberProperties() {
-    document.getElementById('prop-empty').style.display = 'block';
+    document.getElementById('prop-node').style.display = 'none';
     document.getElementById('prop-member').style.display = 'none';
+    document.getElementById('prop-multi').style.display = 'none';
+    // Only show empty hint if no analysis results
+    const hasResults = document.getElementById('prop-results')?.style.display === 'block';
+    document.getElementById('prop-empty').style.display = hasResults ? 'none' : 'block';
+}
+
+// ─── Multi-Selection Property Panel ──────────────────────────────────────
+function showMultiSelectionPanel() {
+    document.getElementById('prop-empty').style.display = 'none';
+    document.getElementById('prop-member').style.display = 'none';
+    const panel = document.getElementById('prop-multi');
+    panel.style.display = 'block';
+
+    // Gather selected element data
+    const elems = [];
+    const nodes = [];
+    selectedMeshSet.forEach(m => {
+        const d = m.userData.elementData;
+        if (!d) return;
+        if (d.type === 'node') nodes.push(d);
+        else elems.push(d);
+    });
+
+    // Count header
+    const parts = [];
+    if (elems.length > 0) parts.push(elems.length + ' elements');
+    if (nodes.length > 0) parts.push(nodes.length + ' nodes');
+    document.getElementById('prop-multi-count').textContent = parts.join(', ');
+
+    // Summary table: type counts, section/material commonality
+    const typeCounts = {};
+    const sections = new Set();
+    const materials = new Set();
+    elems.forEach(e => {
+        typeCounts[e.type] = (typeCounts[e.type] || 0) + 1;
+        if (e.section) sections.add(e.section);
+        // Look up material from v2Model
+        if (window._v2Model) {
+            const me = window._v2Model.elements.find(el => el.id === e.id);
+            if (me && me.material) materials.add(me.material);
+        }
+    });
+
+    let html = '';
+    Object.entries(typeCounts).forEach(([t, c]) => {
+        html += `<tr><td>${t.replace('_',' ')}</td><td>${c}</td></tr>`;
+    });
+    if (nodes.length > 0) {
+        html += `<tr><td>nodes</td><td>${nodes.length}</td></tr>`;
+    }
+    html += `<tr><td>Section</td><td>${sections.size === 1 ? [...sections][0] : (sections.size === 0 ? '-' : 'Mixed (' + sections.size + ')')}</td></tr>`;
+    html += `<tr><td>Material</td><td>${materials.size === 1 ? [...materials][0] : (materials.size === 0 ? '-' : 'Mixed')}</td></tr>`;
+    document.getElementById('prop-multi-summary').innerHTML = html;
+
+    // Populate bulk section dropdown
+    populateBulkSectionDropdown();
+
+    // Show/hide Release and Support groups based on selection content
+    const releaseGroup = document.getElementById('bulk-release-group');
+    const supportGroup = document.getElementById('bulk-support-group');
+    if (releaseGroup) releaseGroup.style.display = elems.length > 0 ? 'block' : 'none';
+    if (supportGroup) supportGroup.style.display = nodes.length > 0 ? 'block' : 'none';
+}
+
+function populateBulkSectionDropdown() {
+    const sel = document.getElementById('bulk-section');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— keep —</option>';
+    // Use sectionsList from editor state
+    if (typeof sectionsList === 'object') {
+        Object.entries(sectionsList).forEach(([group, names]) => {
+            if (!Array.isArray(names)) return;
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = group;
+            names.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                optgroup.appendChild(opt);
+            });
+            sel.appendChild(optgroup);
+        });
+    }
+    sel.value = current;
+}
+
+// ─── Bulk Edit Functions ─────────────────────────────────────────────────
+function getSelectedElementIds() {
+    const ids = [];
+    selectedMeshSet.forEach(m => {
+        const d = m.userData.elementData;
+        if (d && d.type !== 'node') ids.push(d.id);
+    });
+    return ids;
+}
+
+function getSelectedNodeIds() {
+    const ids = [];
+    selectedMeshSet.forEach(m => {
+        const d = m.userData.elementData;
+        if (d && d.type === 'node') ids.push(d.id);
+    });
+    return ids;
+}
+
+function bulkApplySection() {
+    const val = document.getElementById('bulk-section').value;
+    if (!val || !window._v2Model) return;
+    const ids = new Set(getSelectedElementIds());
+    if (ids.size === 0) { alert('No elements selected.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+    window._v2Model.elements.forEach(e => {
+        if (ids.has(e.id)) e.section = val;
+    });
+    refreshEditPreview();
+    showMultiSelectionPanel(); // refresh summary
+    setStatus(`Section → ${val} applied to ${ids.size} elements`, 'success');
+}
+
+function bulkApplyMaterial() {
+    const val = document.getElementById('bulk-material').value;
+    if (!val || !window._v2Model) return;
+    const ids = new Set(getSelectedElementIds());
+    if (ids.size === 0) { alert('No elements selected.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+    window._v2Model.elements.forEach(e => {
+        if (ids.has(e.id)) e.material = val;
+    });
+    refreshEditPreview();
+    showMultiSelectionPanel();
+    setStatus(`Material → ${val} applied to ${ids.size} elements`, 'success');
+}
+
+function bulkApplyType() {
+    const val = document.getElementById('bulk-type').value;
+    if (!val || !window._v2Model) return;
+    const ids = new Set(getSelectedElementIds());
+    if (ids.size === 0) { alert('No elements selected.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+    window._v2Model.elements.forEach(e => {
+        if (ids.has(e.id)) e.elem_type = val;
+    });
+    refreshEditPreview();
+    showMultiSelectionPanel();
+    setStatus(`Type → ${val} applied to ${ids.size} elements`, 'success');
+}
+
+function bulkApplyRelease() {
+    const preset = document.getElementById('bulk-release').value;
+    if (!preset || !window._v2Model) return;
+    const ids = new Set(getSelectedElementIds());
+    if (ids.size === 0) { alert('No elements selected.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+
+    // Map preset to release values
+    const allFixed = null;
+    const pinned = 'all'; // Rx,Ry,Rz free
+    let ri, rj;
+    switch (preset) {
+        case 'fixed':   ri = allFixed; rj = allFixed; break;
+        case 'pin_i':   ri = pinned;   rj = allFixed; break;
+        case 'pin_j':   ri = allFixed; rj = pinned;   break;
+        case 'pin_both': ri = pinned;  rj = pinned;   break;
+        default: return;
+    }
+
+    window._v2Model.elements.forEach(e => {
+        if (ids.has(e.id)) {
+            e.release_i = ri;
+            e.release_j = rj;
+        }
+    });
+    refreshEditPreview();
+    showMultiSelectionPanel();
+    setStatus(`Release → ${preset} applied to ${ids.size} elements`, 'success');
+}
+
+function bulkApplySupport() {
+    const val = document.getElementById('bulk-support').value;
+    if (!val || !window._v2Model) return;
+    const ids = new Set(getSelectedNodeIds());
+    if (ids.size === 0) { alert('No nodes selected.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+
+    const supportVal = val === 'free' ? null : val;
+    window._v2Model.nodes.forEach(n => {
+        if (ids.has(n.id)) n.support = supportVal;
+    });
+    refreshEditPreview();
+    showMultiSelectionPanel();
+    setStatus(`Support → ${val} applied to ${ids.size} nodes`, 'success');
+}
+
+function bulkDeleteSelected() {
+    if (!window._v2Model) return;
+    const elemIds = new Set(getSelectedElementIds());
+    const nodeIds = new Set(getSelectedNodeIds());
+    const total = elemIds.size + nodeIds.size;
+    if (total === 0) return;
+    if (!confirm(`Delete ${total} selected items?\n(${elemIds.size} elements, ${nodeIds.size} nodes)`)) return;
+    if (typeof pushUndo === 'function') pushUndo();
+
+    // Delete elements
+    if (elemIds.size > 0) {
+        window._v2Model.elements = window._v2Model.elements.filter(e => !elemIds.has(e.id));
+    }
+    // Delete nodes + connected elements
+    if (nodeIds.size > 0) {
+        window._v2Model.elements = window._v2Model.elements.filter(e =>
+            !nodeIds.has(e.node_i) && !nodeIds.has(e.node_j)
+        );
+        window._v2Model.nodes = window._v2Model.nodes.filter(n => !nodeIds.has(n.id));
+    }
+
+    clearAllSelection();
+    refreshEditPreview();
+    setStatus(`Deleted ${total} items`, 'success');
 }
 
 // ─── Results Panel ────────────────────────────────────────────────────────
 function updateResultsPanel(result) {
     const panel = document.getElementById('prop-results');
     panel.style.display = 'block';
+    // Hide empty hint when results are shown
+    document.getElementById('prop-empty').style.display = 'none';
 
     // Model source tag
     const srcTag = document.getElementById('model-source-tag');
@@ -2452,7 +3048,8 @@ function updateResultsPanel(result) {
     renderResultsTable(env);
 
     // Modal analysis
-    buildModalUI(result.modal_analysis);
+    const modalData = result.modal_analysis || null;
+    buildModalUI(modalData);
 
     // Design Check summary
     const dcSummary = document.getElementById('dc-summary');
@@ -3029,7 +3626,16 @@ function toggleDesignCheckColors() {
 
 function applyDesignCheckColors(memberChecks) {
     memberMeshes.forEach(({ mesh, elementData }) => {
-        if (mesh === selectedMesh) return;  // don't override selection highlight
+        if (selectedMeshSet.has(mesh)) {
+            // Update stored orig color so deselection restores DC color
+            const mc = memberChecks[String(elementData.id)];
+            if (mc) {
+                mesh.userData._origColor = mc.status === 'OK'
+                    ? (mc.interaction_ratio > 0.7 ? COLORS.dc_marginal : COLORS.dc_ok)
+                    : COLORS.dc_ng;
+            }
+            return; // don't override selection highlight
+        }
         const mc = memberChecks[String(elementData.id)];
         if (mc) {
             if (mc.status === 'OK') {
@@ -3039,28 +3645,16 @@ function applyDesignCheckColors(memberChecks) {
             }
         }
     });
-    // Update saved originalColor for selected mesh so deselection restores DC color
-    if (selectedMesh) {
-        const mc = memberChecks[String(selectedMesh.userData.elementData?.id)];
-        if (mc) {
-            if (mc.status === 'OK') {
-                selectedMesh.userData.originalColor = mc.interaction_ratio > 0.7 ? COLORS.dc_marginal : COLORS.dc_ok;
-            } else {
-                selectedMesh.userData.originalColor = COLORS.dc_ng;
-            }
-        }
-    }
 }
 
 function resetElementColors() {
     memberMeshes.forEach(({ mesh, elementData }) => {
-        if (mesh === selectedMesh) return;  // don't override selection highlight
+        if (selectedMeshSet.has(mesh)) {
+            mesh.userData._origColor = getElementColor(elementData);
+            return; // don't override selection highlight
+        }
         mesh.material.color.setHex(getElementColor(elementData));
     });
-    // Update saved originalColor for selected mesh
-    if (selectedMesh) {
-        selectedMesh.userData.originalColor = getElementColor(selectedMesh.userData.elementData);
-    }
 }
 
 // ─── Viewer Controls ──────────────────────────────────────────────────────
@@ -3083,6 +3677,75 @@ function toggleWireframe() {
 function toggleAxes() {
     if (axesHelper) axesHelper.visible = !axesHelper.visible;
     if (gridHelper) gridHelper.visible = !gridHelper.visible;
+}
+
+// ─── View Presets (XY/XZ/YZ/ISO) ────────────────────────────────────────
+// Returns model center and distance in Three.js coordinates (x, z_up, -y)
+function getModelCenterThreeJS() {
+    // From V2 model nodes — same transform as buildV2PreviewScene: (n.x, n.z, -n.y)
+    if (window._v2Model && window._v2Model.nodes.length > 0) {
+        const ns = window._v2Model.nodes;
+        let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
+        ns.forEach(n => {
+            const tx = n.x, ty = n.z, tz = -n.y; // struct → Three.js
+            minX=Math.min(minX,tx); maxX=Math.max(maxX,tx);
+            minY=Math.min(minY,ty); maxY=Math.max(maxY,ty);
+            minZ=Math.min(minZ,tz); maxZ=Math.max(maxZ,tz);
+        });
+        return {
+            x: (minX+maxX)/2, y: (minY+maxY)/2, z: (minZ+maxZ)/2,
+            dist: Math.max(maxX-minX, maxY-minY, maxZ-minZ, 1) * 1.8
+        };
+    }
+    // From analysis result viewer
+    if (currentResult?.viewer) {
+        const v = currentResult.viewer;
+        const cx = v.total_width_x / 2;
+        const cy = v.total_height / 2;
+        const cz = v.total_width_y / 2;
+        return {
+            x: cx, y: cy, z: cz,
+            dist: Math.max(v.total_width_x, v.total_width_y, v.total_height) * 1.8
+        };
+    }
+    return { x: 0, y: 5, z: 0, dist: 40 };
+}
+
+function setViewPreset(preset) {
+    const c = getModelCenterThreeJS();
+    const target = new THREE.Vector3(c.x, c.y, c.z);
+    const d = c.dist;
+    let pos;
+    switch (preset) {
+        case 'front':  // 정면: -Y방향(struct)에서 봄 → Three.js +Z에서 봄
+            pos = new THREE.Vector3(c.x, c.y, c.z + d);
+            break;
+        case 'right':  // 우측면: +X방향에서 봄
+            pos = new THREE.Vector3(c.x + d, c.y, c.z);
+            break;
+        case 'top':    // 평면: 위에서 봄
+            pos = new THREE.Vector3(c.x, c.y + d, c.z + 0.001);
+            break;
+        case 'iso':    // Isometric
+            pos = new THREE.Vector3(c.x + d*0.6, c.y + d*0.4, c.z + d*0.6);
+            break;
+        default:
+            pos = new THREE.Vector3(c.x + d*0.6, c.y + d*0.4, c.z + d*0.6);
+    }
+    // Animate camera smoothly
+    const startPos = camera.position.clone();
+    const startTarget = controls.target.clone();
+    const duration = 300;
+    const startTime = performance.now();
+    function animateView(now) {
+        const t = Math.min((now - startTime) / duration, 1);
+        const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t; // easeInOut
+        camera.position.lerpVectors(startPos, pos, ease);
+        controls.target.lerpVectors(startTarget, target, ease);
+        controls.update();
+        if (t < 1) requestAnimationFrame(animateView);
+    }
+    requestAnimationFrame(animateView);
 }
 
 // ─── UI Helpers ───────────────────────────────────────────────────────────

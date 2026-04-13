@@ -349,6 +349,51 @@ body {
 }
 .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
 
+.view-separator {
+    width: 1px;
+    height: 20px;
+    background: var(--border-input);
+    margin: 0 2px;
+}
+.btn-view-preset {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+}
+
+/* Box Selection Rectangle */
+.box-select-rect {
+    position: absolute;
+    pointer-events: none;
+    z-index: 100;
+    display: none;
+}
+.box-select-rect.box-window {
+    border: 2px solid #4285f4;
+    background: rgba(66, 133, 244, 0.08);
+}
+.box-select-rect.box-crossing {
+    border: 2px dashed #34a853;
+    background: rgba(52, 168, 83, 0.08);
+}
+
+/* Selection Count Badge */
+.selection-count {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 46, 0.85);
+    color: #ff4081;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 14px;
+    border-radius: 12px;
+    z-index: 90;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
 .toggle-label {
     display: flex;
     align-items: center;
@@ -1154,7 +1199,7 @@ hr {
 
 /* Preview Badge */
 .ifc-preview-badge {
-    position: absolute; top: 8px; left: 8px;
+    position: absolute; top: 42px; left: 8px;
     padding: 3px 10px; background: var(--accent-light);
     border: 1px solid var(--accent); border-radius: 3px;
     font-size: 10px; font-weight: 700; color: var(--accent-text);
@@ -1537,6 +1582,73 @@ hr {
     color: var(--text-secondary, #aaa);
     font-style: italic;
     padding: 8px 0;
+}
+.tool-selected-active {
+    font-size: 12px;
+    color: #ff4081;
+    font-weight: 500;
+    padding: 8px 0;
+    line-height: 1.5;
+}
+
+/* Multi-selection & Bulk Edit */
+.prop-type.multi {
+    background: #ff4081;
+    color: #fff;
+}
+.prop-type.node {
+    background: #888;
+    color: #fff;
+}
+.bulk-edit-group {
+    margin-bottom: 10px;
+}
+.bulk-edit-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
+}
+.bulk-edit-row {
+    display: flex;
+    gap: 4px;
+}
+.bulk-edit-row select {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.btn-danger {
+    background: #ea4335;
+    color: #fff;
+    border: none;
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.btn-danger:hover { background: #d32f2f; }
+
+/* Selection filter dropdowns in toolbar */
+.select-filter {
+    padding: 3px 6px;
+    font-size: 11px;
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    cursor: pointer;
 }
 
 /* Beam Release Hexagon */
