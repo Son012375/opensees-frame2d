@@ -983,6 +983,15 @@ async function uploadIFC() {
         // ── 좌표 원점 보정: 최소 좌표 → (0,0,0) ──
         normalizeV2ModelOrigin(window._v2Model);
 
+        // ── A-1: 근접 노드 병합 (보-기둥 접합 보장, 적응형 tolerance) ──
+        if (typeof mergeNearbyNodes === 'function') {
+            console.log('[Merge] before: ' + window._v2Model.nodes.length + ' nodes, ' + window._v2Model.elements.length + ' elems');
+            var mergeCount = mergeNearbyNodes(window._v2Model);
+            console.log('[Merge] result: ' + mergeCount + ' merged → ' + window._v2Model.nodes.length + ' nodes, ' + window._v2Model.elements.length + ' elems');
+        } else {
+            console.warn('[Merge] mergeNearbyNodes not found');
+        }
+
         // ── Element 자동 분할: 중간 노드가 있으면 분할 (Midas Gen 방식) ──
         if (typeof splitElementsAtNodes === 'function') {
             var splitCount = splitElementsAtNodes(window._v2Model, 0.05);

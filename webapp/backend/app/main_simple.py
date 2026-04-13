@@ -1159,6 +1159,11 @@ async def analyze_v2_api(request: Request):
 
     model = StructuralModel.from_json(model_json)
 
+    # A-1: 근접 노드 병합 (보-기둥 접합 보장)
+    merged = model.merge_nearby_nodes()  # 적응형: 단면 높이 기반 자동 계산
+    if merged > 0:
+        print(f"[V2] Merged {merged} nearby nodes")
+
     # 사용자 config 반영
     for key in ["region", "site_class", "importance", "seismic_system", "exposure_category", "geometric_nonlinearity"]:
         if user_config.get(key):

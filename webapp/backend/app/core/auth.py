@@ -3,60 +3,62 @@ Simple token-based authentication for demo deployment.
 
 Usage:
   - Set DEMO_AUTH_TOKEN env var to enable authentication
-  - Access via: https://your-app.azurecontainerapps.io/?token=YOUR_TOKEN
-  - Or via header: Authorization: Bearer YOUR_TOKEN
+  - Access via: https://your-url/?token=YOUR_TOKEN
   - If DEMO_AUTH_TOKEN is not set, auth is disabled (local dev)
 """
 import os
-from fastapi import Request, HTTPException
+from fastapi import Request, Response
 from fastapi.responses import HTMLResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 
-DEMO_AUTH_TOKEN = os.getenv("DEMO_AUTH_TOKEN", "")
-
-# Paths that skip authentication
-PUBLIC_PATHS = {"/health", "/docs", "/openapi.json"}
+def _get_token():
+    return os.getenv("DEMO_AUTH_TOKEN", "")
 
 
-class DemoAuthMiddleware(BaseHTTPMiddleware):
-    """Simple token auth middleware for demo sharing."""
+async def check_demo_auth(request: Request):
+    """Dependency that checks demo auth token.
+    Returns None if auth passes, or HTMLResponse with login page if not."""
+    auth_token = _get_token()
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip if auth not configured
-        if not DEMO_AUTH_TOKEN:
-            return await call_next(request)
+    # Skip if auth not configured
+    if not auth_token:
+        return None
 
-        # Skip public endpoints
-        if request.url.path in PUBLIC_PATHS:
-            return await call_next(request)
+    # Skip static and public paths
+    path = request.url.path
+    if path in {"/health", "/docs", "/openapi.json"} or path.startswith("/static/"):
+        return None
 
-        # Check token from query param, cookie, or header
-        token = (
-            request.query_params.get("token")
-            or request.cookies.get("demo_token")
-            or _extract_bearer(request)
-        )
+    # Check token from query param, cookie, or header
+    token = (
+        request.query_params.get("token")
+        or request.cookies.get("demo_token")
+        or _extract_bearer(request)
+    )
 
-        if token == DEMO_AUTH_TOKEN:
-            # Set cookie so user doesn't need token in every request
-            response = await call_next(request)
-            if request.query_params.get("token"):
-                response.set_cookie(
-                    "demo_token", DEMO_AUTH_TOKEN,
-                    httponly=True, samesite="lax", max_age=86400 * 7,  # 7 days
-                )
-            return response
+    if token == auth_token:
+        return None
 
-        # Unauthorized - show simple login page
-        return HTMLResponse(
-            content=_login_page(),
-            status_code=401,
+    # Not authenticated
+    return "unauthorized"
+
+
+def make_auth_response(request: Request) -> HTMLResponse:
+    """Create the login page response."""
+    return HTMLResponse(content=_login_page(), status_code=401)
+
+
+def set_auth_cookie(response: Response, request: Request):
+    """Set auth cookie if token was passed as query param."""
+    auth_token = _get_token()
+    if auth_token and request.query_params.get("token"):
+        response.set_cookie(
+            "demo_token", auth_token,
+            httponly=True, samesite="lax", max_age=86400 * 7,
         )
 
 
 def _extract_bearer(request: Request) -> str:
-    """Extract token from Authorization: Bearer <token> header."""
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
         return auth[7:]

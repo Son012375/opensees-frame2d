@@ -479,6 +479,110 @@ class StructuralModel:
         return elevations
 
     # ──────────────────────────────────────────────
+    #  노드 병합 (A-1)
+    # ──────────────────────────────────────────────
+
+    def merge_nearby_nodes(self, tolerance: float = 0.0) -> int:
+        """근접 노드를 병합하여 보-기둥 접합을 보장.
+
+        Args:
+            tolerance: 병합 거리 (m). 0이면 자동 계산 (최대 단면 높이 기반).
+
+        Returns:
+            병합된 노드 수.
+        """
+        if tolerance <= 0:
+            # 적응형: 사용 단면의 최대 높이 × 0.8
+            # H-400 → 0.32m, H-250 → 0.20m, H-1000 → 0.80m
+            max_h = 0.0
+            for elem in self.elements.values():
+                sec_name = elem.section
+                # 단면 이름에서 높이 추출 (H-400x200 → 400mm)
+                parts = sec_name.replace("H-", "").replace("h-", "").split("x")
+                try:
+                    h_mm = float(parts[0])
+                    if h_mm > max_h:
+                        max_h = h_mm
+                except (ValueError, IndexError):
+                    pass
+            if max_h > 0:
+                tolerance = max_h / 1000.0 * 0.8  # mm → m, 80% of section height
+            else:
+                tolerance = 0.30  # fallback
+
+            # 최소 부재 길이의 절반을 초과하지 않도록 안전장치
+            min_len = float('inf')
+            for elem in self.elements.values():
+                ni, nj = self.nodes.get(elem.node_i), self.nodes.get(elem.node_j)
+                if ni and nj:
+                    L = math.sqrt((nj.x-ni.x)**2 + (nj.y-ni.y)**2 + (nj.z-ni.z)**2)
+                    if L > 0.01 and L < min_len:
+                        min_len = L
+            if min_len < float('inf'):
+                tolerance = min(tolerance, min_len * 0.4)
+
+        tol_sq = tolerance ** 2
+        # 지점 노드 우선, ID 순으로 정렬
+        sorted_nodes = sorted(
+            self.nodes.values(),
+            key=lambda n: (0 if n.support else 1, n.id)
+        )
+
+        merge_map: dict[int, int] = {}  # old_id → canonical_id
+        absorbed: set[int] = set()
+
+        for i, ni in enumerate(sorted_nodes):
+            if ni.id in absorbed:
+                continue
+            for nj in sorted_nodes[i + 1:]:
+                if nj.id in absorbed:
+                    continue
+                dx = ni.x - nj.x
+                dy = ni.y - nj.y
+                dz = ni.z - nj.z
+                if dx * dx + dy * dy + dz * dz < tol_sq:
+                    merge_map[nj.id] = ni.id
+                    absorbed.add(nj.id)
+                    # 속성 전파
+                    if nj.support and not ni.support:
+                        ni.support = nj.support
+                    if nj.story is not None and ni.story is None:
+                        ni.story = nj.story
+
+        if not merge_map:
+            return 0
+
+        # 요소 참조 갱신
+        for elem in self.elements.values():
+            if elem.node_i in merge_map:
+                elem.node_i = merge_map[elem.node_i]
+            if elem.node_j in merge_map:
+                elem.node_j = merge_map[elem.node_j]
+
+        # 0-길이 요소 제거
+        to_remove = [eid for eid, e in self.elements.items() if e.node_i == e.node_j]
+        for eid in to_remove:
+            del self.elements[eid]
+
+        # 중복 요소 제거
+        seen: set[tuple[int, int]] = set()
+        dup_remove = []
+        for eid, e in self.elements.items():
+            key = (min(e.node_i, e.node_j), max(e.node_i, e.node_j))
+            if key in seen:
+                dup_remove.append(eid)
+            else:
+                seen.add(key)
+        for eid in dup_remove:
+            del self.elements[eid]
+
+        # 흡수된 노드 제거
+        for nid in absorbed:
+            del self.nodes[nid]
+
+        return len(merge_map)
+
+    # ──────────────────────────────────────────────
     #  요소 자동 분류
     # ──────────────────────────────────────────────
 

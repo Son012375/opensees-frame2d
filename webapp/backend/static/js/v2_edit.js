@@ -29,6 +29,98 @@ function distBetween(a, b) {
     return Math.sqrt(Math.pow(a.x-b.x,2) + Math.pow(a.y-b.y,2) + Math.pow(a.z-b.z,2));
 }
 
+// ─── Node Merge: 근접 노드 병합 (A-1) ─────────────────────────────────
+function mergeNearbyNodes(model, tolerance) {
+    if (!model || !model.nodes || model.nodes.length < 2) return 0;
+
+    // 적응형 tolerance: 단면 높이 기반
+    if (!tolerance || tolerance <= 0) {
+        var maxH = 0;
+        (model.elements || []).forEach(function(e) {
+            var parts = (e.section || '').replace(/[Hh]-/, '').split('x');
+            var h = parseFloat(parts[0]);
+            if (!isNaN(h) && h > maxH) maxH = h;
+        });
+        tolerance = maxH > 0 ? (maxH / 1000 * 0.8) : 0.30;
+        // Safety: don't exceed 40% of shortest element
+        var minLen = Infinity;
+        (model.elements || []).forEach(function(e) {
+            var ni = model.nodes.find(function(n){return n.id===e.node_i;});
+            var nj = model.nodes.find(function(n){return n.id===e.node_j;});
+            if (ni && nj) {
+                var L = Math.sqrt(Math.pow(nj.x-ni.x,2)+Math.pow(nj.y-ni.y,2)+Math.pow(nj.z-ni.z,2));
+                if (L > 0.01 && L < minLen) minLen = L;
+            }
+        });
+        if (minLen < Infinity) tolerance = Math.min(tolerance, minLen * 0.4);
+    }
+    console.log('[Merge] tolerance=' + tolerance.toFixed(4) + 'm, maxH=' + maxH + 'mm, minLen=' + (minLen < Infinity ? minLen.toFixed(3) : 'inf'));
+    var tolSq = tolerance * tolerance;
+    var mergeCount = 0;
+
+    // Build merge map: for each node, find the "canonical" node it should merge into
+    // Priority: nodes with support > lower ID
+    var nodes = model.nodes.slice().sort(function(a, b) {
+        // Support nodes first, then by ID
+        var aHas = a.support ? 0 : 1;
+        var bHas = b.support ? 0 : 1;
+        if (aHas !== bHas) return aHas - bHas;
+        return a.id - b.id;
+    });
+
+    var mergeMap = {};  // oldId → newId
+    var absorbed = {};  // nodes that will be removed
+
+    for (var i = 0; i < nodes.length; i++) {
+        if (absorbed[nodes[i].id]) continue;
+        for (var j = i + 1; j < nodes.length; j++) {
+            if (absorbed[nodes[j].id]) continue;
+            var dx = nodes[i].x - nodes[j].x;
+            var dy = nodes[i].y - nodes[j].y;
+            var dz = nodes[i].z - nodes[j].z;
+            if (dx * dx + dy * dy + dz * dz < tolSq) {
+                // Merge j into i (i has priority: support or lower ID)
+                mergeMap[nodes[j].id] = nodes[i].id;
+                absorbed[nodes[j].id] = true;
+                mergeCount++;
+                // If j has support and i doesn't, copy support
+                if (nodes[j].support && !nodes[i].support) {
+                    nodes[i].support = nodes[j].support;
+                }
+                // If j has story and i doesn't, copy story
+                if (nodes[j].story != null && nodes[i].story == null) {
+                    nodes[i].story = nodes[j].story;
+                }
+            }
+        }
+    }
+
+    if (mergeCount === 0) return 0;
+
+    // Update element references
+    model.elements.forEach(function(e) {
+        if (mergeMap[e.node_i]) e.node_i = mergeMap[e.node_i];
+        if (mergeMap[e.node_j]) e.node_j = mergeMap[e.node_j];
+    });
+
+    // Remove zero-length elements (node_i === node_j after merge)
+    model.elements = model.elements.filter(function(e) { return e.node_i !== e.node_j; });
+
+    // Remove duplicate elements (same node_i, node_j pair)
+    var seen = {};
+    model.elements = model.elements.filter(function(e) {
+        var key = Math.min(e.node_i, e.node_j) + '_' + Math.max(e.node_i, e.node_j);
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+    });
+
+    // Remove absorbed nodes
+    model.nodes = model.nodes.filter(function(n) { return !absorbed[n.id]; });
+
+    return mergeCount;
+}
+
 function splitElementsAtNodes(model, tolerance) {
     // 모든 요소에 대해 직선 위의 중간 노드를 찾아 분할
     if (!model || !model.nodes || !model.elements) return 0;
