@@ -869,8 +869,14 @@ def plot_frame_3d_interactive(multi_result, output_path=None, deformation_scale=
             opts += '<option value="' + n + '">' + n + '</option>'
         opts += '</optgroup>'
 
+    # V2 메타: bays가 0이면 노드/요소 수 표시
+    if mi["num_bays_x"] > 0 or mi["num_bays_y"] > 0:
+        geo_str = (str(mi["num_bays_x"]) + '\u00d7' + str(mi["num_bays_y"]) + ' bays')
+    else:
+        geo_str = (str(mi.get("num_nodes", "?")) + ' nodes, '
+                   + str(mi.get("num_elements", "?")) + ' elems')
     meta = (str(mi["num_stories"]) + 'F | '
-            + str(mi["num_bays_x"]) + '\u00d7' + str(mi["num_bays_y"]) + ' bays | '
+            + geo_str + ' | '
             + 'Col: ' + mi["column_section"] + ' | '
             + 'Beam: ' + mi["beam_x_section"] + '/' + mi["beam_y_section"] + ' | '
             + mi["material_name"] + ' (' + str(int(mi["E_MPa"])) + ' MPa)')
@@ -2003,8 +2009,13 @@ function renderModelTab() {
   // Building Geometry
   h += '<div class="model-section"><h3>'+L('mi_building_geom')+'</h3><table>';
   h += '<tr><td>'+L('mi_stories')+'</td><td>'+mi.num_stories+' ('+mi.stories.join(', ')+' m)</td></tr>';
-  h += '<tr><td>'+L('mi_bays_x')+'</td><td>'+mi.num_bays_x+' ('+mi.bays_x.join(', ')+' m)</td></tr>';
-  h += '<tr><td>'+L('mi_bays_y')+'</td><td>'+mi.num_bays_y+' ('+mi.bays_y.join(', ')+' m)</td></tr>';
+  if (mi.num_bays_x > 0 || mi.num_bays_y > 0) {
+    h += '<tr><td>'+L('mi_bays_x')+'</td><td>'+mi.num_bays_x+' ('+mi.bays_x.join(', ')+' m)</td></tr>';
+    h += '<tr><td>'+L('mi_bays_y')+'</td><td>'+mi.num_bays_y+' ('+mi.bays_y.join(', ')+' m)</td></tr>';
+  } else {
+    h += '<tr><td>Nodes</td><td>'+mi.num_nodes+'</td></tr>';
+    h += '<tr><td>Elements</td><td>'+mi.num_elements+' ('+mi.num_members+' members)</td></tr>';
+  }
   h += '<tr><td>'+L('mi_total_height')+'</td><td>'+mi.total_height.toFixed(1)+' m</td></tr>';
   h += '<tr><td>'+L('mi_total_width_x')+'</td><td>'+mi.total_width_x.toFixed(1)+' m</td></tr>';
   h += '<tr><td>'+L('mi_total_width_y')+'</td><td>'+mi.total_width_y.toFixed(1)+' m</td></tr>';
@@ -2095,8 +2106,12 @@ function _renderModelOverview(a) {
   // Geometry
   row('\uad6c\uc870 \uaddc\ubaa8', ov.num_stories + '\uce35 / \uc804\uccb4 \ub192\uc774 ' + ov.total_height_m.toFixed(1) + 'm');
   row('\uce35\uace0', ov.height_desc);
-  row('X\ubc29\ud5a5 \uacbd\uac04', ov.bays_x_count + '\uacbd\uac04 (' + ov.bays_x_widths.join(', ') + ' m)');
-  row('Y\ubc29\ud5a5 \uacbd\uac04', ov.bays_y_count + '\uacbd\uac04 (' + ov.bays_y_widths.join(', ') + ' m)');
+  if (ov.bays_x_count > 0 || ov.bays_y_count > 0) {
+    row('X\ubc29\ud5a5 \uacbd\uac04', ov.bays_x_count + '\uacbd\uac04 (' + ov.bays_x_widths.join(', ') + ' m)');
+    row('Y\ubc29\ud5a5 \uacbd\uac04', ov.bays_y_count + '\uacbd\uac04 (' + ov.bays_y_widths.join(', ') + ' m)');
+  } else {
+    row('\ub178\ub4dc/\uc694\uc18c', (ov.num_nodes||'?') + ' nodes / ' + (ov.num_elements||'?') + ' elements');
+  }
   row('\ubc14\ub2e5 \uba74\uc801', ov.floor_area_m2.toFixed(1) + ' m\u00b2');
   // Usage
   row('\uce35\ubcc4 \uc6a9\ub3c4', ov.usage_summary.join(' / '));

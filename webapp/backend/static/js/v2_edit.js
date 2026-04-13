@@ -124,7 +124,30 @@ function mergeNearbyNodes(model, tolerance) {
 function splitElementsAtNodes(model, tolerance) {
     // 모든 요소에 대해 직선 위의 중간 노드를 찾아 분할
     if (!model || !model.nodes || !model.elements) return 0;
-    tolerance = tolerance || 0.05;  // 5cm
+
+    // 적응형 tolerance: 단면 높이 기반 (merge와 동일 로직)
+    if (!tolerance || tolerance <= 0) {
+        var maxH = 0;
+        (model.elements || []).forEach(function(e) {
+            var parts = (e.section || '').replace(/[Hh]-/, '').split('x');
+            var h = parseFloat(parts[0]);
+            if (!isNaN(h) && h > maxH) maxH = h;
+        });
+        tolerance = maxH > 0 ? (maxH / 1000 * 0.8) : 0.30;
+        var minLen = Infinity;
+        var nodeMap0 = {};
+        model.nodes.forEach(function(n) { nodeMap0[n.id] = n; });
+        (model.elements || []).forEach(function(e) {
+            var ni = nodeMap0[e.node_i], nj = nodeMap0[e.node_j];
+            if (ni && nj) {
+                var L = distBetween(ni, nj);
+                if (L > 0.01 && L < minLen) minLen = L;
+            }
+        });
+        if (minLen < Infinity) tolerance = Math.min(tolerance, minLen * 0.4);
+    }
+    // 최소 분할 세그먼트 길이: tolerance 이하 세그먼트 방지
+    var minSegLen = tolerance * 0.5;
 
     var nodeMap = {};
     model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
@@ -140,6 +163,9 @@ function splitElementsAtNodes(model, tolerance) {
         var nj = nodeMap[elem.node_j];
         if (!ni || !nj) return;
 
+        var elemLen = distBetween(ni, nj);
+        if (elemLen < 0.01) return;  // 0-길이 요소 무시
+
         // 이 요소의 직선 위에 있는 중간 노드 찾기
         var midNodes = [];
         model.nodes.forEach(function(n) {
@@ -150,16 +176,27 @@ function splitElementsAtNodes(model, tolerance) {
                 nj.x, nj.y, nj.z
             );
             if (dist < tolerance) {
-                // ni에서의 거리 (정렬용)
                 var fromI = distBetween(n, ni);
                 midNodes.push({ node: n, dist: fromI });
             }
         });
 
-        if (midNodes.length === 0) return;  // 중간 노드 없으면 skip
+        if (midNodes.length === 0) return;
 
         // ni에서 가까운 순으로 정렬
         midNodes.sort(function(a, b) { return a.dist - b.dist; });
+
+        // 너무 짧은 세그먼트를 만드는 중간 노드 필터링
+        var filtered = [];
+        var prev = 0;  // ni에서의 누적 거리
+        for (var m = 0; m < midNodes.length; m++) {
+            var d = midNodes[m].dist;
+            if (d - prev < minSegLen) continue;  // 이전 분할점과 너무 가까움
+            if (elemLen - d < minSegLen) continue;  // nj와 너무 가까움
+            filtered.push(midNodes[m]);
+            prev = d;
+        }
+        if (filtered.length === 0) return;
 
         // 기존 요소 삭제 예약
         removedIds[elem.id] = true;
@@ -167,7 +204,7 @@ function splitElementsAtNodes(model, tolerance) {
 
         // 분할된 요소 생성: ni → mid1 → mid2 → ... → nj
         var chain = [elem.node_i];
-        midNodes.forEach(function(m) { chain.push(m.node.id); });
+        filtered.forEach(function(fm) { chain.push(fm.node.id); });
         chain.push(elem.node_j);
 
         for (var k = 0; k < chain.length - 1; k++) {
@@ -191,8 +228,75 @@ function splitElementsAtNodes(model, tolerance) {
     model.elements = model.elements.filter(function(e) { return !removedIds[e.id]; });
     model.elements = model.elements.concat(newElements);
 
-    console.log('Split ' + splitCount + ' elements → ' + newElements.length + ' new segments');
+    console.log('[Split] tolerance=' + tolerance.toFixed(4) + 'm, ' + splitCount + ' elements → ' + newElements.length + ' new segments');
     return splitCount;
+}
+
+// ─── A-2: 연결성 검증 ─────────────────────────────────────────────
+function validateConnectivity(model) {
+    if (!model || !model.nodes || !model.elements) return [];
+    var warnings = [];
+
+    // 노드별 연결 요소 수
+    var conn = {};
+    model.nodes.forEach(function(n) { conn[n.id] = 0; });
+    model.elements.forEach(function(e) {
+        if (conn[e.node_i] !== undefined) conn[e.node_i]++;
+        if (conn[e.node_j] !== undefined) conn[e.node_j]++;
+    });
+
+    // Orphan (0 connections, no support)
+    var orphans = model.nodes.filter(function(n) {
+        return conn[n.id] === 0 && !n.support;
+    }).map(function(n) { return n.id; });
+    if (orphans.length > 0) {
+        warnings.push({
+            type: 'orphan_node', severity: 'warning',
+            nodeIds: orphans,
+            message: orphans.length + ' orphan nodes (no elements connected): N' + orphans.slice(0, 5).join(',N')
+        });
+    }
+
+    // Dangling (1 connection, no support) — 자유단 무지지
+    var dangling = model.nodes.filter(function(n) {
+        return conn[n.id] === 1 && !n.support;
+    }).map(function(n) { return n.id; });
+    if (dangling.length > 0) {
+        warnings.push({
+            type: 'dangling_node', severity: 'info',
+            nodeIds: dangling,
+            message: dangling.length + ' dangling nodes (single element, no support): N' + dangling.slice(0, 5).join(',N')
+        });
+    }
+
+    // Connected components (Union-Find)
+    var parent = {};
+    model.nodes.forEach(function(n) { parent[n.id] = n.id; });
+    function find(x) {
+        while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+        return x;
+    }
+    model.elements.forEach(function(e) {
+        var ra = find(e.node_i), rb = find(e.node_j);
+        if (ra !== rb) parent[ra] = rb;
+    });
+    var comps = {};
+    model.nodes.forEach(function(n) {
+        var root = find(n.id);
+        if (!comps[root]) comps[root] = [];
+        comps[root].push(n.id);
+    });
+    var compList = Object.keys(comps);
+    if (compList.length > 1) {
+        var sizes = compList.map(function(r) { return comps[r].length; }).sort(function(a,b) { return b-a; });
+        warnings.push({
+            type: 'disconnected', severity: 'error',
+            components: compList.length,
+            message: 'Model has ' + compList.length + ' disconnected components: sizes [' + sizes.join(', ') + ']'
+        });
+    }
+
+    return warnings;
 }
 
 const EDIT_HINTS = {
@@ -406,7 +510,7 @@ function handleAddNode(mouse) {
     refreshEditPreview();
     updateSnapGrid();
     // 새 노드가 기존 요소 위에 있으면 자동 분할
-    var splits = splitElementsAtNodes(window._v2Model, 0.05);
+    var splits = splitElementsAtNodes(window._v2Model);
     setStatus('Node N' + nid + ' added at (' + sx + ', ' + sy + ', ' + targetZ + ')' +
         (splits > 0 ? ' [' + splits + ' elements split]' : ''), 'success');
 }
@@ -591,7 +695,7 @@ function createNodeFromCoords() {
         story: null, support: support, mass: null
     });
     // 새 노드가 기존 요소 위에 있으면 자동 분할
-    var splits = splitElementsAtNodes(window._v2Model, 0.05);
+    var splits = splitElementsAtNodes(window._v2Model);
     refreshEditPreview();
     updateSnapGrid();
     setStatus('Node N' + nid + ' created at (' + x + ', ' + y + ', ' + z + ')' +

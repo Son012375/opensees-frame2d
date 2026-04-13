@@ -992,12 +992,21 @@ async function uploadIFC() {
             console.warn('[Merge] mergeNearbyNodes not found');
         }
 
-        // ── Element 자동 분할: 중간 노드가 있으면 분할 (Midas Gen 방식) ──
+        // ── A-4: Element 자동 분할: 중간 노드가 있으면 분할 (적응형 tolerance) ──
         if (typeof splitElementsAtNodes === 'function') {
-            var splitCount = splitElementsAtNodes(window._v2Model, 0.05);
+            var splitCount = splitElementsAtNodes(window._v2Model);
             if (splitCount > 0) {
                 console.log('Auto-split: ' + splitCount + ' elements divided at intermediate nodes');
             }
+        }
+
+        // ── A-2: 연결성 검증 ──
+        if (typeof validateConnectivity === 'function') {
+            var connWarnings = validateConnectivity(window._v2Model);
+            connWarnings.forEach(function(w) {
+                console.warn('[Connectivity] ' + w.severity + ': ' + w.message);
+            });
+            if (window._v2Model) window._v2Model._connectivityWarnings = connWarnings;
         }
 
         // V2 → V1 호환 형식 변환 (스냅 후 모델 기준)
@@ -1807,6 +1816,27 @@ async function runAnalysisV2() {
     }
 }
 
+function _convertModalV2toV1(modal) {
+    if (!modal || !modal.modes) return null;
+    return {
+        num_modes: modal.num_modes,
+        fundamental_periods: modal.fundamental_periods,
+        modes: modal.modes.map(m => ({
+            mode: m.mode_num || m.mode,
+            period_s: m.period_s,
+            frequency_hz: m.frequency_Hz || m.frequency_hz,
+            direction: m.direction,
+            dominance_pct: Math.max(m.mass_participation_x_pct || 0, m.mass_participation_y_pct || 0),
+            mass_participation: {
+                x_pct: m.mass_participation_x_pct || (m.mass_participation?.x_pct) || 0,
+                y_pct: m.mass_participation_y_pct || (m.mass_participation?.y_pct) || 0,
+                rz_pct: m.mass_participation_rz_pct || (m.mass_participation?.rz_pct) || 0,
+            },
+            shape: m.shape,
+        })),
+    };
+}
+
 function convertV2ResultToV1(v2Result) {
     // V2 API 응답 → V1 editor3d.js가 기대하는 형식
     const b = v2Result.building || {};
@@ -1889,7 +1919,7 @@ function convertV2ResultToV1(v2Result) {
         interpretation: v2Result.interpretation,
         member_checks: v2Result.member_checks || {},
         report_url: v2Result.report_url,
-        modal_analysis: v2Result.modal_analysis || null,
+        modal_analysis: _convertModalV2toV1(v2Result.modal_analysis),
         rsa: v2Result.rsa || null,
         seismic_method: v2Result.seismic_method || 'ELF',
         load_summary: v2Result.load_summary,
@@ -2082,16 +2112,26 @@ async function applyMemberChange() {
 
     // Determine what to modify based on selected element type
     const modifications = {};
+    let memberType = null;
     if (selectedMesh && selectedMesh.userData.elementData) {
         const elemType = selectedMesh.userData.elementData.type;
-        if (elemType === 'column') modifications.column_section = newSection;
-        else if (elemType === 'beam_x') modifications.beam_x_section = newSection;
-        else if (elemType === 'beam_y') modifications.beam_y_section = newSection;
+        if (elemType === 'column') { modifications.column_section = newSection; memberType = 'column'; }
+        else if (elemType === 'beam_x') { modifications.beam_x_section = newSection; memberType = 'beam_x'; }
+        else if (elemType === 'beam_y') { modifications.beam_y_section = newSection; memberType = 'beam_y'; }
     }
 
     if (Object.keys(modifications).length === 0) {
         alert('Select a member first.');
         return;
+    }
+
+    // V2 경로
+    if (window._v2Model) {
+        // Update config panel
+        if (modifications.column_section) setSelectValue(document.getElementById('input-col-section'), modifications.column_section);
+        if (modifications.beam_x_section) setSelectValue(document.getElementById('input-beamx-section'), modifications.beam_x_section);
+        if (modifications.beam_y_section) setSelectValue(document.getElementById('input-beamy-section'), modifications.beam_y_section);
+        return await _applyV2SectionAndReanalyze(modifications, memberType);
     }
 
     showLoading('Re-analyzing with modified sections...');
@@ -2140,6 +2180,11 @@ async function applyGlobalSection(memberType) {
     else if (memberType === 'beam_x') modifications.beam_x_section = document.getElementById('input-beamx-section').value;
     else if (memberType === 'beam_y') modifications.beam_y_section = document.getElementById('input-beamy-section').value;
 
+    // V2 모델이 있으면 V2 경로로 단면 변경 + 재해석
+    if (window._v2Model) {
+        return await _applyV2SectionAndReanalyze(modifications, memberType);
+    }
+
     const typeLabel = { column: '기둥', beam_x: 'X보', beam_y: 'Y보' }[memberType];
     showLoading(`전체 ${typeLabel} 단면 변경 중...`);
     setStatus('Re-analyzing...', 'running');
@@ -2170,6 +2215,37 @@ async function applyGlobalSection(memberType) {
     } finally {
         hideLoading();
     }
+}
+
+async function _applyV2SectionAndReanalyze(modifications, memberType) {
+    const typeLabel = { column: '기둥', beam_x: 'X보', beam_y: 'Y보' }[memberType] || '부재';
+    const model = window._v2Model;
+    if (!model || !model.elements) return;
+
+    // V2 모델 요소 단면 일괄 변경
+    let changed = 0;
+    model.elements.forEach(e => {
+        if (modifications.column_section && e.elem_type === 'column') {
+            e.section = modifications.column_section; changed++;
+        }
+        if (modifications.beam_x_section && (e.elem_type === 'beam' || e.elem_type === 'beam_x')) {
+            e.section = modifications.beam_x_section; changed++;
+        }
+        if (modifications.beam_y_section && e.elem_type === 'beam_y') {
+            e.section = modifications.beam_y_section; changed++;
+        }
+    });
+
+    if (changed === 0) {
+        alert('해당 타입 요소가 없습니다.');
+        return;
+    }
+
+    console.log(`[V2] Section change: ${typeLabel} → ${changed} elements updated`);
+    setStatus(`${typeLabel} ${changed}개 변경 → 재해석 중...`, 'running');
+
+    // V2 재해석
+    await runAnalysisV2();
 }
 
 // ─── Build 3D Scene ───────────────────────────────────────────────────────

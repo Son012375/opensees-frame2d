@@ -583,6 +583,100 @@ class StructuralModel:
         return len(merge_map)
 
     # ──────────────────────────────────────────────
+    #  연결성 검증 (A-2)
+    # ──────────────────────────────────────────────
+
+    def validate_connectivity(self) -> list[dict]:
+        """노드-요소 연결성을 검증하여 경고 목록을 반환.
+
+        검출 항목:
+        - orphan: 어떤 요소에도 연결되지 않은 노드 (지점 아닌)
+        - dangling: 하나의 요소에만 연결 + 지점 아닌 노드 (무지지 자유단)
+        - disconnected: 요소 그래프가 여러 연결 성분으로 분리됨
+
+        Returns:
+            list of {type, severity, node_ids/component_ids, message}
+        """
+        warnings: list[dict] = []
+
+        # 노드별 연결 요소 수
+        conn_count: dict[int, int] = {nid: 0 for nid in self.nodes}
+        for e in self.elements.values():
+            if e.node_i in conn_count:
+                conn_count[e.node_i] += 1
+            if e.node_j in conn_count:
+                conn_count[e.node_j] += 1
+
+        # Orphan nodes (0 connections, no support)
+        orphans = [
+            nid for nid, cnt in conn_count.items()
+            if cnt == 0 and not self.nodes[nid].support
+        ]
+        if orphans:
+            warnings.append({
+                "type": "orphan_node",
+                "severity": "warning",
+                "node_ids": orphans,
+                "message": f"{len(orphans)}개 고립 노드 (요소 미연결): N{orphans[:5]}",
+            })
+
+        # Dangling nodes (1 connection, no support)
+        dangling = [
+            nid for nid, cnt in conn_count.items()
+            if cnt == 1 and not self.nodes[nid].support
+        ]
+        if dangling:
+            warnings.append({
+                "type": "dangling_node",
+                "severity": "info",
+                "node_ids": dangling,
+                "message": f"{len(dangling)}개 자유단 노드 (단일 요소 연결, 무지지): N{dangling[:5]}",
+            })
+
+        # Connected components (Union-Find)
+        if self.nodes and self.elements:
+            parent: dict[int, int] = {nid: nid for nid in self.nodes}
+
+            def find(x: int) -> int:
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]
+                    x = parent[x]
+                return x
+
+            def union(a: int, b: int) -> None:
+                ra, rb = find(a), find(b)
+                if ra != rb:
+                    parent[ra] = rb
+
+            for e in self.elements.values():
+                if e.node_i in parent and e.node_j in parent:
+                    union(e.node_i, e.node_j)
+
+            components: dict[int, list[int]] = {}
+            for nid in self.nodes:
+                root = find(nid)
+                components.setdefault(root, []).append(nid)
+
+            if len(components) > 1:
+                sizes = sorted(
+                    [(root, len(nids)) for root, nids in components.items()],
+                    key=lambda x: -x[1],
+                )
+                warnings.append({
+                    "type": "disconnected",
+                    "severity": "error",
+                    "components": [
+                        {"root": root, "size": sz} for root, sz in sizes
+                    ],
+                    "message": (
+                        f"모델이 {len(components)}개 분리 성분으로 구성됨: "
+                        f"크기 {[sz for _, sz in sizes]}"
+                    ),
+                })
+
+        return warnings
+
+    # ──────────────────────────────────────────────
     #  요소 자동 분류
     # ──────────────────────────────────────────────
 

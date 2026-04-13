@@ -1931,23 +1931,54 @@ def _get_geom_transf_id(elem_type: str, direction_vector: tuple[float, float, fl
     V2에서는 elem_type이 "beam"(방향 무관)일 수 있으므로,
     실제 방향벡터로 적절한 변환 ID를 결정한다.
 
-    Returns:
-        1=column(수직), 2=beam_x(X방향), 3=beam_y(Y방향)
-    """
-    if elem_type == "column":
-        return 1
+    A-3: vecxz와 요소 방향이 평행하면 singular matrix → fallback 변환 사용.
 
-    # beam/brace: 부재 방향의 X, Y 성분으로 주방향 결정
-    dx, dy, _dz = direction_vector
-    if abs(dx) >= abs(dy):
-        return 2  # X방향 보 (beam_x 변환)
+    Returns:
+        1=column(vecxz=X), 2=beam_x(vecxz=Z), 3=beam_y(vecxz=Z), 4=brace_fallback(vecxz=Y)
+    """
+    _VECXZ = {1: (1, 0, 0), 2: (0, 0, 1), 3: (0, 0, 1), 4: (0, 1, 0)}
+
+    if elem_type == "column":
+        candidate = 1
+    elif elem_type in ("beam", "beam_x", "brace"):
+        dx, dy, _dz = direction_vector
+        candidate = 2 if abs(dx) >= abs(dy) else 3
     else:
-        return 3  # Y방향 보 (beam_y 변환)
+        # beam_y
+        candidate = 3
+
+    # A-3: vecxz 평행 체크 (cross product ≈ 0 → parallel)
+    vx, vy, vz = _VECXZ[candidate]
+    dx, dy, dz = direction_vector
+    cross_sq = (
+        (dy * vz - dz * vy) ** 2
+        + (dz * vx - dx * vz) ** 2
+        + (dx * vy - dy * vx) ** 2
+    )
+    dir_sq = dx * dx + dy * dy + dz * dz
+    if dir_sq > 1e-12 and cross_sq / dir_sq < 1e-6:
+        # 평행! fallback: 다른 vecxz 시도
+        for alt in (4, 1, 2, 3):
+            if alt == candidate:
+                continue
+            avx, avy, avz = _VECXZ[alt]
+            alt_cross_sq = (
+                (dy * avz - dz * avy) ** 2
+                + (dz * avx - dx * avz) ** 2
+                + (dx * avy - dy * avx) ** 2
+            )
+            if alt_cross_sq / dir_sq > 1e-6:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"[A-3] geomTransf {candidate}→{alt} for elem dir=({dx:.3f},{dy:.3f},{dz:.3f})"
+                )
+                return alt
+    return candidate
 
 
 def _get_torsion_dof_v2(transf_id: int) -> int:
     """V2 기하변환 ID에 따른 비틀림 DOF."""
-    return {1: 6, 2: 4, 3: 5}[transf_id]
+    return {1: 6, 2: 4, 3: 5, 4: 5}[transf_id]
 
 
 def _release_type_to_code(release_val) -> int | None:
@@ -2016,11 +2047,12 @@ def _build_model_v2(
             if slave_nids:
                 ops.rigidDiaphragm(3, master_nid, *slave_nids)
 
-    # 기하변환
+    # 기하변환 (A-3: 경사 부재의 vecxz 평행 방지용 추가 변환 포함)
     transf_type = 'Corotational' if model.geometric_nonlinearity == "pdelta" else 'Linear'
-    ops.geomTransf(transf_type, 1, 1.0, 0.0, 0.0)  # column
-    ops.geomTransf(transf_type, 2, 0.0, 0.0, 1.0)  # beam_x
-    ops.geomTransf(transf_type, 3, 0.0, 0.0, 1.0)  # beam_y
+    ops.geomTransf(transf_type, 1, 1.0, 0.0, 0.0)  # column (vecxz=X)
+    ops.geomTransf(transf_type, 2, 0.0, 0.0, 1.0)  # beam_x (vecxz=Z)
+    ops.geomTransf(transf_type, 3, 0.0, 0.0, 1.0)  # beam_y (vecxz=Z)
+    ops.geomTransf(transf_type, 4, 0.0, 1.0, 0.0)  # brace fallback (vecxz=Y)
 
     # 요소 생성
     elements_info = []
@@ -2301,6 +2333,41 @@ def analyze_from_model(
     stories = model.story_heights
     n_stories = model.num_stories
 
+    # ── B-1: 사전체크 + 자동치유 (한 번만 실행) ──
+    import logging
+    _log = logging.getLogger(__name__)
+
+    conn_count: dict[int, int] = {nid: 0 for nid in model.nodes}
+    for e in model.elements.values():
+        if e.node_i in conn_count:
+            conn_count[e.node_i] += 1
+        if e.node_j in conn_count:
+            conn_count[e.node_j] += 1
+    orphans = [nid for nid, cnt in conn_count.items()
+               if cnt == 0 and not model.nodes[nid].support]
+    if orphans:
+        _log.warning(f"[B-1] Removing {len(orphans)} orphan nodes: {orphans[:10]}")
+        for nid in orphans:
+            del model.nodes[nid]
+
+    zero_elems = [eid for eid, e in model.elements.items() if e.node_i == e.node_j]
+    if zero_elems:
+        _log.warning(f"[B-1] Removing {len(zero_elems)} zero-length elements: {zero_elems[:10]}")
+        for eid in zero_elems:
+            del model.elements[eid]
+
+    has_support = any(n.support for n in model.nodes.values())
+    if not has_support:
+        raise ValueError(
+            "[B-1] 모델에 지점(support)이 없습니다. 최소 1개의 고정/힌지 지점이 필요합니다."
+        )
+
+    # 요소 분류 안전장치: 모든 요소가 동일 타입이면 자동 분류
+    type_set = set(e.elem_type for e in model.elements.values())
+    if len(type_set) == 1 and len(model.elements) > 3:
+        _log.info("[B-1] All elements same type → auto classify_elements()")
+        model.classify_elements()
+
     # 케이스별 해석
     case_results = {}
     member_forces = {}
@@ -2360,6 +2427,10 @@ def analyze_from_model(
                 n_cols_y=0,
                 story_nodes_map=story_nodes_map,
             )
+            # 조합 부재력 (부재 강도검토용)
+            combo_mf = _superpose_member_forces_3d(member_forces, factors)
+            if combo_mf:
+                member_forces[combo_name] = combo_mf
 
     # 결과 조립
     # 대표 단면 정보 (첫 번째 기둥, 보)
@@ -2372,16 +2443,39 @@ def analyze_from_model(
     col_sec = section_cache.get(col_sec_name, get_section_3d(col_sec_name))
     beam_sec = section_cache.get(beam_sec_name, get_section_3d(beam_sec_name))
 
+    # V2 bay 추정: 기둥 노드의 X/Y 좌표 클러스터링
+    from core.structural_model import ElementType as _ET2
+    col_node_ids = set()
+    _type_counts = {}
+    for e in model.elements.values():
+        t = e.elem_type.value if hasattr(e.elem_type, 'value') else str(e.elem_type)
+        _type_counts[t] = _type_counts.get(t, 0) + 1
+        if e.elem_type == _ET2.COLUMN:
+            col_node_ids.add(e.node_i)
+            col_node_ids.add(e.node_j)
+    _log.info(f"[Bay] element types: {_type_counts}, col_nodes: {len(col_node_ids)}")
+    # 최하층(z≈0) 기둥 노드만 사용
+    base_col_nodes = [model.nodes[nid] for nid in col_node_ids if nid in model.nodes]
+    if base_col_nodes:
+        min_z = min(n.z for n in base_col_nodes)
+        base_col_nodes = [n for n in base_col_nodes if abs(n.z - min_z) < 0.5]
+    xs = sorted(set(round(n.x, 2) for n in base_col_nodes)) if base_col_nodes else []
+    ys = sorted(set(round(n.y, 2) for n in base_col_nodes)) if base_col_nodes else []
+    est_bays_x = [round(xs[i+1] - xs[i], 3) for i in range(len(xs)-1)] if len(xs) > 1 else []
+    est_bays_y = [round(ys[i+1] - ys[i], 3) for i in range(len(ys)-1)] if len(ys) > 1 else []
+    est_width_x = (xs[-1] - xs[0]) if len(xs) > 1 else 0.0
+    est_width_y = (ys[-1] - ys[0]) if len(ys) > 1 else 0.0
+
     multi = Frame3DMultiCaseResult(
         num_stories=n_stories,
-        num_bays_x=0,
-        num_bays_y=0,
+        num_bays_x=len(est_bays_x),
+        num_bays_y=len(est_bays_y),
         total_height=model.total_height,
-        total_width_x=0.0,
-        total_width_y=0.0,
+        total_width_x=est_width_x,
+        total_width_y=est_width_y,
         stories=stories,
-        bays_x=[],
-        bays_y=[],
+        bays_x=est_bays_x,
+        bays_y=est_bays_y,
         nodes=[{"id": n.id, "x": n.x, "y": n.y, "z": n.z,
                 "x_m": n.x, "y_m": n.y, "z_m": n.z}
                for n in sorted(model.nodes.values(), key=lambda n: n.id)],
@@ -2618,12 +2712,20 @@ def _run_eigen_analysis_v2(
 
         modes.append({
             "mode_num": mode_num,
+            "mode": mode_num,  # V1 호환
             "eigenvalue": round(lam, 4),
             "frequency_Hz": round(f, 4),
+            "frequency_hz": round(f, 4),  # V1 호환
             "period_s": round(T, 4),
             "direction": direction,
             "mass_participation_x_pct": round(mp_x, 2),
             "mass_participation_y_pct": round(mp_y, 2),
+            "mass_participation": {  # V1 호환 nested 형식
+                "x_pct": round(mp_x, 2),
+                "y_pct": round(mp_y, 2),
+                "rz_pct": 0,
+            },
+            "dominance_pct": round(max(mp_x, mp_y), 2),  # V1 호환
             "cumulative_x_pct": round(cum_x, 2),
             "cumulative_y_pct": round(cum_y, 2),
             "shape": shape,
@@ -2638,5 +2740,8 @@ def _run_eigen_analysis_v2(
         "fundamental_periods": {
             "T1_x": next((m["period_s"] for m in modes if "X" in m["direction"]), None),
             "T1_y": next((m["period_s"] for m in modes if "Y" in m["direction"]), None),
+            # V1 호환 키 (리포트/interpreter에서 사용)
+            "T1_x_s": next((m["period_s"] for m in modes if "X" in m["direction"]), None),
+            "T1_y_s": next((m["period_s"] for m in modes if "Y" in m["direction"]), None),
         },
     }

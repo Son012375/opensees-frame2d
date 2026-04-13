@@ -1159,6 +1159,15 @@ async def analyze_v2_api(request: Request):
 
     model = StructuralModel.from_json(model_json)
 
+    # 요소 분류 확인 + 자동 분류
+    from core.structural_model import ElementType as _ET
+    type_set = set(e.elem_type for e in model.elements.values())
+    print(f"[V2] Element types before classify: {[t.value for t in type_set]}")
+    if len(type_set) == 1 and len(model.elements) > 3:
+        model.classify_elements()
+        type_set2 = set(e.elem_type for e in model.elements.values())
+        print(f"[V2] Auto-classified: {[t.value for t in type_set2]}")
+
     # A-1: 근접 노드 병합 (보-기둥 접합 보장)
     merged = model.merge_nearby_nodes()  # 적응형: 단면 높이 기반 자동 계산
     if merged > 0:
