@@ -89,13 +89,28 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - 실시간 마우스 좌표 표시 (우측 하단)
 - 편집 모드에서 우클릭 회전 + 스크롤 줌 + Shift 패닝
 
-**향후 개선 필요 (상용 SW 대비 부족)**:
-- 다중 선택 (Ctrl+클릭, 박스 드래그)
-- 복사/미러/배열 생성
-- 3D 뷰어 위 부재력 다이어그램 (M, V, N)
-- 3D 뷰어 위 하중 시각적 배치
-- 단면 방향 표시 (로컬 축)
-- 모델 검증 (고립 노드, 불안정 감지)
+**해석 결과 시각화** (2026-04-15 추가):
+- SFD/BMD/Axial 3D 다이어그램 (폴리곤 면 + 외곽선 + i/j-end + 고점 라벨)
+- Display Filter 패널 (Loads DL/LL/EQ/Wind, Story, Member Type 토글)
+- 하중 화살표 (분포하중 보 위 배열 + 수평하중 층 중심)
+- 반력 시각화 (지점 화살표 + kN 수치 라벨)
+- Deformed shape 토글 + 스케일 슬라이더 (1×~500×, Auto)
+- 부재력 hover tooltip (N/V/M 최대값)
+- 개별 부재 Canvas 다이어그램 (N/V/M × 3, 클릭 시)
+- Properties 탭 정리 (Results / Modal / DC)
+
+**편집 도구** (2026-04-15 추가):
+- 다중 선택 (Ctrl+클릭, 박스 드래그, Story 선택)
+- 복사/미러/층 복사 (플로팅 드래그 패널)
+- 개별 부재 단면 변경 ("이 부재만" + 재해석)
+- 보-보 교차점 자동 분할 (2D line intersection)
+- 프로젝트 저장/불러오기 (.v2proj, 해석 결과 포함, 재해석 불필요)
+
+**향후 개선 예정**:
+- BMD 스케일 조절 슬라이더
+- Export (CSV/Excel — 부재력, 변위, 반력)
+- IFC 단면 매핑 확장 (Box/Pipe/C채널)
+- 슬래브 하중 분배 개선 (tributary → 2-way)
 - RC 단면 (직사각형, 원형) 확장
 
 ### 3.3 KDS-Based Auto Load Generation
