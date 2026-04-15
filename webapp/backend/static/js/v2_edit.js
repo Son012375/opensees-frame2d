@@ -232,6 +232,66 @@ function splitElementsAtNodes(model, tolerance) {
     return splitCount;
 }
 
+// ─── 보-보 교차점 노드 생성 ───────────────────────────────────────
+function createBeamIntersectionNodes(model) {
+    if (!model || !model.nodes || !model.elements) return 0;
+    var tol = 0.01;
+    var beams = model.elements.filter(function(e) {
+        return e.elem_type === 'beam' || e.elem_type === 'beam_x' || e.elem_type === 'beam_y';
+    });
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+
+    var nextId = 1;
+    model.nodes.forEach(function(n) { if (n.id >= nextId) nextId = n.id + 1; });
+
+    var created = 0;
+    for (var i = 0; i < beams.length; i++) {
+        var ei = beams[i];
+        var ai = nodeMap[ei.node_i], aj = nodeMap[ei.node_j];
+        if (!ai || !aj) continue;
+        for (var j = i + 1; j < beams.length; j++) {
+            var ej = beams[j];
+            var bi = nodeMap[ej.node_i], bj = nodeMap[ej.node_j];
+            if (!bi || !bj) continue;
+            // 같은 층(Z)에 있는 보만
+            var zi = (ai.z + aj.z) / 2, zj = (bi.z + bj.z) / 2;
+            if (Math.abs(zi - zj) > tol) continue;
+            // 2D 교차 계산
+            var pt = _lineLineIntersect2D(ai.x, ai.y, aj.x, aj.y, bi.x, bi.y, bj.x, bj.y);
+            if (!pt) continue;
+            // 기존 노드와 중복 확인
+            var dup = false;
+            for (var k = 0; k < model.nodes.length; k++) {
+                var n = model.nodes[k];
+                if (Math.abs(n.x - pt[0]) < tol && Math.abs(n.y - pt[1]) < tol && Math.abs(n.z - (zi+zj)/2) < tol) {
+                    dup = true; break;
+                }
+            }
+            if (dup) continue;
+            var story = ai.story != null ? ai.story : (aj.story != null ? aj.story : null);
+            model.nodes.push({
+                id: nextId++, x: pt[0], y: pt[1], z: Math.round((zi+zj)/2 * 1000)/1000,
+                support: null, story: story, mass: null
+            });
+            nodeMap[model.nodes[model.nodes.length-1].id] = model.nodes[model.nodes.length-1];
+            created++;
+        }
+    }
+    return created;
+}
+
+function _lineLineIntersect2D(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
+    var dx1 = ax2-ax1, dy1 = ay2-ay1, dx2 = bx2-bx1, dy2 = by2-by1;
+    var denom = dx1*dy2 - dy1*dx2;
+    if (Math.abs(denom) < 1e-12) return null;
+    var t = ((bx1-ax1)*dy2 - (by1-ay1)*dx2) / denom;
+    var u = ((bx1-ax1)*dy1 - (by1-ay1)*dx1) / denom;
+    var margin = 0.02;
+    if (t < margin || t > 1-margin || u < margin || u > 1-margin) return null;
+    return [Math.round((ax1 + t*dx1)*1e6)/1e6, Math.round((ay1 + t*dy1)*1e6)/1e6];
+}
+
 // ─── A-2: 연결성 검증 ─────────────────────────────────────────────
 function validateConnectivity(model) {
     if (!model || !model.nodes || !model.elements) return [];
@@ -1127,3 +1187,197 @@ function setLabelMode(mode) {
         }
     });
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Copy / Mirror / Story Copy
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function copySelectedOffset() {
+    var model = window._v2Model;
+    if (!model || typeof selectedMeshSet === 'undefined') return;
+    var ids = Array.from(selectedMeshSet).map(function(m) { return m.userData?.elementData?.id; }).filter(Boolean);
+    if (ids.length === 0) { alert('요소를 먼저 선택하세요.'); return; }
+
+    var dx = parseFloat(prompt('X 오프셋 (m):', '0')) || 0;
+    var dy = parseFloat(prompt('Y 오프셋 (m):', '0')) || 0;
+    var dz = parseFloat(prompt('Z 오프셋 (m):', '0')) || 0;
+    if (dx === 0 && dy === 0 && dz === 0) return;
+
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+    var nextNid = 1; model.nodes.forEach(function(n) { if (n.id >= nextNid) nextNid = n.id + 1; });
+    var nextEid = 1; model.elements.forEach(function(e) { if (e.id >= nextEid) nextEid = e.id + 1; });
+
+    // 노드 매핑 (원본 → 복사본)
+    var copyNodeMap = {};
+    var elems = model.elements.filter(function(e) { return ids.indexOf(e.id) >= 0; });
+
+    elems.forEach(function(e) {
+        [e.node_i, e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig = nodeMap[nid];
+            if (!orig) return;
+            // 오프셋 위치에 기존 노드가 있는지 확인
+            var existing = model.nodes.find(function(n) {
+                return Math.abs(n.x - (orig.x+dx)) < 0.01 &&
+                       Math.abs(n.y - (orig.y+dy)) < 0.01 &&
+                       Math.abs(n.z - (orig.z+dz)) < 0.01;
+            });
+            if (existing) {
+                copyNodeMap[nid] = existing.id;
+            } else {
+                var newN = { id: nextNid++, x: orig.x+dx, y: orig.y+dy, z: orig.z+dz,
+                             support: orig.support, story: orig.story, mass: null };
+                model.nodes.push(newN);
+                nodeMap[newN.id] = newN;
+                copyNodeMap[nid] = newN.id;
+            }
+        });
+    });
+
+    // 요소 복사
+    var copied = 0;
+    elems.forEach(function(e) {
+        var ni = copyNodeMap[e.node_i], nj = copyNodeMap[e.node_j];
+        if (!ni || !nj || ni === nj) return;
+        model.elements.push({
+            id: nextEid++, node_i: ni, node_j: nj,
+            elem_type: e.elem_type, section: e.section, material: e.material,
+            release_i: e.release_i, release_j: e.release_j, beta_angle: e.beta_angle || 0,
+        });
+        copied++;
+    });
+
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Copied ' + copied + ' elements (offset: ' + dx + ',' + dy + ',' + dz + ')', 'success');
+}
+
+function mirrorSelected() {
+    var model = window._v2Model;
+    if (!model || typeof selectedMeshSet === 'undefined') return;
+    var ids = Array.from(selectedMeshSet).map(function(m) { return m.userData?.elementData?.id; }).filter(Boolean);
+    if (ids.length === 0) { alert('요소를 먼저 선택하세요.'); return; }
+
+    var axis = prompt('대칭 축 (X 또는 Y):', 'X');
+    if (!axis) return;
+    axis = axis.toUpperCase();
+    var val = parseFloat(prompt(axis + '=' + '? (대칭면 좌표):', '0')) || 0;
+
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+    var nextNid = 1; model.nodes.forEach(function(n) { if (n.id >= nextNid) nextNid = n.id + 1; });
+    var nextEid = 1; model.elements.forEach(function(e) { if (e.id >= nextEid) nextEid = e.id + 1; });
+
+    var copyNodeMap = {};
+    var elems = model.elements.filter(function(e) { return ids.indexOf(e.id) >= 0; });
+
+    elems.forEach(function(e) {
+        [e.node_i, e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig = nodeMap[nid];
+            if (!orig) return;
+            var mx = orig.x, my = orig.y;
+            if (axis === 'X') my = 2 * val - orig.y;
+            else mx = 2 * val - orig.x;
+
+            var existing = model.nodes.find(function(n) {
+                return Math.abs(n.x - mx) < 0.01 && Math.abs(n.y - my) < 0.01 && Math.abs(n.z - orig.z) < 0.01;
+            });
+            if (existing) {
+                copyNodeMap[nid] = existing.id;
+            } else {
+                var newN = { id: nextNid++, x: Math.round(mx*1e6)/1e6, y: Math.round(my*1e6)/1e6, z: orig.z,
+                             support: orig.support, story: orig.story, mass: null };
+                model.nodes.push(newN);
+                nodeMap[newN.id] = newN;
+                copyNodeMap[nid] = newN.id;
+            }
+        });
+    });
+
+    var copied = 0;
+    elems.forEach(function(e) {
+        var ni = copyNodeMap[e.node_i], nj = copyNodeMap[e.node_j];
+        if (!ni || !nj || ni === nj) return;
+        model.elements.push({
+            id: nextEid++, node_i: ni, node_j: nj,
+            elem_type: e.elem_type, section: e.section, material: e.material,
+            release_i: e.release_i, release_j: e.release_j, beta_angle: e.beta_angle || 0,
+        });
+        copied++;
+    });
+
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Mirrored ' + copied + ' elements (' + axis + '=' + val + ')', 'success');
+}
+
+function copyStoryPattern() {
+    var model = window._v2Model;
+    if (!model) return;
+    var from = parseInt(prompt('복사 원본 층 (예: 1):', '1'));
+    var to = parseInt(prompt('붙여넣기 대상 층 (예: 2):', '2'));
+    if (isNaN(from) || isNaN(to) || from === to) return;
+
+    var elevs = model.story_elevations || [];
+    if (from >= elevs.length || to >= elevs.length) { alert('층 범위 초과'); return; }
+
+    var dz = elevs[to] - elevs[from];
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+
+    // 원본 층의 요소 수집
+    var fromElems = model.elements.filter(function(e) {
+        var ni = nodeMap[e.node_i], nj = nodeMap[e.node_j];
+        if (!ni || !nj) return false;
+        return ni.story === from || nj.story === from;
+    });
+
+    if (fromElems.length === 0) { alert('원본 층에 요소가 없습니다.'); return; }
+
+    var nextNid = 1; model.nodes.forEach(function(n) { if (n.id >= nextNid) nextNid = n.id + 1; });
+    var nextEid = 1; model.elements.forEach(function(e) { if (e.id >= nextEid) nextEid = e.id + 1; });
+
+    var copyNodeMap = {};
+    fromElems.forEach(function(e) {
+        [e.node_i, e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig = nodeMap[nid];
+            if (!orig) return;
+            var nz = orig.z + dz;
+            var existing = model.nodes.find(function(n) {
+                return Math.abs(n.x - orig.x) < 0.01 && Math.abs(n.y - orig.y) < 0.01 && Math.abs(n.z - nz) < 0.01;
+            });
+            if (existing) {
+                copyNodeMap[nid] = existing.id;
+            } else {
+                var ns = orig.story != null ? orig.story + (to - from) : null;
+                var newN = { id: nextNid++, x: orig.x, y: orig.y, z: nz,
+                             support: null, story: ns, mass: null };
+                model.nodes.push(newN);
+                nodeMap[newN.id] = newN;
+                copyNodeMap[nid] = newN.id;
+            }
+        });
+    });
+
+    var copied = 0;
+    fromElems.forEach(function(e) {
+        var ni = copyNodeMap[e.node_i], nj = copyNodeMap[e.node_j];
+        if (!ni || !nj || ni === nj) return;
+        model.elements.push({
+            id: nextEid++, node_i: ni, node_j: nj,
+            elem_type: e.elem_type, section: e.section, material: e.material,
+            release_i: e.release_i, release_j: e.release_j, beta_angle: e.beta_angle || 0,
+        });
+        copied++;
+    });
+
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Story ' + from + ' → ' + to + ': ' + copied + ' elements copied', 'success');
+}

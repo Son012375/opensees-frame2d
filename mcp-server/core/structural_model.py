@@ -34,6 +34,54 @@ from typing import Literal, Optional
 
 
 # ──────────────────────────────────────────────────────────────
+#  기하 헬퍼
+# ──────────────────────────────────────────────────────────────
+
+def _line_line_intersection_2d(
+    ax1: float, ay1: float, ax2: float, ay2: float,
+    bx1: float, by1: float, bx2: float, by2: float,
+    tol: float = 0.01,
+) -> tuple[float, float] | None:
+    """두 2D 선분의 교차점. 교차 없으면 None.
+
+    t, u ∈ (tol_t, 1-tol_t) 범위에서만 교차 인정 (끝점 근처 제외).
+    """
+    dx1, dy1 = ax2 - ax1, ay2 - ay1
+    dx2, dy2 = bx2 - bx1, by2 - by1
+    denom = dx1 * dy2 - dy1 * dx2
+    if abs(denom) < 1e-12:
+        return None  # 평행
+    t = ((bx1 - ax1) * dy2 - (by1 - ay1) * dx2) / denom
+    u = ((bx1 - ax1) * dy1 - (by1 - ay1) * dx1) / denom
+    # 끝점 바로 근처는 제외 (기존 노드와 중복될 가능성)
+    margin = 0.02
+    if t < margin or t > 1 - margin or u < margin or u > 1 - margin:
+        return None
+    ix = ax1 + t * dx1
+    iy = ay1 + t * dy1
+    return (round(ix, 6), round(iy, 6))
+
+
+def _point_to_line_distance_3d(
+    px: float, py: float, pz: float,
+    ax: float, ay: float, az: float,
+    bx: float, by: float, bz: float,
+) -> float:
+    """3D 점-직선 거리 (선분 AB에 대한 점 P)."""
+    abx, aby, abz = bx-ax, by-ay, bz-az
+    apx, apy, apz = px-ax, py-ay, pz-az
+    ab2 = abx*abx + aby*aby + abz*abz
+    if ab2 < 1e-12:
+        return math.sqrt(apx*apx + apy*apy + apz*apz)
+    t = (apx*abx + apy*aby + apz*abz) / ab2
+    if t < 0.001 or t > 0.999:
+        return float('inf')
+    cx, cy, cz = ax + t*abx, ay + t*aby, az + t*abz
+    dx, dy, dz = px-cx, py-cy, pz-cz
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+
+
+# ──────────────────────────────────────────────────────────────
 #  열거형 / 상수
 # ──────────────────────────────────────────────────────────────
 
@@ -675,6 +723,139 @@ class StructuralModel:
                 })
 
         return warnings
+
+    # ──────────────────────────────────────────────
+    #  보-보 교차점 자동 분할
+    # ──────────────────────────────────────────────
+
+    def split_at_intersections(self, tolerance: float = 0.01) -> int:
+        """같은 층(z) 보끼리 교차하는 점에 노드를 생성하고 요소를 분할.
+
+        Returns:
+            생성된 교차 노드 수.
+        """
+        elements = list(self.elements.values())
+        beams = [e for e in elements
+                 if e.elem_type.value in ("beam", "beam_x", "beam_y")]
+
+        new_nodes_count = 0
+        # 교차점 후보: (요소A, 요소B, 교차점 좌표)
+        intersection_nodes: list[tuple[float, float, float]] = []
+
+        for i in range(len(beams)):
+            ei = beams[i]
+            ni_i = self.nodes.get(ei.node_i)
+            nj_i = self.nodes.get(ei.node_j)
+            if not ni_i or not nj_i:
+                continue
+
+            for j in range(i + 1, len(beams)):
+                ej = beams[j]
+                ni_j = self.nodes.get(ej.node_i)
+                nj_j = self.nodes.get(ej.node_j)
+                if not ni_j or not nj_j:
+                    continue
+
+                # 같은 층(Z 좌표)에 있는 보만 교차 가능
+                z_i = (ni_i.z + nj_i.z) / 2
+                z_j = (ni_j.z + nj_j.z) / 2
+                if abs(z_i - z_j) > tolerance:
+                    continue
+
+                # 2D 직선 교차 계산 (XY 평면)
+                pt = _line_line_intersection_2d(
+                    ni_i.x, ni_i.y, nj_i.x, nj_i.y,
+                    ni_j.x, ni_j.y, nj_j.x, nj_j.y,
+                    tolerance,
+                )
+                if pt is None:
+                    continue
+
+                ix, iy = pt
+                iz = (z_i + z_j) / 2
+
+                # 기존 노드와 중복 확인
+                dup = False
+                for n in self.nodes.values():
+                    if (abs(n.x - ix) < tolerance and
+                        abs(n.y - iy) < tolerance and
+                        abs(n.z - iz) < tolerance):
+                        dup = True
+                        break
+                if dup:
+                    continue
+
+                # 교차 노드의 story 추정
+                story = ni_i.story if ni_i.story is not None else nj_i.story
+                self.add_node(ix, iy, iz, story=story)
+                new_nodes_count += 1
+
+        if new_nodes_count == 0:
+            return 0
+
+        # 새 노드가 기존 요소 위에 있으면 분할
+        split_count = self._split_elements_at_nodes(tolerance)
+
+        return new_nodes_count
+
+    def _split_elements_at_nodes(self, tolerance: float = 0.01) -> int:
+        """모든 요소에 대해 직선 위 중간 노드를 찾아 분할."""
+        split_count = 0
+        new_elements = []
+        remove_ids = []
+
+        for eid, elem in list(self.elements.items()):
+            ni = self.nodes.get(elem.node_i)
+            nj = self.nodes.get(elem.node_j)
+            if not ni or not nj:
+                continue
+
+            # 이 요소의 직선 위 중간 노드 찾기
+            dx, dy, dz = nj.x - ni.x, nj.y - ni.y, nj.z - ni.z
+            L = math.sqrt(dx*dx + dy*dy + dz*dz)
+            if L < 0.01:
+                continue
+
+            mid_nodes = []
+            for nid, n in self.nodes.items():
+                if nid == elem.node_i or nid == elem.node_j:
+                    continue
+                # 점-직선 거리
+                dist = _point_to_line_distance_3d(
+                    n.x, n.y, n.z, ni.x, ni.y, ni.z, nj.x, nj.y, nj.z)
+                if dist < tolerance:
+                    # ni에서의 거리 (매개변수 t)
+                    t = ((n.x-ni.x)*dx + (n.y-ni.y)*dy + (n.z-ni.z)*dz) / (L*L)
+                    if 0.01 < t < 0.99:
+                        mid_nodes.append((t, nid))
+
+            if not mid_nodes:
+                continue
+
+            mid_nodes.sort()
+            remove_ids.append(eid)
+            split_count += 1
+
+            # 분할
+            chain = [elem.node_i] + [nid for _, nid in mid_nodes] + [elem.node_j]
+            for k in range(len(chain) - 1):
+                new_elements.append((
+                    chain[k], chain[k+1],
+                    elem.elem_type, elem.section, elem.material,
+                    elem.release_i if k == 0 else None,
+                    elem.release_j if k == len(chain) - 2 else None,
+                    elem.beta_angle,
+                ))
+
+        # 삭제 + 추가
+        for eid in remove_ids:
+            del self.elements[eid]
+        for ni, nj, et, sec, mat, ri, rj, ba in new_elements:
+            self.add_element(ni, nj, elem_type=et, section=sec,
+                             material=mat, release_i=ri, release_j=rj,
+                             beta_angle=ba)
+
+        return split_count
 
     # ──────────────────────────────────────────────
     #  요소 자동 분류

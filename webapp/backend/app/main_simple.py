@@ -1173,6 +1173,11 @@ async def analyze_v2_api(request: Request):
     if merged > 0:
         print(f"[V2] Merged {merged} nearby nodes")
 
+    # 보-보 교차점 자동 분할
+    intersections = model.split_at_intersections()
+    if intersections > 0:
+        print(f"[V2] Created {intersections} intersection nodes, model: {len(model.nodes)} nodes, {len(model.elements)} elems")
+
     # 사용자 config 반영
     for key in ["region", "site_class", "importance", "seismic_system", "exposure_category", "geometric_nonlinearity"]:
         if user_config.get(key):
@@ -1263,11 +1268,16 @@ async def analyze_v2_api(request: Request):
 
         case_data = {}
         for cname, cr in {**multi.case_results, **multi.combo_results}.items():
+            # 변위 데이터 (에디터 deformed shape용)
+            disp_map = {}
+            for d in cr.nodal_displacements:
+                disp_map[str(d["node"])] = [d["dx_mm"], d["dy_mm"], d["dz_mm"]]
             case_data[cname] = {
                 "summary": {"max_dx_mm": cr.max_displacement_x, "max_dy_mm": cr.max_displacement_y,
                             "max_moment_kNm": cr.max_moment, "max_axial_kN": cr.max_axial},
                 "story_drifts": cr.story_drifts,
                 "reactions": cr.reactions,
+                "displacements": disp_map,
             }
 
         # ── Response Spectrum Analysis (if requested) ──

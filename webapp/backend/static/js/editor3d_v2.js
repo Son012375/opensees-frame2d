@@ -992,6 +992,14 @@ async function uploadIFC() {
             console.warn('[Merge] mergeNearbyNodes not found');
         }
 
+        // ── 보-보 교차점 노드 생성 ──
+        if (typeof createBeamIntersectionNodes === 'function') {
+            var intCount = createBeamIntersectionNodes(window._v2Model);
+            if (intCount > 0) {
+                console.log('[Intersection] ' + intCount + ' intersection nodes created');
+            }
+        }
+
         // ── A-4: Element 자동 분할: 중간 노드가 있으면 분할 (적응형 tolerance) ──
         if (typeof splitElementsAtNodes === 'function') {
             var splitCount = splitElementsAtNodes(window._v2Model);
@@ -2251,6 +2259,27 @@ async function _applyV2SectionAndReanalyze(modifications, memberType) {
     await runAnalysisV2();
 }
 
+async function applySingleMemberChange() {
+    const newSection = document.getElementById('prop-new-section')?.value;
+    if (!newSection) return;
+    if (!window._v2Model || !selectedMesh?.userData?.elementData) {
+        alert('부재를 선택해주세요.');
+        return;
+    }
+
+    const elemId = selectedMesh.userData.elementData.id;
+    const model = window._v2Model;
+
+    // V2 모델에서 해당 요소 단면 변경
+    const elem = model.elements.find(e => e.id === elemId);
+    if (elem) {
+        elem.section = newSection;
+        console.log(`[V2] Element E${elemId} section → ${newSection}`);
+        setStatus(`E${elemId} → ${newSection}, 재해석 중...`, 'running');
+        await runAnalysisV2();
+    }
+}
+
 // ─── Build 3D Scene ───────────────────────────────────────────────────────
 function buildScene(result) {
     // Clear preview wireframe (IFC wizard) if present
@@ -2444,9 +2473,32 @@ async function showHoverTooltip(elem, cx, cy) {
             .filter(r => r[1] > 0)
             .map(([k, v, u]) => `<span class="sp-key">${k}</span><span class="sp-val">${v.toLocaleString()}</span><span class="sp-unit">${u}</span>`)
             .join('');
+        // 부재력 정보 추가
+        let forceHtml = '';
+        if (currentResult?.member_forces) {
+            const caseName = _getCurrentCaseName();
+            const mfCase = currentResult.member_forces[caseName];
+            if (mfCase) {
+                const mf = mfCase.find(m => m.member_id === elem.id || m.ni === elem.ni && m.nj === elem.nj);
+                if (mf) {
+                    const maxN = Math.max(...(mf.N_kN||[0]).map(Math.abs));
+                    const maxV = Math.max(...(mf.Vy_kN||[0]).map(Math.abs), ...(mf.Vz_kN||[0]).map(Math.abs));
+                    const maxM = Math.max(...(mf.My_kNm||[0]).map(Math.abs), ...(mf.Mz_kNm||[0]).map(Math.abs), ...(mf.T_kNm||[0]).map(Math.abs));
+                    forceHtml = `<div style="border-top:1px solid #555;margin-top:4px;padding-top:3px;font-size:10px;">`
+                        + `<div style="color:#aaa;margin-bottom:2px;">${caseName}</div>`
+                        + `<div class="sp-grid">`
+                        + `<span class="sp-key">N</span><span class="sp-val">${maxN.toFixed(1)}</span><span class="sp-unit">kN</span>`
+                        + `<span class="sp-key">V</span><span class="sp-val">${maxV.toFixed(1)}</span><span class="sp-unit">kN</span>`
+                        + `<span class="sp-key">M</span><span class="sp-val">${maxM.toFixed(1)}</span><span class="sp-unit">kN·m</span>`
+                        + `</div></div>`;
+                }
+            }
+        }
+
         tooltip.innerHTML = `<div class="sp-member-type ${elem.type}">${typeLabel} #${elem.id}</div>`
             + `<div class="sp-title">${data.name}</div>`
-            + `<div class="sp-grid">${grid}</div>`;
+            + `<div class="sp-grid">${grid}</div>`
+            + forceHtml;
     }
 }
 
@@ -3195,6 +3247,9 @@ function updateResultsPanel(result) {
 
     // 기본 탭: DC (해석 완료 시)
     switchResultTab('dc');
+
+    // Auto-save
+    if (typeof _autoSave === 'function') _autoSave();
 }
 
 // ─── Result Tab Switching ─────────────────────────────────────────────────
@@ -3294,17 +3349,25 @@ function onCaseSelect() {
     if (!sel || !currentResult) return;
     const caseName = sel.value;
 
+    const dsWrap = document.getElementById('deform-scale-wrap');
+
     if (caseName === '__envelope__') {
-        // Restore envelope view
         renderResultsTable(currentResult.envelope || {});
         updateBottomBarValues(currentResult.envelope || {});
         restoreOriginalPositions();
+        if (dsWrap) dsWrap.style.display = 'none';
     } else {
         const cd = currentResult.case_data?.[caseName];
         if (!cd) return;
         renderResultsTable(cd.summary, caseName);
         updateBottomBarValues(cd.summary);
-        applyDeformedShape(cd.displacements);
+        if (cd.displacements && Object.keys(cd.displacements).length > 0) {
+            applyDeformedShape(cd.displacements);
+            if (dsWrap) dsWrap.style.display = '';
+        } else {
+            restoreOriginalPositions();
+            if (dsWrap) dsWrap.style.display = 'none';
+        }
     }
 }
 
@@ -4636,6 +4699,46 @@ function _buildLoadArrows() {
         });
     });
 
+    // ── 반력 화살표 ──
+    const showReactions = document.getElementById('toggle-reactions')?.checked;
+    if (showReactions && currentResult?.case_data) {
+        const rCaseName = _getCurrentCaseName();
+        const rcd = currentResult.case_data[rCaseName];
+        const reactions = rcd?.reactions;
+        if (reactions && reactions.length > 0) {
+            const rxColor = 0xff6f00;
+            let maxR = 0;
+            reactions.forEach(r => {
+                maxR = Math.max(maxR, Math.abs(r.RX_kN||0), Math.abs(r.RY_kN||0), Math.abs(r.RZ_kN||0));
+            });
+            if (maxR < 0.01) maxR = 1;
+            const rxScale = maxDim * 0.15 / maxR;
+
+            reactions.forEach(r => {
+                const base = new THREE.Vector3(r.x_m||0, 0, -(r.y_m||0));
+                if (Math.abs(r.RZ_kN||0) > 0.1) {
+                    const len = Math.abs(r.RZ_kN) * rxScale;
+                    const dir = new THREE.Vector3(0, r.RZ_kN > 0 ? 1 : -1, 0);
+                    const a = new THREE.ArrowHelper(dir, base.clone(), len, rxColor, len*0.2, len*0.1);
+                    a.cone.material.transparent = true; a.cone.material.opacity = 0.8;
+                    _loadArrowGroup.add(a);
+                }
+                if (Math.abs(r.RX_kN||0) > 0.1) {
+                    const len = Math.abs(r.RX_kN) * rxScale;
+                    const dir = new THREE.Vector3(r.RX_kN > 0 ? 1 : -1, 0, 0);
+                    const a = new THREE.ArrowHelper(dir, base.clone(), len, 0xd84315, len*0.2, len*0.1);
+                    _loadArrowGroup.add(a);
+                }
+                if (Math.abs(r.RY_kN||0) > 0.1) {
+                    const len = Math.abs(r.RY_kN) * rxScale;
+                    const dir = new THREE.Vector3(0, 0, r.RY_kN > 0 ? -1 : 1);
+                    const a = new THREE.ArrowHelper(dir, base.clone(), len, 0xd84315, len*0.2, len*0.1);
+                    _loadArrowGroup.add(a);
+                }
+            });
+        }
+    }
+
     scene.add(_loadArrowGroup);
 }
 
@@ -5026,3 +5129,118 @@ if (document.readyState === 'loading') {
 } else {
     setTimeout(_hookCaseSelectForDiagrams, 600);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 5: Project Save / Load / Auto-save
+// ═══════════════════════════════════════════════════════════════════════════════
+const _AUTOSAVE_KEY = 'v2_editor_autosave';
+
+function saveProject() {
+    const model = window._v2Model;
+    if (!model) { alert('모델이 없습니다.'); return; }
+
+    const project = {
+        version: 2,
+        timestamp: new Date().toISOString(),
+        model: model,
+        config: _gatherConfig(),
+    };
+    const json = JSON.stringify(project, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'project_' + new Date().toISOString().slice(0,10) + '.v2proj.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('Project saved', 'success');
+}
+
+function loadProject(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const project = JSON.parse(e.target.result);
+            if (!project.model || !project.model.nodes) {
+                alert('유효하지 않은 프로젝트 파일입니다.');
+                return;
+            }
+            window._v2Model = project.model;
+
+            // Config 복원
+            if (project.config) _applyConfig(project.config);
+
+            // 3D 뷰어 갱신
+            if (typeof refreshEditPreview === 'function') refreshEditPreview();
+            if (typeof fitCameraToModel === 'function') fitCameraToModel();
+
+            setStatus('Project loaded: ' + file.name, 'success');
+            console.log('[Project] Loaded:', project.model.nodes.length, 'nodes,', project.model.elements.length, 'elems');
+        } catch (err) {
+            alert('파일 읽기 오류: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';  // reset file input
+}
+
+function _gatherConfig() {
+    return {
+        region: document.getElementById('input-region')?.value || document.getElementById('ifc-region')?.value || '',
+        importance: document.getElementById('input-importance')?.value || document.getElementById('ifc-importance')?.value || 'II',
+        column_section: document.getElementById('input-col-section')?.value || '',
+        beam_x_section: document.getElementById('input-beamx-section')?.value || '',
+        beam_y_section: document.getElementById('input-beamy-section')?.value || '',
+        material: document.getElementById('input-material')?.value || 'SS275',
+        supports: document.getElementById('input-supports')?.value || 'fixed',
+    };
+}
+
+function _applyConfig(cfg) {
+    if (cfg.region) {
+        const r1 = document.getElementById('input-region');
+        const r2 = document.getElementById('ifc-region');
+        if (r1) r1.value = cfg.region;
+        if (r2) r2.value = cfg.region;
+    }
+    if (cfg.column_section) {
+        const s = document.getElementById('input-col-section');
+        if (s) setSelectValue(s, cfg.column_section);
+    }
+    if (cfg.beam_x_section) {
+        const s = document.getElementById('input-beamx-section');
+        if (s) setSelectValue(s, cfg.beam_x_section);
+    }
+}
+
+// Auto-save: 해석 완료 시 localStorage에 저장
+function _autoSave() {
+    if (!window._v2Model) return;
+    try {
+        const data = JSON.stringify({ model: window._v2Model, config: _gatherConfig(), ts: Date.now() });
+        localStorage.setItem(_AUTOSAVE_KEY, data);
+    } catch (e) { /* quota exceeded 등 무시 */ }
+}
+
+// Auto-restore: 페이지 로드 시 복원 제안
+function _checkAutoRestore() {
+    try {
+        const saved = localStorage.getItem(_AUTOSAVE_KEY);
+        if (!saved) return;
+        const data = JSON.parse(saved);
+        if (!data.model?.nodes?.length) return;
+        const age = (Date.now() - (data.ts || 0)) / 1000 / 60;
+        if (age > 60 * 24) return;  // 24시간 이상 지난 건 무시
+        const mins = Math.round(age);
+        if (confirm('이전 작업이 발견되었습니다 (' + mins + '분 전, ' + data.model.nodes.length + ' nodes). 복원하시겠습니까?')) {
+            window._v2Model = data.model;
+            if (data.config) _applyConfig(data.config);
+            if (typeof refreshEditPreview === 'function') refreshEditPreview();
+            if (typeof fitCameraToModel === 'function') fitCameraToModel();
+            setStatus('Auto-saved project restored', 'success');
+        }
+    } catch (e) { /* 무시 */ }
+}
+setTimeout(_checkAutoRestore, 1000);
