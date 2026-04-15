@@ -504,6 +504,48 @@
                         <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
                         <span>DC Colors</span>
                     </label>
+                    <button class="btn-icon" id="btn-filter-panel" onclick="toggleFilterPanel()" title="Display Filters" style="font-size:11px; padding:2px 6px; min-width:auto;">Filter ▼</button>
+                </div>
+            </div>
+            <!-- Display Filter Panel (접이식) -->
+            <div id="display-filter-panel" style="display:none; position:absolute; top:36px; right:4px; z-index:100; background:var(--bg-card,#fff); border:1px solid var(--border-input,#ccc); border-radius:6px; padding:8px 10px; font-size:11px; box-shadow:0 2px 8px rgba(0,0,0,0.15); min-width:240px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <b>Display Filters</b>
+                    <button onclick="toggleFilterPanel()" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--text-secondary);">✕</button>
+                </div>
+                <!-- Loads -->
+                <div style="margin-bottom:6px;">
+                    <div style="font-weight:600; color:var(--text-secondary); margin-bottom:2px;">Loads</div>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="DL" onchange="onFilterChange()"> <span style="color:#00bcd4;">■</span> DL</label>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="LL" onchange="onFilterChange()"> <span style="color:#ff9800;">■</span> LL</label>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="EQ" onchange="onFilterChange()"> <span style="color:#f44336;">■</span> EQ</label>
+                    <label><input type="checkbox" data-filter="load" value="Wind" onchange="onFilterChange()"> <span style="color:#9c27b0;">■</span> Wind</label>
+                </div>
+                <!-- Story -->
+                <div style="margin-bottom:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:var(--text-secondary);">Story</span>
+                        <span>
+                            <button onclick="filterSelectAll('story',true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                            <button onclick="filterSelectAll('story',false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                        </span>
+                    </div>
+                    <div id="filter-story-checks" style="margin-top:2px;"></div>
+                </div>
+                <!-- Type -->
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:var(--text-secondary);">Member Type</span>
+                        <span>
+                            <button onclick="filterSelectAll('type',true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                            <button onclick="filterSelectAll('type',false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                        </span>
+                    </div>
+                    <div style="margin-top:2px;">
+                        <label style="margin-right:8px;"><input type="checkbox" data-filter="type" value="column" onchange="onFilterChange()" checked> Column</label>
+                        <label style="margin-right:8px;"><input type="checkbox" data-filter="type" value="beam" onchange="onFilterChange()" checked> Beam</label>
+                        <label><input type="checkbox" data-filter="type" value="brace" onchange="onFilterChange()" checked> Brace</label>
+                    </div>
                 </div>
             </div>
             <div id="viewer-container">
@@ -643,6 +685,15 @@
                         </table>
                     </div>
 
+                    <!-- 개별 부재 SFD/BMD 다이어그램 -->
+                    <div id="prop-member-diagrams" style="display:none; margin-top:8px;">
+                        <h4 style="margin-bottom:4px;">Force Diagrams</h4>
+                        <div style="font-size:10px; color:var(--text-secondary); margin-bottom:2px;" id="prop-dgm-combo">-</div>
+                        <canvas id="canvas-axial" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                        <canvas id="canvas-shear" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                        <canvas id="canvas-moment" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                    </div>
+
                     <hr>
                     <h4>Modify Section</h4>
                     <p id="prop-edit-scope" class="edit-scope-hint"></p>
@@ -736,60 +787,99 @@
                     </button>
                 </div>
 
-                <!-- Results Summary -->
+                <!-- Results Summary (탭 구조) -->
                 <div id="prop-results" class="prop-section" style="display:none;">
-                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-                        <h4 style="margin:0;">Analysis Results</h4>
-                        <span id="model-source-tag" class="model-source-tag"></span>
-                    </div>
-                    <div id="case-selector-wrap" style="display:none; margin-bottom:6px;">
-                        <select id="case-selector" onchange="onCaseSelect()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
-                            <option value="__envelope__">Envelope (전체 조합)</option>
-                        </select>
-                    </div>
-                    <table class="prop-table" id="results-table">
-                    </table>
-
-                    <!-- ELF vs RSA Comparison -->
-                    <div id="elf-rsa-comparison" style="display:none; margin-top:10px;">
-                        <h4>ELF vs RSA</h4>
-                        <table class="prop-table" id="elf-rsa-table"></table>
+                    <!-- 탭 버튼 그룹 -->
+                    <div style="display:flex; gap:2px; margin-bottom:8px; border-bottom:2px solid var(--border-input,#ddd); padding-bottom:0;">
+                        <button class="rtab-btn active" data-rtab="results" onclick="switchResultTab('results')" style="flex:1;">Results</button>
+                        <button class="rtab-btn" data-rtab="modal" onclick="switchResultTab('modal')" style="flex:1;">Modal</button>
+                        <button class="rtab-btn" data-rtab="dc" onclick="switchResultTab('dc')" style="flex:1;">DC</button>
                     </div>
 
-                    <!-- Modal Analysis -->
-                    <div id="modal-section" style="display:none; margin-top:10px;">
-                        <div style="display:flex; align-items:center; justify-content:space-between;">
-                            <h4 style="margin:0;">Modal Analysis</h4>
-                            <div>
-                                <button id="btn-mode-animate" class="btn-icon" onclick="toggleModeAnimation()" title="애니메이션 재생/정지" style="font-size:14px; background:none; border:none; cursor:pointer; color:var(--text-secondary);">&#9654;</button>
+                    <!-- TAB: Results -->
+                    <div class="rtab-content" data-rtab="results">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                            <span style="font-weight:600; font-size:11px;">Analysis Results</span>
+                            <span id="model-source-tag" class="model-source-tag"></span>
+                        </div>
+                        <div id="case-selector-wrap" style="display:none; margin-bottom:6px;">
+                            <select id="case-selector" onchange="onCaseSelect()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                                <option value="__envelope__">Envelope (전체 조합)</option>
+                            </select>
+                        </div>
+                        <!-- Diagram 버튼 그룹 -->
+                        <div id="diagram-btn-wrap" style="display:none; margin-bottom:6px;">
+                            <div style="font-size:10px; color:var(--text-secondary); margin-bottom:2px;">Diagram</div>
+                            <div style="display:flex; gap:2px;">
+                                <button class="dgm-btn active" data-dgm="off" onclick="setDiagramMode('off')">Off</button>
+                                <button class="dgm-btn" data-dgm="axial" onclick="setDiagramMode('axial')">N</button>
+                                <button class="dgm-btn" data-dgm="shear" onclick="setDiagramMode('shear')">V</button>
+                                <button class="dgm-btn" data-dgm="moment" onclick="setDiagramMode('moment')">M</button>
                             </div>
                         </div>
-                        <select id="mode-selector" onchange="onModeSelect()" style="width:100%; padding:4px 6px; margin:6px 0; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
-                        </select>
-                        <table class="prop-table" id="modal-table"></table>
+                        <style>
+                        .dgm-btn {
+                            flex:1; padding:3px 0; font-size:10px; font-weight:600; text-align:center;
+                            background:var(--bg-input,#f5f5f5); border:1px solid var(--border-input,#ccc);
+                            border-radius:3px; cursor:pointer; color:var(--text-secondary,#888);
+                            transition: all 0.15s;
+                        }
+                        .dgm-btn.active { background:var(--accent,#1976d2); color:#fff; border-color:var(--accent,#1976d2); }
+                        .dgm-btn:hover:not(.active) { background:var(--bg-hover,#eee); }
+                        </style>
+                        <table class="prop-table" id="results-table"></table>
+                        <!-- ELF vs RSA (RSA 해석 시에만) -->
+                        <div id="elf-rsa-comparison" style="display:none; margin-top:8px;">
+                            <span style="font-weight:600; font-size:11px;">ELF vs RSA</span>
+                            <table class="prop-table" id="elf-rsa-table"></table>
+                        </div>
                     </div>
 
-                    <!-- Design Check Summary -->
-                    <div id="dc-summary" style="display:none; margin-top:10px;">
-                        <h4>Design Check</h4>
-                        <div id="dc-overall-banner" class="dc-banner">-</div>
-                        <table class="prop-table" id="dc-summary-table">
-                        </table>
+                    <!-- TAB: Modal -->
+                    <div class="rtab-content" data-rtab="modal" style="display:none;">
+                        <div id="modal-section">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Modal Analysis</span>
+                                <button id="btn-mode-animate" class="btn-icon" onclick="toggleModeAnimation()" title="애니메이션 재생/정지" style="font-size:14px; background:none; border:none; cursor:pointer; color:var(--text-secondary);">&#9654;</button>
+                            </div>
+                            <select id="mode-selector" onchange="onModeSelect()" style="width:100%; padding:4px 6px; margin:4px 0; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);"></select>
+                            <table class="prop-table" id="modal-table"></table>
+                        </div>
                     </div>
 
-                    <!-- Interpretation -->
-                    <div id="interp-summary" style="display:none; margin-top:10px;">
-                        <h4>Interpretation</h4>
-                        <p id="interp-text" class="interp-text"></p>
+                    <!-- TAB: Design Check + Interpretation -->
+                    <div class="rtab-content" data-rtab="dc" style="display:none;">
+                        <div id="dc-summary">
+                            <div id="dc-overall-banner" class="dc-banner" style="margin-bottom:6px;">-</div>
+                            <table class="prop-table" id="dc-summary-table"></table>
+                        </div>
+                        <div id="interp-summary" style="margin-top:8px;">
+                            <span style="font-weight:600; font-size:11px;">Interpretation</span>
+                            <p id="interp-text" class="interp-text"></p>
+                        </div>
                     </div>
 
-                    <!-- Report Button -->
-                    <div id="report-link" style="display:none; margin-top:12px;">
+                    <!-- Report Button (항상 하단 고정) -->
+                    <div id="report-link" style="display:none; margin-top:10px; border-top:1px solid var(--border-input,#ddd); padding-top:8px;">
                         <a id="report-url" href="#" target="_blank" class="btn btn-primary btn-block" style="text-align:center; text-decoration:none; display:block;">
                             상세 리포트 (HTML Report)
                         </a>
                     </div>
                 </div>
+
+                <style>
+                .rtab-btn {
+                    padding: 4px 8px; font-size: 11px; font-weight: 600;
+                    background: none; border: none; border-bottom: 2px solid transparent;
+                    cursor: pointer; color: var(--text-secondary, #888);
+                    transition: all 0.15s;
+                }
+                .rtab-btn.active {
+                    color: var(--accent, #1976d2);
+                    border-bottom-color: var(--accent, #1976d2);
+                }
+                .rtab-btn:hover { color: var(--text-primary, #333); }
+                </style>
             </div>
         </div>
     </div>

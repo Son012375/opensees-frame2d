@@ -1923,6 +1923,9 @@ function convertV2ResultToV1(v2Result) {
         rsa: v2Result.rsa || null,
         seismic_method: v2Result.seismic_method || 'ELF',
         load_summary: v2Result.load_summary,
+        load_cases_raw: v2Result.load_cases_raw || {},
+        member_forces: v2Result.member_forces || {},
+        member_info_raw: v2Result.member_info || [],
     };
 }
 
@@ -2877,6 +2880,11 @@ function showMemberProperties(elem) {
         dcDiv.style.display = 'none';
     }
 
+    // 개별 부재 SFD/BMD 다이어그램
+    if (typeof drawMemberDiagrams === 'function') {
+        drawMemberDiagrams(elem.member_id || elem.id);
+    }
+
     // Set section dropdown to match current type
     const propSectionSel = document.getElementById('prop-new-section');
     setSelectValue(propSectionSel, elem.section);
@@ -3119,6 +3127,9 @@ function updateResultsPanel(result) {
     // Hide empty hint when results are shown
     document.getElementById('prop-empty').style.display = 'none';
 
+    // Display filter: story 체크박스 초기화
+    if (typeof initFilterStories === 'function') initFilterStories();
+
     // Model source tag
     const srcTag = document.getElementById('model-source-tag');
     if (srcTag && modelSource) {
@@ -3129,6 +3140,9 @@ function updateResultsPanel(result) {
     // Build case selector dropdown
     buildCaseSelector(result);
 
+    // Diagram buttons
+    showDiagramButtons();
+
     const env = result.envelope || {};
     renderResultsTable(env);
 
@@ -3137,11 +3151,8 @@ function updateResultsPanel(result) {
     buildModalUI(modalData);
 
     // Design Check summary
-    const dcSummary = document.getElementById('dc-summary');
     if (result.design_check) {
-        dcSummary.style.display = 'block';
         const dc = result.design_check;
-
         const banner = document.getElementById('dc-overall-banner');
         const driftOK = (dc.drift_check?.status || dc.story_drift?.status) === 'OK';
         const memberOK = (dc.member_check?.status || dc.member_strength?.status) === 'OK';
@@ -3165,18 +3176,12 @@ function updateResultsPanel(result) {
                 <tr><td>Max Ratio</td><td>${(ms.max_interaction_ratio || 0).toFixed(3)}</td></tr>
             `;
         }
-    } else {
-        dcSummary.style.display = 'none';
     }
 
     // Interpretation
-    const interpDiv = document.getElementById('interp-summary');
     if (result.interpretation) {
-        interpDiv.style.display = 'block';
         document.getElementById('interp-text').textContent =
             result.interpretation.summary_ko || result.interpretation.summary_en || '';
-    } else {
-        interpDiv.style.display = 'none';
     }
 
     // Report link
@@ -3187,6 +3192,19 @@ function updateResultsPanel(result) {
     } else {
         reportDiv.style.display = 'none';
     }
+
+    // 기본 탭: DC (해석 완료 시)
+    switchResultTab('dc');
+}
+
+// ─── Result Tab Switching ─────────────────────────────────────────────────
+function switchResultTab(tabName) {
+    document.querySelectorAll('.rtab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.rtab === tabName);
+    });
+    document.querySelectorAll('.rtab-content').forEach(div => {
+        div.style.display = div.dataset.rtab === tabName ? '' : 'none';
+    });
 }
 
 function updateBottomBar(result) {
@@ -3411,11 +3429,60 @@ function saveOriginalState() {
     });
 }
 
+// ─── Deformation Scale ────────────────────────────────────────────────────
+let _deformScale = 50;
+let _lastDisplacements = null;
+
+function _sliderToScale(v) {
+    // slider 0~100 → scale 1~500 (log)
+    // 0→1, 50→50, 100→500
+    return Math.round(Math.exp(v / 100 * Math.log(500)));
+}
+function _scaleToSlider(s) {
+    if (s <= 1) return 0;
+    return Math.round(100 * Math.log(s) / Math.log(500));
+}
+
+function onDeformScaleChange(sliderVal) {
+    _deformScale = _sliderToScale(parseInt(sliderVal));
+    document.getElementById('deform-scale-val').textContent = _deformScale + '×';
+    if (_lastDisplacements) {
+        applyDeformedShape(_lastDisplacements);
+    }
+}
+
+function autoDeformScale() {
+    // 최대 변위 기반 자동 스케일: 모델 크기의 5% 정도로 변형이 보이도록
+    if (!currentResult?.viewer?.nodes || !_lastDisplacements) return;
+    const nodes = currentResult.viewer.nodes;
+    let maxDim = 1;
+    nodes.forEach(n => {
+        maxDim = Math.max(maxDim, Math.abs(n.x), Math.abs(n.y), Math.abs(n.z));
+    });
+    let maxDisp = 0;
+    Object.values(_lastDisplacements).forEach(d => {
+        if (d) maxDisp = Math.max(maxDisp, Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]));
+    });
+    if (maxDisp < 0.001) return;
+    const target = maxDim * 0.05; // 5% of model size
+    _deformScale = Math.max(1, Math.min(500, Math.round(target / (maxDisp / 1000))));
+    const slider = document.getElementById('deform-scale-slider');
+    if (slider) slider.value = _scaleToSlider(_deformScale);
+    document.getElementById('deform-scale-val').textContent = _deformScale + '×';
+    applyDeformedShape(_lastDisplacements);
+}
+
+function showDeformSlider() {
+    const wrap = document.getElementById('deform-scale-wrap');
+    if (wrap) wrap.style.display = '';
+}
+
 function applyDeformedShape(displacements) {
     if (!displacements || !currentResult?.viewer) return;
+    _lastDisplacements = displacements;
     saveOriginalState();
 
-    const scale = 50; // Exaggeration factor
+    const scale = _deformScale;
     const viewer = currentResult.viewer;
     const nodes = viewer.nodes;
 
@@ -3501,11 +3568,9 @@ function buildModalUI(modal) {
     const sel = document.getElementById('mode-selector');
     const table = document.getElementById('modal-table');
     if (!section || !sel || !modal?.modes?.length) {
-        if (section) section.style.display = 'none';
         return;
     }
 
-    section.style.display = 'block';
     sel.innerHTML = '<option value="">-- 모드 선택 (3D 형상 표시) --</option>';
 
     let tableHTML = `<tr style="font-size:10px; color:var(--text-tertiary);">
@@ -4249,4 +4314,715 @@ function buildIrregularPreview(data) {
     camera.position.set(cx + dist * 0.7, cy + dist * 0.5, cz + dist * 0.7);
     controls.target.set(cx, cy, cz);
     controls.update();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Display Filter System + Load Arrow Visualization
+// ═══════════════════════════════════════════════════════════════════════════════
+let _loadArrowGroup = null;
+
+const _LOAD_COLORS = {
+    DL:  0x00bcd4,  // cyan — 기둥(blue)과 구분
+    LL:  0xff9800,  // orange — 보(green)와 구분
+    EQX: 0xf44336,  // red
+    EQY: 0xff5722,  // deep orange
+    WX:  0x9c27b0,  // purple
+    WY:  0xab47bc,  // light purple
+};
+
+// Load category → case name mapping
+const _LOAD_CATEGORY = {
+    DL: ['DL'], LL: ['LL'], EQ: ['EQX','EQY'], Wind: ['WX','WY'],
+};
+
+// ─── Global filter state ──────────────────────────────────────────────────
+window._displayFilter = {
+    loads: { DL: false, LL: false, EQ: false, Wind: false },
+    stories: [],   // populated after analysis
+    types: ['column', 'beam', 'brace'],
+};
+
+function toggleFilterPanel() {
+    const p = document.getElementById('display-filter-panel');
+    if (!p) return;
+    p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+function initFilterStories() {
+    // 모델 층수에 따라 story 체크박스 동적 생성
+    const model = window._v2Model;
+    if (!model) return;
+    const elevs = model.story_elevations || [];
+    const nStories = Math.max(0, elevs.length - 1);
+    const container = document.getElementById('filter-story-checks');
+    if (!container) return;
+    container.innerHTML = '';
+    window._displayFilter.stories = [];
+    for (let i = 1; i <= nStories; i++) {
+        window._displayFilter.stories.push(i);
+        const lbl = document.createElement('label');
+        lbl.style.marginRight = '8px';
+        lbl.innerHTML = `<input type="checkbox" data-filter="story" value="${i}" onchange="onFilterChange()" checked> ${i}F`;
+        container.appendChild(lbl);
+    }
+}
+
+function filterSelectAll(filterType, checked) {
+    document.querySelectorAll(`input[data-filter="${filterType}"]`).forEach(cb => {
+        cb.checked = checked;
+    });
+    onFilterChange();
+}
+
+function onFilterChange() {
+    const f = window._displayFilter;
+
+    // Loads
+    f.loads = { DL: false, LL: false, EQ: false, Wind: false };
+    document.querySelectorAll('input[data-filter="load"]').forEach(cb => {
+        f.loads[cb.value] = cb.checked;
+    });
+
+    // Stories
+    f.stories = [];
+    document.querySelectorAll('input[data-filter="story"]').forEach(cb => {
+        if (cb.checked) f.stories.push(parseInt(cb.value));
+    });
+
+    // Types
+    f.types = [];
+    document.querySelectorAll('input[data-filter="type"]').forEach(cb => {
+        if (cb.checked) f.types.push(cb.value);
+    });
+
+    applyDisplayFilter();
+}
+
+function applyDisplayFilter() {
+    const f = window._displayFilter;
+    _applyMemberVisibility(f);
+    _buildLoadArrows();  // 하중 화살표 갱신
+}
+
+function _getMemberStory(elemData) {
+    // 부재의 층 판별: node_i의 story (상층 노드 기준)
+    if (!window._v2Model) return null;
+    const nodes = window._v2Model.nodes || [];
+    const ni = nodes.find(n => n.id === elemData.ni);
+    const nj = nodes.find(n => n.id === elemData.nj);
+    if (!ni && !nj) return null;
+    // column: 상단 노드 story, beam: 해당 story
+    const s1 = ni?.story, s2 = nj?.story;
+    return Math.max(s1 || 0, s2 || 0);
+}
+
+function _applyMemberVisibility(f) {
+    const storySet = new Set(f.stories);
+    const typeSet = new Set();
+    f.types.forEach(t => {
+        typeSet.add(t);
+        if (t === 'beam') { typeSet.add('beam_x'); typeSet.add('beam_y'); }
+    });
+
+    memberMeshes.forEach(({ mesh, elementData }) => {
+        const mType = elementData?.type || 'beam_x';
+        const mStory = _getMemberStory(elementData);
+
+        const typeOk = typeSet.has(mType) || typeSet.has('beam') && (mType === 'beam_x' || mType === 'beam_y');
+        const storyOk = mStory === null || mStory === 0 || storySet.has(mStory);
+
+        mesh.visible = typeOk && storyOk;
+    });
+
+    // 노드 visibility: 연결된 부재가 하나라도 보이면 표시
+    const visibleNodeIds = new Set();
+    memberMeshes.forEach(({ mesh, elementData }) => {
+        if (mesh.visible) {
+            visibleNodeIds.add(elementData.ni);
+            visibleNodeIds.add(elementData.nj);
+        }
+    });
+    nodeMeshes.forEach(m => {
+        const nid = m.userData?.nodeId;
+        m.visible = !nid || visibleNodeIds.has(nid);
+    });
+}
+
+// Legacy toggle (for backwards compat)
+function toggleLoadArrows() { onFilterChange(); }
+
+function _clearLoadArrows() {
+    if (_loadArrowGroup) {
+        scene.remove(_loadArrowGroup);
+        _loadArrowGroup.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+        _loadArrowGroup = null;
+    }
+}
+
+function _buildLoadArrows() {
+    _clearLoadArrows();
+    if (!currentResult || !window._v2Model) return;
+
+    const loadCases = currentResult.load_cases_raw;
+    if (!loadCases) return;
+
+    // 현재 선택된 케이스: combo면 구성 case 추출, 개별 case면 직접 매칭
+    const sel = document.getElementById('case-selector');
+    const selectedCase = sel?.value || '__envelope__';
+
+    _loadArrowGroup = new THREE.Group();
+    _loadArrowGroup.name = 'loadArrows';
+
+    const model = window._v2Model;
+    const nodes = model.nodes || [];
+    const elements = model.elements || [];
+    const nodeMap = {};
+    nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    // 모델 크기 기반 화살표 스케일
+    let maxDim = 1;
+    nodes.forEach(n => { maxDim = Math.max(maxDim, Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)); });
+
+    // 최대 하중값 (정규화용) - gravity / lateral 각각
+    let maxGrav = 0, maxLat = 0;
+    Object.values(loadCases).forEach(loads => {
+        loads.forEach(ld => {
+            if (ld.type === 'floor_area') maxGrav = Math.max(maxGrav, Math.abs(ld.value || 0));
+            else maxLat = Math.max(maxLat, Math.abs(ld.value || 0));
+        });
+    });
+    if (maxGrav < 0.001) maxGrav = 1;
+    if (maxLat < 0.001) maxLat = 1;
+
+    // 필터에서 활성화된 하중 카테고리 → case 이름 목록
+    const f = window._displayFilter || {};
+    const enabledCases = new Set();
+    Object.entries(f.loads || {}).forEach(([cat, on]) => {
+        if (on && _LOAD_CATEGORY[cat]) {
+            _LOAD_CATEGORY[cat].forEach(cn => enabledCases.add(cn));
+        }
+    });
+
+    // Case selector와 교차: 선택된 케이스 중 필터 활성인 것만
+    let casesToShow;
+    if (selectedCase === '__envelope__') {
+        casesToShow = Object.keys(loadCases).filter(cn => enabledCases.has(cn));
+    } else if (loadCases[selectedCase]) {
+        casesToShow = enabledCases.has(selectedCase) ? [selectedCase] : [];
+    } else {
+        // combo → 구성 case 추출
+        casesToShow = [];
+        Object.keys(loadCases).forEach(cn => {
+            if (selectedCase.includes(cn) && enabledCases.has(cn)) casesToShow.push(cn);
+        });
+    }
+    if (casesToShow.length === 0) { scene.add(_loadArrowGroup); return; }
+
+    // Story 필터
+    const storyFilter = new Set(f.stories || []);
+
+    const gravArrowLen = maxDim * 0.12;  // 분포하중 화살표 높이
+    const latArrowScale = maxDim * 0.3;  // 수평하중 화살표 길이
+
+    // 보 요소 (분포하중 표시용)
+    const beamElements = elements.filter(e =>
+        e.elem_type === 'beam' || e.elem_type === 'beam_x' || e.elem_type === 'beam_y'
+    );
+
+    casesToShow.forEach(caseName => {
+        const loads = loadCases[caseName];
+        if (!loads) return;
+        const color = _LOAD_COLORS[caseName] || 0x888888;
+
+        loads.forEach(ld => {
+            const story = ld.story;
+            const value = ld.value || 0;
+            if (Math.abs(value) < 0.001) return;
+
+            // Story 필터 적용
+            if (storyFilter.size > 0 && !storyFilter.has(story)) return;
+
+            const storyNodes = nodes.filter(n => n.story === story && !n.support);
+            if (storyNodes.length === 0) return;
+
+            if (ld.type === 'floor_area') {
+                // ── 분포하중: 보 위에 화살표 배열 ──
+                // Beam이 Type 필터에서 꺼져있으면 floor_area도 숨김
+                const typeSet = new Set(f.types || []);
+                if (!typeSet.has('beam')) return;
+
+                const norm = Math.abs(value) / maxGrav;
+                const aLen = gravArrowLen * Math.max(norm, 0.3);
+                const storyNodeIds = new Set(storyNodes.map(n => n.id));
+
+                beamElements.forEach(e => {
+                    const ni = nodeMap[e.node_i], nj = nodeMap[e.node_j];
+                    if (!ni || !nj) return;
+                    if (!storyNodeIds.has(e.node_i) && !storyNodeIds.has(e.node_j)) return;
+
+                    // 보 길이에 따른 화살표 개수 (2m당 1개 — 밀도 절반)
+                    const dx = nj.x-ni.x, dy = nj.y-ni.y, dz = nj.z-ni.z;
+                    const L = Math.sqrt(dx*dx+dy*dy+dz*dz);
+                    const nArrows = Math.max(2, Math.round(L / 2));
+                    const dir = new THREE.Vector3(0, -1, 0);
+
+                    for (let k = 0; k <= nArrows; k++) {
+                        const t = k / nArrows;
+                        const px = ni.x + dx*t;
+                        const py = ni.y + dy*t;
+                        const pz = ni.z + dz*t;
+                        const origin = new THREE.Vector3(px, pz + aLen, -(py));
+                        const arrow = new THREE.ArrowHelper(dir, origin, aLen, color, aLen*0.35, aLen*0.15);
+                        // 반투명 처리
+                        arrow.cone.material.transparent = true;
+                        arrow.cone.material.opacity = 0.7;
+                        arrow.line.material.transparent = true;
+                        arrow.line.material.opacity = 0.7;
+                        _loadArrowGroup.add(arrow);
+                    }
+
+                    // 상단 연결선
+                    const topPts = [];
+                    for (let k = 0; k <= nArrows; k++) {
+                        const t = k / nArrows;
+                        topPts.push(new THREE.Vector3(
+                            ni.x + dx*t, (ni.z + dz*t) + aLen, -(ni.y + dy*t)
+                        ));
+                    }
+                    const lineGeo = new THREE.BufferGeometry().setFromPoints(topPts);
+                    const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
+                    _loadArrowGroup.add(new THREE.Line(lineGeo, lineMat));
+                });
+
+            } else if (ld.type === 'lateral_x' || ld.type === 'lateral_y') {
+                // ── 수평하중: 층 중심 + 개별 노드 ──
+                const norm = Math.abs(value) / maxLat;
+                const len = latArrowScale * Math.max(norm, 0.2);
+                const isX = ld.type === 'lateral_x';
+
+                const cx = storyNodes.reduce((s,n)=>s+n.x,0)/storyNodes.length;
+                const cy = storyNodes.reduce((s,n)=>s+n.y,0)/storyNodes.length;
+                const cz = storyNodes.reduce((s,n)=>s+n.z,0)/storyNodes.length;
+
+                // 층 중심 대형 화살표
+                const dir = isX ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,0,-1);
+                const origin = isX
+                    ? new THREE.Vector3(cx - len, cz, -(cy))
+                    : new THREE.Vector3(cx, cz, -(cy) + len);
+                const bigArrow = new THREE.ArrowHelper(dir, origin, len, color, len*0.2, len*0.1);
+                bigArrow.cone.material.transparent = true; bigArrow.cone.material.opacity = 0.8;
+                bigArrow.line.material.transparent = true; bigArrow.line.material.opacity = 0.8;
+                _loadArrowGroup.add(bigArrow);
+
+                // 개별 노드 소형 화살표
+                const sLen = len * 0.4;
+                storyNodes.forEach(n => {
+                    const o = isX
+                        ? new THREE.Vector3(n.x - sLen, n.z, -(n.y))
+                        : new THREE.Vector3(n.x, n.z, -(n.y) + sLen);
+                    const a = new THREE.ArrowHelper(dir, o, sLen, color, sLen*0.25, sLen*0.1);
+                    a.cone.material.transparent = true; a.cone.material.opacity = 0.6;
+                    a.line.material.transparent = true; a.line.material.opacity = 0.6;
+                    _loadArrowGroup.add(a);
+                });
+
+                // 값 라벨 (층 중심)
+                _addLoadLabel(
+                    isX ? new THREE.Vector3(cx - len*0.3, cz + 0.5, -(cy))
+                        : new THREE.Vector3(cx, cz + 0.5, -(cy) + len*0.3),
+                    value.toFixed(1) + ' kN', color
+                );
+            }
+        });
+    });
+
+    scene.add(_loadArrowGroup);
+}
+
+function _addLoadLabel(position, text, color) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, 64, 22);
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(position);
+    sprite.scale.set(2, 0.5, 1);
+    _loadArrowGroup.add(sprite);
+}
+
+// Case 선택 변경 시 화살표도 갱신
+const _origOnCaseSelect = typeof onCaseSelect === 'function' ? onCaseSelect : null;
+function _hookCaseSelectForLoads() {
+    const sel = document.getElementById('case-selector');
+    if (sel) {
+        sel.addEventListener('change', () => {
+            if (_loadArrowsVisible) _buildLoadArrows();
+        });
+    }
+}
+// DOM ready 시 hook
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _hookCaseSelectForLoads);
+} else {
+    setTimeout(_hookCaseSelectForLoads, 500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3B: SFD / BMD / Axial Force Diagram
+// ═══════════════════════════════════════════════════════════════════════════════
+let _diagramMode = 'off';  // 'off' | 'axial' | 'shear' | 'moment'
+let _diagramGroup = null;
+
+// Force key는 부재 타입별로 동적 선택 (_getDiagramValues에서)
+const _DGM_KEY = { axial: 'N_kN', shear: null, moment: null };  // shear/moment는 동적
+const _DGM_LABEL = { axial: 'N (kN)', shear: 'V (kN)', moment: 'M (kN·m)' };
+const _DGM_POS_COLOR = 0xe53935;  // red
+const _DGM_NEG_COLOR = 0x1565c0;  // blue
+
+function setDiagramMode(mode) {
+    _diagramMode = mode;
+    document.querySelectorAll('.dgm-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.dgm === mode);
+    });
+    if (mode === 'off') {
+        _clearDiagrams();
+    } else {
+        _buildDiagrams();
+    }
+}
+
+function showDiagramButtons() {
+    const w = document.getElementById('diagram-btn-wrap');
+    if (w) w.style.display = '';
+}
+
+function _clearDiagrams() {
+    if (_diagramGroup) {
+        scene.remove(_diagramGroup);
+        _diagramGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) { if (c.material.map) c.material.map.dispose(); c.material.dispose(); }
+        });
+        _diagramGroup = null;
+    }
+}
+
+function _getCurrentCaseName() {
+    const sel = document.getElementById('case-selector');
+    const v = sel?.value;
+    if (!v || v === '__envelope__') {
+        // envelope: 첫 번째 combo 사용
+        const combos = currentResult?.combo_names || [];
+        return combos[0] || (currentResult?.case_names?.[0]) || 'DL';
+    }
+    return v;
+}
+
+function _buildDiagrams() {
+    _clearDiagrams();
+    if (_diagramMode === 'off' || !currentResult) return;
+
+    const caseName = _getCurrentCaseName();
+    const mfAll = currentResult.member_forces;
+    const mfCase = mfAll?.[caseName];
+    if (!mfCase || mfCase.length === 0) return;
+
+    const model = window._v2Model;
+    if (!model) return;
+    const nodes = model.nodes || [];
+    const nodeMap = {};
+    nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    // Display filter
+    const f = window._displayFilter || {};
+    const storySet = new Set(f.stories || []);
+    const typeSet = new Set();
+    (f.types || []).forEach(t => {
+        typeSet.add(t);
+        if (t === 'beam') { typeSet.add('beam_x'); typeSet.add('beam_y'); }
+    });
+
+    // 부재 타입별 force 배열 선택 (OpenSees 로컬 좌표 보정)
+    // beam_y: geomTransf 3에서 강축 휨이 T_kNm에, 전단이 Vy_kN에 매핑됨
+    function _safeMax(arr) { return arr.length > 0 ? Math.max(...arr.map(Math.abs)) : 0; }
+
+    function _getForceArr(mf, mode, mType) {
+        if (mode === 'axial') return mf.N_kN;
+
+        // 모든 성분에서 최대값 비교하여 지배 성분 자동 선택
+        const vy = mf.Vy_kN || [], vz = mf.Vz_kN || [];
+        const my = mf.My_kNm || [], mz = mf.Mz_kNm || [], t = mf.T_kNm || [];
+
+        if (mode === 'shear') {
+            // Vy, Vz 중 큰 것
+            return _safeMax(vy) >= _safeMax(vz) ? vy : vz;
+        }
+        if (mode === 'moment') {
+            // My, Mz, T 중 가장 큰 것 (beam_y의 T = 실제 강축 휨)
+            const maxMy = _safeMax(my), maxMz = _safeMax(mz), maxT = _safeMax(t);
+            if (maxT > maxMy && maxT > maxMz) return t;
+            return maxMy >= maxMz ? my : mz;
+        }
+        return null;
+    }
+
+    // 전체 최대값 (스케일링용)
+    let globalMax = 0;
+    mfCase.forEach(mf => {
+        const mType = mf.type || 'beam_x';
+        const arr = _getForceArr(mf, _diagramMode, mType);
+        if (arr) arr.forEach(v => { globalMax = Math.max(globalMax, Math.abs(v)); });
+    });
+    if (globalMax < 0.001) return;
+
+    // 모델 크기 기반 스케일 (최대값 = 모델크기의 10%)
+    let maxDim = 1;
+    nodes.forEach(n => { maxDim = Math.max(maxDim, Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)); });
+    const diagramScale = maxDim * 0.10 / globalMax;
+
+    _diagramGroup = new THREE.Group();
+    _diagramGroup.name = 'forceDiagrams';
+
+    mfCase.forEach(mf => {
+        const mType = mf.type || 'beam_x';
+        const arr = _getForceArr(mf, _diagramMode, mType);
+        if (!arr || arr.length < 2) return;
+
+        const ni = nodeMap[mf.ni], nj = nodeMap[mf.nj];
+        if (!ni || !nj) return;
+
+        // Filter check
+        if (!typeSet.has(mType) && !(typeSet.has('beam') && (mType==='beam_x'||mType==='beam_y'))) return;
+        const mStory = Math.max(ni.story||0, nj.story||0);
+        if (storySet.size > 0 && mStory > 0 && !storySet.has(mStory)) return;
+
+        // 부재 방향벡터
+        const dx = nj.x - ni.x, dy = nj.y - ni.y, dz = nj.z - ni.z;
+        const L = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if (L < 0.01) return;
+
+        // Three.js 좌표: (x, z, -y)
+        const p0 = new THREE.Vector3(ni.x, ni.z, -ni.y);
+        const p1 = new THREE.Vector3(nj.x, nj.z, -nj.y);
+        const axisDir = new THREE.Vector3().subVectors(p1, p0).normalize();
+
+        // 법선 방향: 부재 로컬 좌표계 기반
+        const isColumn = mType === 'column';
+        let normal;
+        if (isColumn) {
+            // 기둥(수직): 강축 방향 = X 또는 부재의 수평 투영 방향에 수직
+            // cross(axisDir, globalZ) → 수평 방향
+            const globalUp = new THREE.Vector3(0, 1, 0);
+            normal = new THREE.Vector3().crossVectors(axisDir, globalUp).normalize();
+            if (normal.lengthSq() < 0.01) {
+                // axisDir이 Y와 평행하면 X방향
+                normal.set(1, 0, 0);
+            }
+        } else {
+            // 보(수평): 항상 Y-up(중력 반대방향) 돌출
+            normal = new THREE.Vector3(0, 1, 0);
+            // 축에 직교하는 성분만
+            normal.sub(axisDir.clone().multiplyScalar(axisDir.dot(normal))).normalize();
+            if (normal.lengthSq() < 0.01) normal.set(0, 1, 0);
+        }
+
+        // 분할점에서 폴리곤 생성
+        const nPts = arr.length;
+        const positions = [];
+        const colors = [];
+
+        for (let k = 0; k < nPts; k++) {
+            const t = k / (nPts - 1);
+            const baseP = new THREE.Vector3().lerpVectors(p0, p1, t);
+            const val = arr[k];
+            const offset = normal.clone().multiplyScalar(val * diagramScale);
+            const topP = baseP.clone().add(offset);
+
+            // 기준선 점 + 돌출 점
+            positions.push(baseP.x, baseP.y, baseP.z);
+            positions.push(topP.x, topP.y, topP.z);
+
+            const c = val >= 0 ? new THREE.Color(_DGM_POS_COLOR) : new THREE.Color(_DGM_NEG_COLOR);
+            colors.push(c.r, c.g, c.b);
+            colors.push(c.r, c.g, c.b);
+        }
+
+        // 삼각형 strip → indexed triangles
+        const indices = [];
+        for (let k = 0; k < nPts - 1; k++) {
+            const i0 = k * 2, i1 = k * 2 + 1, i2 = (k+1) * 2, i3 = (k+1) * 2 + 1;
+            indices.push(i0, i1, i2);
+            indices.push(i1, i3, i2);
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+
+        const mat = new THREE.MeshBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0.5,
+            side: THREE.DoubleSide, depthWrite: false,
+        });
+        _diagramGroup.add(new THREE.Mesh(geo, mat));
+
+        // 외곽선 (돌출된 상단 라인)
+        const outlinePts = [];
+        for (let k = 0; k < nPts; k++) {
+            const t = k / (nPts - 1);
+            const baseP = new THREE.Vector3().lerpVectors(p0, p1, t);
+            const val = arr[k];
+            outlinePts.push(baseP.clone().add(normal.clone().multiplyScalar(val * diagramScale)));
+        }
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(outlinePts);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 1 });
+        _diagramGroup.add(new THREE.Line(lineGeo, lineMat));
+
+        // 최대값 라벨
+        let maxIdx = 0, maxVal = 0;
+        arr.forEach((v, i) => { if (Math.abs(v) > Math.abs(maxVal)) { maxVal = v; maxIdx = i; } });
+        if (Math.abs(maxVal) > globalMax * 0.1) {
+            const t = maxIdx / (nPts - 1);
+            const bp = new THREE.Vector3().lerpVectors(p0, p1, t);
+            const labelPos = bp.clone().add(normal.clone().multiplyScalar(maxVal * diagramScale * 1.2));
+            _addDiagramLabel(labelPos, maxVal.toFixed(1), maxVal >= 0 ? _DGM_POS_COLOR : _DGM_NEG_COLOR);
+        }
+    });
+
+    scene.add(_diagramGroup);
+}
+
+function _addDiagramLabel(pos, text, color) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 96; canvas.height = 24;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, 48, 17);
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(pos);
+    sprite.scale.set(1.5, 0.4, 1);
+    _diagramGroup.add(sprite);
+}
+
+// ─── 개별 부재 Canvas 다이어그램 (Properties 패널) ──────────────────────
+function drawMemberDiagrams(memberId) {
+    const panel = document.getElementById('prop-member-diagrams');
+    if (!panel || !currentResult) return;
+
+    const caseName = _getCurrentCaseName();
+    const mfCase = currentResult.member_forces?.[caseName];
+    if (!mfCase) { panel.style.display = 'none'; return; }
+
+    const mf = mfCase.find(m => m.member_id === memberId);
+    if (!mf) { panel.style.display = 'none'; return; }
+
+    panel.style.display = '';
+    document.getElementById('prop-dgm-combo').textContent = caseName;
+
+    // 지배 성분 자동 선택 (beam_y: T가 실제 강축 휨)
+    const vy = mf.Vy_kN || [], vz = mf.Vz_kN || [];
+    const my = mf.My_kNm || [], mz = mf.Mz_kNm || [], t = mf.T_kNm || [];
+    function _sm(a) { return a.length > 0 ? Math.max(...a.map(Math.abs)) : 0; }
+    const shearArr = _sm(vy) >= _sm(vz) ? vy : vz;
+    const maxMy = _sm(my), maxMz = _sm(mz), maxT = _sm(t);
+    const momentArr = (maxT > maxMy && maxT > maxMz) ? t : (maxMy >= maxMz ? my : mz);
+
+    _drawSingleDiagram('canvas-axial', mf.N_kN || [], 'N (kN)', '#e53935', '#1565c0');
+    _drawSingleDiagram('canvas-shear', shearArr, 'V (kN)', '#e53935', '#1565c0');
+    _drawSingleDiagram('canvas-moment', momentArr, 'M (kN·m)', '#e53935', '#1565c0');
+}
+
+function _drawSingleDiagram(canvasId, values, label, posColor, negColor) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || values.length < 2) return;
+
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const maxAbs = Math.max(...values.map(Math.abs), 0.001);
+    const midY = H / 2;
+    const scaleY = (H / 2 - 6) / maxAbs;
+    const dx = W / (values.length - 1);
+
+    // 기준선
+    ctx.strokeStyle = '#999'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(W, midY); ctx.stroke();
+
+    // 채워진 영역
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    for (let i = 0; i < values.length; i++) {
+        ctx.lineTo(i * dx, midY - values[i] * scaleY);
+    }
+    ctx.lineTo(W, midY);
+    ctx.closePath();
+
+    // 그라데이션 채우기 (양=빨강, 음=파랑)
+    const maxVal = Math.max(...values);
+    const minVal = Math.min(...values);
+    if (maxVal > 0 && minVal >= 0) {
+        ctx.fillStyle = posColor + '30';
+    } else if (maxVal <= 0 && minVal < 0) {
+        ctx.fillStyle = negColor + '30';
+    } else {
+        ctx.fillStyle = '#88888830';
+    }
+    ctx.fill();
+
+    // 외곽선
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < values.length; i++) {
+        const x = i * dx, y = midY - values[i] * scaleY;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // 라벨
+    ctx.fillStyle = '#666'; ctx.font = '9px Arial'; ctx.textAlign = 'left';
+    ctx.fillText(label, 2, 10);
+
+    // 최대값 표시
+    let maxI = 0;
+    values.forEach((v, i) => { if (Math.abs(v) > Math.abs(values[maxI])) maxI = i; });
+    const mv = values[maxI];
+    ctx.fillStyle = mv >= 0 ? posColor : negColor;
+    ctx.font = 'bold 9px Arial'; ctx.textAlign = 'right';
+    ctx.fillText(mv.toFixed(1), W - 2, 10);
+
+    // 최대값 점
+    const px = maxI * dx, py = midY - mv * scaleY;
+    ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fillStyle = mv >= 0 ? posColor : negColor; ctx.fill();
+}
+
+// Case 변경 시 다이어그램 갱신 hook
+function _hookCaseSelectForDiagrams() {
+    const sel = document.getElementById('case-selector');
+    if (sel) {
+        sel.addEventListener('change', () => {
+            if (_diagramMode !== 'off') _buildDiagrams();
+            // 개별 부재 다이어그램도 갱신
+            if (selectedMesh?.userData?.elementData) {
+                const mid = selectedMesh.userData.elementData.member_id || selectedMesh.userData.elementData.id;
+                if (mid) drawMemberDiagrams(mid);
+            }
+        });
+    }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _hookCaseSelectForDiagrams);
+} else {
+    setTimeout(_hookCaseSelectForDiagrams, 600);
 }
