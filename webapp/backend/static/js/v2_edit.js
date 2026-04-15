@@ -390,23 +390,33 @@ function showEditToolbar() {
 }
 
 function setEditMode(mode) {
-    editMode = mode;
+    // copy 모드는 내부적으로 select 동작 + 패널 자동 열기
+    const actualMode = mode === 'copy' ? 'select' : mode;
+    editMode = actualMode;
     document.querySelectorAll('.edit-btn[data-mode]').forEach(b =>
         b.classList.toggle('active', b.dataset.mode === mode));
     document.querySelectorAll('.tool-btn[data-mode]').forEach(b =>
         b.classList.toggle('active', b.dataset.mode === mode));
     const hint = document.getElementById('edit-hint');
-    if (hint) hint.textContent = EDIT_HINTS[mode] || '';
+    if (hint) hint.textContent = mode === 'copy'
+        ? 'Copy — select members, then set offset/mirror in panel'
+        : (EDIT_HINTS[actualMode] || '');
     const vc = document.getElementById('viewer-container');
     vc.className = vc.className.replace(/mode-\w+/g, '');
-    if (mode !== 'view') vc.classList.add('mode-' + mode);
+    if (actualMode !== 'view') vc.classList.add('mode-' + actualMode);
     const zSel = document.getElementById('edit-z-level');
-    if (zSel) zSel.style.display = mode === 'addNode' ? 'inline-block' : 'none';
-    // Show/hide selection filter options
+    if (zSel) zSel.style.display = actualMode === 'addNode' ? 'inline-block' : 'none';
+    // Show/hide selection filter options (select + copy 모드 모두 표시)
     const selOpts = document.getElementById('select-options');
-    if (selOpts) selOpts.style.display = mode === 'select' ? 'inline-flex' : 'none';
-    // Populate story selector when entering select mode
-    if (mode === 'select') populateStorySelector();
+    const showSelectUI = (actualMode === 'select');
+    if (selOpts) selOpts.style.display = showSelectUI ? 'inline-flex' : 'none';
+    if (showSelectUI) populateStorySelector();
+    // Copy 모드: 패널 자동 열기/닫기
+    if (mode === 'copy') {
+        if (typeof openCopyMirrorPanel === 'function') openCopyMirrorPanel();
+    } else {
+        if (typeof closeCopyMirrorPanel === 'function') closeCopyMirrorPanel();
+    }
     // 카메라 컨트롤: 모드별 마우스 버튼 배정
     if (typeof controls !== 'undefined' && controls) {
         if (mode === 'view') {
@@ -1195,7 +1205,10 @@ function setLabelMode(mode) {
 function copySelectedOffset() {
     var model = window._v2Model;
     if (!model || typeof selectedMeshSet === 'undefined') return;
-    var ids = Array.from(selectedMeshSet).map(function(m) { return m.userData?.elementData?.id; }).filter(Boolean);
+    var ids = Array.from(selectedMeshSet)
+        .filter(function(m) { return m.userData?.elementData?.type !== 'node'; })
+        .map(function(m) { return m.userData?.elementData?.id; })
+        .filter(Boolean);
     if (ids.length === 0) { alert('요소를 먼저 선택하세요.'); return; }
 
     var dx = parseFloat(prompt('X 오프셋 (m):', '0')) || 0;
@@ -1257,7 +1270,10 @@ function copySelectedOffset() {
 function mirrorSelected() {
     var model = window._v2Model;
     if (!model || typeof selectedMeshSet === 'undefined') return;
-    var ids = Array.from(selectedMeshSet).map(function(m) { return m.userData?.elementData?.id; }).filter(Boolean);
+    var ids = Array.from(selectedMeshSet)
+        .filter(function(m) { return m.userData?.elementData?.type !== 'node'; })
+        .map(function(m) { return m.userData?.elementData?.id; })
+        .filter(Boolean);
     if (ids.length === 0) { alert('요소를 먼저 선택하세요.'); return; }
 
     var axis = prompt('대칭 축 (X 또는 Y):', 'X');
@@ -1380,4 +1396,217 @@ function copyStoryPattern() {
 
     if (typeof refreshEditPreview === 'function') refreshEditPreview();
     if (typeof setStatus === 'function') setStatus('Story ' + from + ' → ' + to + ': ' + copied + ' elements copied', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Copy/Mirror 플로팅 패널 제어
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _cmCurrentTab = 'offset';
+
+function openCopyMirrorPanel() {
+    var panel = document.getElementById('copy-mirror-panel');
+    if (!panel) return;
+    panel.style.display = '';
+    _updateCMSelectionInfo();
+    _initCMDrag();
+}
+
+function closeCopyMirrorPanel() {
+    var panel = document.getElementById('copy-mirror-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+function switchCMTab(tabName) {
+    _cmCurrentTab = tabName;
+    document.querySelectorAll('.cm-tab').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.cmtab === tabName);
+    });
+    document.querySelectorAll('.cm-content').forEach(function(div) {
+        div.style.display = div.dataset.cmtab === tabName ? '' : 'none';
+    });
+}
+
+function _updateCMSelectionInfo() {
+    var info = document.getElementById('cm-selection-info');
+    if (!info || typeof selectedMeshSet === 'undefined') return;
+    var n = selectedMeshSet ? selectedMeshSet.size : 0;
+    info.textContent = '선택: ' + n + ' elements';
+}
+
+function applyCopyMirror() {
+    if (_cmCurrentTab === 'offset') {
+        var dx = parseFloat(document.getElementById('cm-dx').value) || 0;
+        var dy = parseFloat(document.getElementById('cm-dy').value) || 0;
+        var dz = parseFloat(document.getElementById('cm-dz').value) || 0;
+        if (dx === 0 && dy === 0 && dz === 0) { alert('오프셋을 입력하세요.'); return; }
+        _doCopyOffset(dx, dy, dz);
+    } else if (_cmCurrentTab === 'mirror') {
+        var axis = document.querySelector('input[name="cm-axis"]:checked')?.value || 'X';
+        var val = parseFloat(document.getElementById('cm-mirror-val').value) || 0;
+        _doMirror(axis, val);
+    } else if (_cmCurrentTab === 'story') {
+        var from = parseInt(document.getElementById('cm-from-story').value) || 1;
+        var to = parseInt(document.getElementById('cm-to-story').value) || 2;
+        if (from === to) { alert('원본과 대상 층이 같습니다.'); return; }
+        copyStoryPattern_internal(from, to);
+    }
+    closeCopyMirrorPanel();
+}
+
+function _doCopyOffset(dx, dy, dz) {
+    var model = window._v2Model;
+    if (!model || typeof selectedMeshSet === 'undefined') return;
+    // 노드 제외 — 요소만 복사
+    var ids = Array.from(selectedMeshSet)
+        .filter(function(m) { return m.userData?.elementData?.type !== 'node'; })
+        .map(function(m) { return m.userData?.elementData?.id; })
+        .filter(Boolean);
+    if (ids.length === 0) { alert('요소를 먼저 선택하세요 (노드만으로는 복사할 수 없습니다).'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+    var nextNid = 1; model.nodes.forEach(function(n) { if (n.id >= nextNid) nextNid = n.id + 1; });
+    var nextEid = 1; model.elements.forEach(function(e) { if (e.id >= nextEid) nextEid = e.id + 1; });
+
+    var copyNodeMap = {};
+    var elems = model.elements.filter(function(e) { return ids.indexOf(e.id) >= 0; });
+    elems.forEach(function(e) {
+        [e.node_i, e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig = nodeMap[nid]; if (!orig) return;
+            var existing = model.nodes.find(function(n) {
+                return Math.abs(n.x-(orig.x+dx))<0.01 && Math.abs(n.y-(orig.y+dy))<0.01 && Math.abs(n.z-(orig.z+dz))<0.01;
+            });
+            if (existing) { copyNodeMap[nid] = existing.id; }
+            else {
+                var newN = {id:nextNid++,x:orig.x+dx,y:orig.y+dy,z:orig.z+dz,support:orig.support,story:orig.story,mass:null};
+                model.nodes.push(newN); nodeMap[newN.id]=newN; copyNodeMap[nid]=newN.id;
+            }
+        });
+    });
+    var copied = 0;
+    elems.forEach(function(e) {
+        var ni=copyNodeMap[e.node_i],nj=copyNodeMap[e.node_j];
+        if (!ni||!nj||ni===nj) return;
+        model.elements.push({id:nextEid++,node_i:ni,node_j:nj,elem_type:e.elem_type,section:e.section,material:e.material,release_i:e.release_i,release_j:e.release_j,beta_angle:e.beta_angle||0});
+        copied++;
+    });
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Copied '+copied+' elements (offset:'+dx+','+dy+','+dz+')', 'success');
+}
+
+function _doMirror(axis, val) {
+    var model = window._v2Model;
+    if (!model || typeof selectedMeshSet === 'undefined') return;
+    var ids = Array.from(selectedMeshSet)
+        .filter(function(m) { return m.userData?.elementData?.type !== 'node'; })
+        .map(function(m) { return m.userData?.elementData?.id; })
+        .filter(Boolean);
+    if (ids.length === 0) { alert('요소를 먼저 선택하세요.'); return; }
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+    var nextNid = 1; model.nodes.forEach(function(n) { if (n.id >= nextNid) nextNid = n.id + 1; });
+    var nextEid = 1; model.elements.forEach(function(e) { if (e.id >= nextEid) nextEid = e.id + 1; });
+
+    var copyNodeMap = {};
+    var elems = model.elements.filter(function(e) { return ids.indexOf(e.id) >= 0; });
+    elems.forEach(function(e) {
+        [e.node_i, e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig = nodeMap[nid]; if (!orig) return;
+            var mx=orig.x, my=orig.y;
+            if (axis==='X') my=2*val-orig.y; else mx=2*val-orig.x;
+            var existing = model.nodes.find(function(n) {
+                return Math.abs(n.x-mx)<0.01 && Math.abs(n.y-my)<0.01 && Math.abs(n.z-orig.z)<0.01;
+            });
+            if (existing) { copyNodeMap[nid]=existing.id; }
+            else {
+                var newN={id:nextNid++,x:Math.round(mx*1e6)/1e6,y:Math.round(my*1e6)/1e6,z:orig.z,support:orig.support,story:orig.story,mass:null};
+                model.nodes.push(newN); nodeMap[newN.id]=newN; copyNodeMap[nid]=newN.id;
+            }
+        });
+    });
+    var copied = 0;
+    elems.forEach(function(e) {
+        var ni=copyNodeMap[e.node_i],nj=copyNodeMap[e.node_j];
+        if (!ni||!nj||ni===nj) return;
+        model.elements.push({id:nextEid++,node_i:ni,node_j:nj,elem_type:e.elem_type,section:e.section,material:e.material,release_i:e.release_i,release_j:e.release_j,beta_angle:e.beta_angle||0});
+        copied++;
+    });
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Mirrored '+copied+' elements ('+axis+'='+val+')', 'success');
+}
+
+function copyStoryPattern_internal(from, to) {
+    var model = window._v2Model;
+    if (!model) return;
+    var elevs = model.story_elevations || [];
+    if (from >= elevs.length || to >= elevs.length) { alert('층 범위 초과'); return; }
+    var dz = elevs[to] - elevs[from];
+    if (typeof pushUndo === 'function') pushUndo();
+
+    var nodeMap = {};
+    model.nodes.forEach(function(n) { nodeMap[n.id] = n; });
+    var fromElems = model.elements.filter(function(e) {
+        var ni=nodeMap[e.node_i],nj=nodeMap[e.node_j];
+        if (!ni||!nj) return false;
+        return ni.story===from || nj.story===from;
+    });
+    if (fromElems.length === 0) { alert('원본 층에 요소가 없습니다.'); return; }
+
+    var nextNid=1; model.nodes.forEach(function(n){if(n.id>=nextNid)nextNid=n.id+1;});
+    var nextEid=1; model.elements.forEach(function(e){if(e.id>=nextEid)nextEid=e.id+1;});
+    var copyNodeMap = {};
+    fromElems.forEach(function(e) {
+        [e.node_i,e.node_j].forEach(function(nid) {
+            if (copyNodeMap[nid]) return;
+            var orig=nodeMap[nid]; if (!orig) return;
+            var nz=orig.z+dz;
+            var existing=model.nodes.find(function(n){return Math.abs(n.x-orig.x)<0.01&&Math.abs(n.y-orig.y)<0.01&&Math.abs(n.z-nz)<0.01;});
+            if (existing) { copyNodeMap[nid]=existing.id; }
+            else {
+                var ns=orig.story!=null?orig.story+(to-from):null;
+                var newN={id:nextNid++,x:orig.x,y:orig.y,z:nz,support:null,story:ns,mass:null};
+                model.nodes.push(newN); nodeMap[newN.id]=newN; copyNodeMap[nid]=newN.id;
+            }
+        });
+    });
+    var copied=0;
+    fromElems.forEach(function(e) {
+        var ni=copyNodeMap[e.node_i],nj=copyNodeMap[e.node_j];
+        if (!ni||!nj||ni===nj) return;
+        model.elements.push({id:nextEid++,node_i:ni,node_j:nj,elem_type:e.elem_type,section:e.section,material:e.material,release_i:e.release_i,release_j:e.release_j,beta_angle:e.beta_angle||0});
+        copied++;
+    });
+    if (typeof refreshEditPreview === 'function') refreshEditPreview();
+    if (typeof setStatus === 'function') setStatus('Story '+from+' → '+to+': '+copied+' elements copied', 'success');
+}
+
+// ─── 드래그 이동 ──────────────────────────────────────────────────────────
+function _initCMDrag() {
+    var panel = document.getElementById('copy-mirror-panel');
+    var titlebar = document.getElementById('cm-titlebar');
+    if (!panel || !titlebar || titlebar._dragInited) return;
+    titlebar._dragInited = true;
+
+    var ox = 0, oy = 0, sx = 0, sy = 0;
+    titlebar.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        sx = e.clientX; sy = e.clientY;
+        ox = panel.offsetLeft; oy = panel.offsetTop;
+        function onMove(ev) {
+            panel.style.left = (ox + ev.clientX - sx) + 'px';
+            panel.style.top = (oy + ev.clientY - sy) + 'px';
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
 }
