@@ -1339,6 +1339,7 @@ async def analyze_v2_api(request: Request):
             "status": "success",
             "pipeline": "v2_node_element",
             "building": model.summary(),
+            "updated_model": model.to_json(),  # split 후 모델 (JS 동기화용)
             "envelope": env,
             "case_names": list(multi.case_results.keys()) + (["__RSA__"] if rsa_result else []),
             "combo_names": list(multi.combo_results.keys()) + extra_combo_names,

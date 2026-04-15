@@ -1798,6 +1798,12 @@ async function runAnalysisV2() {
         const result = await resp.json();
         if (result.status !== 'success') throw new Error('V2 해석 실패');
 
+        // 서버에서 split 후 모델로 동기화 (교차점 노드 포함)
+        if (result.updated_model) {
+            window._v2Model = result.updated_model;
+            console.log('[V2] Model synced after split:', window._v2Model.nodes.length, 'nodes,', window._v2Model.elements.length, 'elems');
+        }
+
         // V2 결과를 V1 형식으로 변환하여 기존 UI에 표시
         currentJobId = result.job_id;
         modelSource = 'IFC (V2)';
