@@ -266,15 +266,44 @@ function toggleSolidSection() {
     var chk = document.getElementById('chk-solid-section');
     window.solidMode = chk ? chk.checked : false;
     if (window.solidMode) {
+        _hideWireMeshes();
         loadSectionPropsAndBuild();
     } else {
         removeSolidMeshes();
+        _showWireMeshes();
     }
+}
+
+function _hideWireMeshes() {
+    // 해석 후 결과 씬 + preview 씬 모두 숨김
+    // memberMeshes/nodeMeshes는 editor3d_v2.js에서 let으로 선언되지만 같은 전역 스코프
+    try {
+        memberMeshes.forEach(function(item) { if (item.mesh) item.mesh.visible = false; });
+    } catch(e) {}
+    try {
+        nodeMeshes.forEach(function(m) { if (m) m.visible = false; });
+    } catch(e) {}
+    scene.traverse(function(obj) {
+        if (obj.userData && obj.userData._isPreviewElement) obj.visible = false;
+    });
+}
+
+function _showWireMeshes() {
+    try {
+        memberMeshes.forEach(function(item) { if (item.mesh) item.mesh.visible = true; });
+    } catch(e) {}
+    try {
+        nodeMeshes.forEach(function(m) { if (m) m.visible = true; });
+    } catch(e) {}
+    scene.traverse(function(obj) {
+        if (obj.userData && obj.userData._isPreviewElement) obj.visible = true;
+    });
 }
 
 function removeSolidMeshes() {
     (window.solidMeshes || []).forEach(function(m) { scene.remove(m); });
     window.solidMeshes = [];
+    window._solidMeshMap = {};
 }
 
 async function loadSectionPropsAndBuild() {
@@ -324,29 +353,156 @@ async function loadSectionPropsAndBuild() {
 }
 
 function buildHSectionShape(h, b, tw, tf) {
-    // H형강 단면 Shape (mm 단위 → m 변환은 호출 시)
-    // 중심이 (0,0)
+    // H형강 단면 Shape (중심 (0,0))
     var hw = h / 2, bw = b / 2, twh = tw / 2, tfv = tf;
     var s = new THREE.Shape();
-    // 하부 플랜지
     s.moveTo(-bw, -hw);
     s.lineTo(bw, -hw);
     s.lineTo(bw, -hw + tfv);
     s.lineTo(twh, -hw + tfv);
-    // 웹
     s.lineTo(twh, hw - tfv);
-    // 상부 플랜지
     s.lineTo(bw, hw - tfv);
     s.lineTo(bw, hw);
     s.lineTo(-bw, hw);
     s.lineTo(-bw, hw - tfv);
     s.lineTo(-twh, hw - tfv);
-    // 웹 (돌아옴)
     s.lineTo(-twh, -hw + tfv);
-    // 하부 플랜지 (돌아옴)
     s.lineTo(-bw, -hw + tfv);
     s.lineTo(-bw, -hw);
     return s;
+}
+
+function buildSHSShape(b, t) {
+    // SHS/RHS 사각 중공 단면 Shape (중심 (0,0))
+    var hw = b / 2;
+    var outer = new THREE.Shape();
+    outer.moveTo(-hw, -hw);
+    outer.lineTo(hw, -hw);
+    outer.lineTo(hw, hw);
+    outer.lineTo(-hw, hw);
+    outer.lineTo(-hw, -hw);
+    // 내부 중공 (hole)
+    var iw = hw - t;
+    if (iw > 0) {
+        var hole = new THREE.Path();
+        hole.moveTo(-iw, -iw);
+        hole.lineTo(iw, -iw);
+        hole.lineTo(iw, iw);
+        hole.lineTo(-iw, iw);
+        hole.lineTo(-iw, -iw);
+        outer.holes.push(hole);
+    }
+    return outer;
+}
+
+function buildRHSShape(h, b, t) {
+    // RHS 직사각 중공 단면 Shape (중심 (0,0))
+    var hh = h / 2, bh = b / 2;
+    var outer = new THREE.Shape();
+    outer.moveTo(-bh, -hh);
+    outer.lineTo(bh, -hh);
+    outer.lineTo(bh, hh);
+    outer.lineTo(-bh, hh);
+    outer.lineTo(-bh, -hh);
+    var ih = hh - t, ib = bh - t;
+    if (ih > 0 && ib > 0) {
+        var hole = new THREE.Path();
+        hole.moveTo(-ib, -ih);
+        hole.lineTo(ib, -ih);
+        hole.lineTo(ib, ih);
+        hole.lineTo(-ib, ih);
+        hole.lineTo(-ib, -ih);
+        outer.holes.push(hole);
+    }
+    return outer;
+}
+
+function buildCHSShape(d, t) {
+    // CHS 원형 중공 단면 Shape (중심 (0,0))
+    var ro = d / 2;
+    var outer = new THREE.Shape();
+    outer.absarc(0, 0, ro, 0, Math.PI * 2, false);
+    var ri = ro - t;
+    if (ri > 0) {
+        var hole = new THREE.Path();
+        hole.absarc(0, 0, ri, 0, Math.PI * 2, true);
+        outer.holes.push(hole);
+    }
+    return outer;
+}
+
+function buildLShape(a, b, t) {
+    // L형강 (ㄱ) 단면 Shape (중심 ≈ 도심 근사, 좌하단 기준)
+    var s = new THREE.Shape();
+    // 수직 플랜지 (좌측)
+    s.moveTo(0, 0);
+    s.lineTo(t, 0);
+    s.lineTo(t, a - t);
+    s.lineTo(0, a - t);
+    s.lineTo(0, 0);
+    // 수평 플랜지 (하단)
+    var s2 = new THREE.Shape();
+    s2.moveTo(0, 0);
+    s2.lineTo(b, 0);
+    s2.lineTo(b, t);
+    s2.lineTo(0, t);
+    s2.lineTo(0, 0);
+    // 합치기: L자 외곽선을 하나의 Shape로
+    var ls = new THREE.Shape();
+    ls.moveTo(-b/2, -a/2);
+    ls.lineTo(-b/2 + b, -a/2);
+    ls.lineTo(-b/2 + b, -a/2 + t);
+    ls.lineTo(-b/2 + t, -a/2 + t);
+    ls.lineTo(-b/2 + t, -a/2 + a);
+    ls.lineTo(-b/2, -a/2 + a);
+    ls.lineTo(-b/2, -a/2);
+    return ls;
+}
+
+function buildChannelShape(h, b, tw, tf) {
+    // ㄷ형강 (Channel) 단면 Shape (중심 (0,0))
+    var hh = h/2, bh = b;
+    var s = new THREE.Shape();
+    // 외곽 C자
+    s.moveTo(0, -hh);
+    s.lineTo(bh, -hh);
+    s.lineTo(bh, -hh + tf);
+    s.lineTo(tw, -hh + tf);
+    s.lineTo(tw, hh - tf);
+    s.lineTo(bh, hh - tf);
+    s.lineTo(bh, hh);
+    s.lineTo(0, hh);
+    s.lineTo(0, -hh);
+    return s;
+}
+
+/** 단면명에서 타입 판별 */
+function _detectSectionType(name) {
+    if (!name) return 'H';
+    if (name.startsWith('\u25a1-') || name.startsWith('□-')) {
+        // SHS: □-BxBxt  /  RHS: □-HxBxt (H≠B)
+        var m = name.match(/(\d+\.?\d*)[xX](\d+\.?\d*)[xX](\d+\.?\d*)/);
+        if (m) {
+            var a = parseFloat(m[1]), b = parseFloat(m[2]), t = parseFloat(m[3]);
+            if (Math.abs(a - b) < 1) return 'SHS';
+            return 'RHS';
+        }
+        return 'SHS';
+    }
+    if (name.startsWith('\u25cb-') || name.startsWith('○-')) return 'CHS';
+    if (name.startsWith('L-')) return 'L';
+    if (name.startsWith('TFC-') || name.startsWith('PFC-')) return 'C';
+    if (name.startsWith('T-')) return 'T';
+    return 'H';
+}
+
+/** 단면명에서 치수 파싱 (SHS/RHS/CHS) */
+function _parseSectionDims(name) {
+    var m = name.match(/(\d+\.?\d*)[xX](\d+\.?\d*)[xX](\d+\.?\d*)/);
+    if (m) return { a: parseFloat(m[1]), b: parseFloat(m[2]), t: parseFloat(m[3]) };
+    m = name.match(/(\d+\.?\d*)[xX](\d+\.?\d*)/);
+    if (m) return { a: parseFloat(m[1]), b: parseFloat(m[2]), t: null };
+    return null;
 }
 
 function buildSolidMeshes() {
@@ -364,25 +520,54 @@ function buildSolidMeshes() {
         var nj = nodeMap[elem.node_j];
         if (!ni || !nj) { skipped++; return; }
 
+        var sType = _detectSectionType(elem.section);
         var props = (window._sectionDims || {})[elem.section];
-        if (!props || !props.h || !props.b) {
-            // 단면 이름에서 치수 추정 시도 (H-300x150 → h=300, b=150)
-            var match = elem.section.match(/H-?(\d+)[xX×](\d+)/);
-            if (match) {
-                props = { h: parseInt(match[1]), b: parseInt(match[2]), tw: 8, tf: 12 };
-            } else {
-                skipped++; return;
+        var shape;
+
+        if (sType === 'SHS') {
+            var dims = _parseSectionDims(elem.section);
+            var b_m = ((props && props.b) || (dims && dims.a) || 150) / 1000;
+            var t_m = ((props && props.t_mm) || (dims && dims.t) || b_m * 50) / 1000;
+            shape = buildSHSShape(b_m, t_m);
+        } else if (sType === 'RHS') {
+            var dims = _parseSectionDims(elem.section);
+            var h_m = ((props && props.h) || (dims && dims.a) || 200) / 1000;
+            var b_m = ((props && props.b) || (dims && dims.b) || 100) / 1000;
+            var t_m = ((props && props.t_mm) || (dims && dims.t) || 6) / 1000;
+            shape = buildRHSShape(h_m, b_m, t_m);
+        } else if (sType === 'CHS') {
+            var dims = _parseSectionDims(elem.section);
+            var d_m = ((props && props.h) || (dims && dims.a) || 200) / 1000;
+            var t_m = ((props && props.t_mm) || (dims && dims.b) || 6) / 1000;
+            shape = buildCHSShape(d_m, t_m);
+        } else if (sType === 'L') {
+            var dims = _parseSectionDims(elem.section);
+            var a_m = ((props && props.h) || (dims && dims.a) || 100) / 1000;
+            var b_m = ((props && props.b) || (dims && dims.b) || a_m * 1000) / 1000;
+            var t_m = ((props && props.tw) || (dims && dims.t) || 10) / 1000;
+            shape = buildLShape(a_m, b_m, t_m);
+        } else if (sType === 'C') {
+            var h_m = ((props && props.h) || 200) / 1000;
+            var b_m = ((props && props.b) || 80) / 1000;
+            var tw_m = ((props && props.tw) || 7) / 1000;
+            var tf_m = ((props && props.tf) || 11) / 1000;
+            shape = buildChannelShape(h_m, b_m, tw_m, tf_m);
+        } else {
+            // H형강 / I형강 / 기타
+            if (!props || !props.h || !props.b) {
+                var match = elem.section.match(/H-?(\d+)[xX×](\d+)/);
+                if (match) {
+                    props = { h: parseInt(match[1]), b: parseInt(match[2]), tw: 8, tf: 12 };
+                } else {
+                    skipped++; return;
+                }
             }
+            var h_m = props.h / 1000;
+            var b_m = props.b / 1000;
+            var tw_m = (props.tw || props.b * 0.05) / 1000;
+            var tf_m = (props.tf || props.h * 0.05) / 1000;
+            shape = buildHSectionShape(h_m, b_m, tw_m, tf_m);
         }
-
-        // mm → m
-        var h_m = props.h / 1000;
-        var b_m = props.b / 1000;
-        var tw_m = (props.tw || props.b * 0.05) / 1000;
-        var tf_m = (props.tf || props.h * 0.05) / 1000;
-
-        // H형강 Shape (m 단위)
-        var shape = buildHSectionShape(h_m, b_m, tw_m, tf_m);
 
         // 부재 길이
         var dx = nj.x - ni.x, dy = nj.y - ni.y, dz = nj.z - ni.z;
@@ -417,9 +602,13 @@ function buildSolidMeshes() {
 
         mesh.position.copy(startPos);
         mesh.setRotationFromQuaternion(quat);
+        mesh.userData._solidElementId = elem.id;
+        mesh.userData._solidOrigColor = color;
 
         scene.add(mesh);
         window.solidMeshes.push(mesh);
+        window._solidMeshMap = window._solidMeshMap || {};
+        window._solidMeshMap[elem.id] = mesh;
         // 엣지 윤곽선
         var edges = new THREE.EdgesGeometry(geometry, 15);
         var edgeLine = new THREE.LineSegments(edges, edgeMat);

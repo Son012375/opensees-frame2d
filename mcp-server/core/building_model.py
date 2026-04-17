@@ -135,6 +135,7 @@ class BuildingModel:
     rigid_diaphragm: bool = False   # True면 층별 강체 다이어프램 적용
     member_releases: dict = field(default_factory=dict)  # 부재 릴리즈 (힌지)
     geometric_nonlinearity: str = "linear"  # "linear" or "pdelta"
+    slab_distribution: str = "2way"         # "2way" (45° yield line) or "uniform" (50/50)
 
     # ── 자동 계산 속성 ──
 
@@ -313,6 +314,7 @@ class BuildingModel:
             rigid_diaphragm=config.get("rigid_diaphragm", False),
             member_releases=config.get("member_releases", {}),
             geometric_nonlinearity=config.get("geometric_nonlinearity", "linear"),
+            slab_distribution=config.get("slab_distribution", "2way"),
         )
 
     @classmethod
@@ -396,6 +398,7 @@ class BuildingModel:
             "rigid_diaphragm": self.rigid_diaphragm,
             "member_releases": self.member_releases or None,
             "geometric_nonlinearity": self.geometric_nonlinearity,
+            "slab_distribution": self.slab_distribution,
         }
         if self.is_irregular:
             kwargs["zones"] = [

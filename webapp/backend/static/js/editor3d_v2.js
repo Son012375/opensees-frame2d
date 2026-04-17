@@ -658,6 +658,7 @@ function updateManualPreview() {
         selectedMeshSet.clear();
         currentResult = null;
         currentJobId = null;
+        _setExportBtnEnabled(false);
     }
 
     if (isIrregular) {
@@ -1416,6 +1417,10 @@ function buildV2PreviewScene(v2Model, skipCameraFit) {
         camera.position.set(cx + span * 1.5, cz + span * 0.8, -cy + span * 1.5);
         controls.update();
     }
+
+    // Numbers 토글 활성 시 라벨 재빌드
+    if (typeof _refreshNumberLabels === 'function') _refreshNumberLabels();
+    if (typeof _rebuildStoryCheckboxes === 'function') _rebuildStoryCheckboxes();
 }
 
 // ─── Text Sprite Helper (high-res, proper aspect ratio) ─────────────────
@@ -1806,6 +1811,7 @@ async function runAnalysisV2() {
 
         // V2 결과를 V1 형식으로 변환하여 기존 UI에 표시
         currentJobId = result.job_id;
+        _setExportBtnEnabled(true);
         modelSource = 'IFC (V2)';
 
         // V1 buildScene/updateResultsPanel이 기대하는 형식으로 변환
@@ -1815,9 +1821,15 @@ async function runAnalysisV2() {
         buildScene(v1Result);
         updateResultsPanel(v1Result);
         updateBottomBar(v1Result);
+        if (typeof _refreshNumberLabels === 'function') _refreshNumberLabels();
+    if (typeof _rebuildStoryCheckboxes === 'function') _rebuildStoryCheckboxes();
 
-        // 해석 후 편집 비활성화 + Solid Section 끄기
-        if (typeof disableEditing === 'function') disableEditing();
+        // 해석 후 편집 비활성화 + 결과 Selection toolbar 표시
+        if (typeof showResultSelectionToolbar === 'function') {
+            showResultSelectionToolbar();
+        } else if (typeof disableEditing === 'function') {
+            disableEditing();
+        }
         if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
         window.solidMode = false;
         var chkSolid = document.getElementById('chk-solid-section');
@@ -2102,6 +2114,7 @@ async function runAnalysis(configOverride = null) {
 
         const result = await response.json();
         currentJobId = result.job_id;
+        _setExportBtnEnabled(true);
         currentResult = result;
 
         buildScene(result);
@@ -2168,6 +2181,7 @@ async function applyMemberChange() {
 
         const result = await response.json();
         currentJobId = result.job_id;
+        _setExportBtnEnabled(true);
         currentResult = result;
 
         buildScene(result);
@@ -2219,6 +2233,7 @@ async function applyGlobalSection(memberType) {
 
         const result = await response.json();
         currentJobId = result.job_id;
+        _setExportBtnEnabled(true);
         currentResult = result;
 
         buildScene(result);
@@ -2284,6 +2299,193 @@ async function applySingleMemberChange() {
         setStatus(`E${elemId} → ${newSection}, 재해석 중...`, 'running');
         await runAnalysisV2();
     }
+}
+
+// ─── 층별 단면 일괄 변경 ──────────────────────────────────────────────────
+
+const _PREVIEW_COLOR = 0xff9800;  // 층 체크 프리뷰 색 (주황)
+let _storyPreviewMeshes = new Set();  // 프리뷰 하이라이트 적용된 mesh
+
+/** 부재의 대표 층 (하위 층 기준: 기둥은 하단 노드 story, 보는 그 층) */
+function _elemStoryOf(e, nodeMap) {
+    const ni = nodeMap[e.node_i], nj = nodeMap[e.node_j];
+    const si = ni?.story, sj = nj?.story;
+    if (si == null && sj == null) return null;
+    if (si == null) return sj;
+    if (sj == null) return si;
+    return Math.min(si, sj);
+}
+
+function _clearStoryPreview() {
+    _storyPreviewMeshes.forEach(mesh => {
+        const orig = mesh.userData._previewOrigColor;
+        if (orig !== undefined) {
+            mesh.material.color.setHex(orig);
+            delete mesh.userData._previewOrigColor;
+        }
+    });
+    _storyPreviewMeshes.clear();
+}
+
+function _updateStoryPreview() {
+    // 기존 프리뷰 해제
+    _clearStoryPreview();
+
+    const sel = selectedMesh?.userData?.elementData;
+    if (!sel) return;
+    let elemType = sel.type;
+    if (elemType === 'beam') elemType = 'beam_x';
+
+    const checkedStories = Array.from(
+        document.querySelectorAll('#modify-story-checks input[data-story-sel]:checked')
+    ).map(c => parseInt(c.dataset.storySel, 10));
+    if (checkedStories.length === 0) return;
+
+    const model = window._v2Model;
+    if (!model) return;
+    const nodeMap = {};
+    model.nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    // 매칭되는 element id 수집
+    const matchIds = new Set();
+    model.elements.forEach(e => {
+        let et = e.elem_type;
+        if (et === 'beam') et = 'beam_x';
+        if (et !== elemType) return;
+        const story = _elemStoryOf(e, nodeMap);
+        if (story != null && checkedStories.includes(story)) {
+            matchIds.add(e.id);
+        }
+    });
+
+    // 해당 mesh에 프리뷰 색 적용 (선택된 mesh는 제외)
+    memberMeshes.forEach(({ mesh, elementData }) => {
+        if (!elementData || elementData.type === 'node') return;
+        if (!matchIds.has(elementData.id)) return;
+        if (selectedMeshSet.has(mesh)) return;  // 선택 색 유지
+        if (mesh.userData._previewOrigColor === undefined) {
+            mesh.userData._previewOrigColor = mesh.material.color.getHex();
+        }
+        mesh.material.color.setHex(_PREVIEW_COLOR);
+        _storyPreviewMeshes.add(mesh);
+    });
+
+    // Solid mesh에도 프리뷰 적용
+    if (window._solidMeshMap) {
+        matchIds.forEach(eid => {
+            const sm = window._solidMeshMap[eid];
+            if (!sm) return;
+            if (sm.userData._previewOrigColor === undefined) {
+                sm.userData._previewOrigColor = sm.material.color.getHex();
+            }
+            sm.material.color.setHex(_PREVIEW_COLOR);
+            _storyPreviewMeshes.add(sm);
+        });
+    }
+}
+
+function _rebuildStoryCheckboxes() {
+    const wrap = document.getElementById('modify-story-checks');
+    if (!wrap) return;
+    const model = window._v2Model;
+    if (!model || !model.nodes) {
+        wrap.innerHTML = '<span style="color:#999;">(모델 없음)</span>';
+        _clearStoryPreview();
+        return;
+    }
+    const stories = new Set();
+    model.nodes.forEach(n => { if (n.story != null) stories.add(n.story); });
+    const sorted = Array.from(stories).sort((a, b) => a - b);
+    if (sorted.length === 0) {
+        wrap.innerHTML = '<span style="color:#999;">(층 정보 없음)</span>';
+        _clearStoryPreview();
+        return;
+    }
+    // 기존 체크 상태 보존
+    const prevChecked = new Set(
+        Array.from(wrap.querySelectorAll('input[data-story-sel]:checked'))
+            .map(c => parseInt(c.dataset.storySel, 10))
+    );
+    wrap.innerHTML = sorted.map(s => {
+        const c = prevChecked.has(s) ? ' checked' : '';
+        return `<label style="display:flex; align-items:center; gap:2px; cursor:pointer;"><input type="checkbox" data-story-sel="${s}" onchange="_updateStoryPreview()"${c}> ${s}F</label>`;
+    }).join('');
+    _updateStoryPreview();
+}
+
+function storySelAll(on) {
+    document.querySelectorAll('#modify-story-checks input[data-story-sel]').forEach(c => c.checked = on);
+    _updateStoryPreview();
+}
+
+function storySelCurrent() {
+    const elem = selectedMesh?.userData?.elementData;
+    if (!elem) { alert('부재를 먼저 선택하세요.'); return; }
+    const model = window._v2Model;
+    if (!model) return;
+    const nodeMap = {};
+    model.nodes.forEach(n => { nodeMap[n.id] = n; });
+    // elem.ni / elem.nj 는 buildScene/preview에서 저장된 노드 ID
+    const fakeEl = { node_i: elem.ni, node_j: elem.nj };
+    const story = _elemStoryOf(fakeEl, nodeMap);
+    storySelAll(false);
+    if (story != null) {
+        const cb = document.querySelector(`#modify-story-checks input[data-story-sel="${story}"]`);
+        if (cb) cb.checked = true;
+    }
+    _updateStoryPreview();
+}
+
+async function applyStorySection() {
+    if (!currentJobId) { alert('먼저 해석을 실행해주세요.'); return; }
+    const newSection = document.getElementById('prop-new-section')?.value;
+    if (!newSection) return;
+    if (!selectedMesh?.userData?.elementData) {
+        alert('부재를 먼저 선택하세요.');
+        return;
+    }
+
+    const sel = selectedMesh.userData.elementData;
+    let elemType = sel.type;
+    if (elemType === 'beam') elemType = 'beam_x';
+
+    const checkedStories = Array.from(
+        document.querySelectorAll('#modify-story-checks input[data-story-sel]:checked')
+    ).map(c => parseInt(c.dataset.storySel, 10));
+
+    if (checkedStories.length === 0) {
+        alert('적용할 층을 하나 이상 체크하세요.');
+        return;
+    }
+
+    const model = window._v2Model;
+    if (!model) return;
+    const nodeMap = {};
+    model.nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    let changed = 0;
+    model.elements.forEach(e => {
+        let et = e.elem_type;
+        if (et === 'beam') et = 'beam_x';
+        if (et !== elemType) return;
+        const story = _elemStoryOf(e, nodeMap);
+        if (story == null) return;
+        if (checkedStories.includes(story)) {
+            e.section = newSection;
+            changed++;
+        }
+    });
+
+    if (changed === 0) {
+        alert('해당 조건(타입+층)에 맞는 부재가 없습니다.');
+        return;
+    }
+
+    const typeLabel = { column: '기둥', beam_x: 'X보', beam_y: 'Y보' }[elemType] || elemType;
+    console.log(`[V2] Story-filtered section change: ${typeLabel} @ ${checkedStories.join(',')}F → ${changed} elements`);
+    setStatus(`${typeLabel} ${changed}개 변경 (층 ${checkedStories.join(',')}) → 재해석 중...`, 'running');
+    _clearStoryPreview();  // 재해석 전 프리뷰 해제 (씬 재빌드됨)
+    await runAnalysisV2();
 }
 
 // ─── Build 3D Scene ───────────────────────────────────────────────────────
@@ -2362,8 +2564,10 @@ function buildScene(result) {
         const sphere = new THREE.Mesh(geo, mat);
         sphere.position.set(n.x, n.z, -n.y);
         sphere.userData.nodeId = n.id;
+        sphere.userData.elementData = { id: n.id, type: 'node', x: n.x, y: n.y, z: n.z };
         scene.add(sphere);
         nodeMeshes.push(sphere);
+        memberMeshes.push({ mesh: sphere, elementData: sphere.userData.elementData });
     });
 
     // Reset deformed shape state
@@ -2467,14 +2671,39 @@ async function showHoverTooltip(elem, cx, cy) {
     // Fetch section properties
     const data = await fetchSectionProps(elem.section);
     if (hoveredMesh && data && !data.error) {
-        const rows = [
-            ['A',  data.A_cm2,  'cm\u00B2'],
-            ['Ix', data.Ix_cm4, 'cm\u2074'],
-            ['Iy', data.Iy_cm4, 'cm\u2074'],
-            ['J',  data.J_cm4,  'cm\u2074'],
-            ['H',  data.h_mm,   'mm'],
-            ['B',  data.b_mm,   'mm'],
-        ];
+        // 단면 타입별 표시 필드 선택
+        const sType = data.section_type || (typeof _detectSectionType === 'function' ? _detectSectionType(elem.section) : 'H');
+        let rows;
+        if (sType === 'SHS' || sType === 'RHS') {
+            rows = [
+                ['A',  data.A_cm2,  'cm\u00B2'],
+                ['Ix', data.Ix_cm4, 'cm\u2074'],
+                ['Iy', data.Iy_cm4, 'cm\u2074'],
+                ['J',  data.J_cm4,  'cm\u2074'],
+                ['B',  data.b_mm || data.h_mm, 'mm'],
+                ['t',  data.t_mm || data.tw_mm, 'mm'],
+            ];
+            if (sType === 'RHS') {
+                rows.splice(4, 0, ['H', data.h_mm, 'mm']);
+            }
+        } else if (sType === 'CHS') {
+            rows = [
+                ['A',  data.A_cm2,  'cm\u00B2'],
+                ['I',  data.Ix_cm4, 'cm\u2074'],
+                ['J',  data.J_cm4,  'cm\u2074'],
+                ['D',  data.h_mm,   'mm'],
+                ['t',  data.t_mm || data.tw_mm, 'mm'],
+            ];
+        } else {
+            rows = [
+                ['A',  data.A_cm2,  'cm\u00B2'],
+                ['Ix', data.Ix_cm4, 'cm\u2074'],
+                ['Iy', data.Iy_cm4, 'cm\u2074'],
+                ['J',  data.J_cm4,  'cm\u2074'],
+                ['H',  data.h_mm,   'mm'],
+                ['B',  data.b_mm,   'mm'],
+            ];
+        }
         let grid = rows
             .filter(r => r[1] > 0)
             .map(([k, v, u]) => `<span class="sp-key">${k}</span><span class="sp-val">${v.toLocaleString()}</span><span class="sp-unit">${u}</span>`)
@@ -2530,6 +2759,8 @@ function highlightMesh(mesh) {
     mesh.material.color.setHex(COLORS.selected);
     mesh.material.opacity = 1.0;
     selectedMeshSet.add(mesh);
+    // Solid mode: 해당 부재의 solid mesh도 하이라이트
+    _highlightSolidMesh(mesh.userData.elementData?.id, true);
 }
 
 function unhighlightMesh(mesh) {
@@ -2542,9 +2773,26 @@ function unhighlightMesh(mesh) {
     mesh.material.opacity = 0.85;
     delete mesh.userData._origColor;
     selectedMeshSet.delete(mesh);
+    // Solid mode: 해당 부재의 solid mesh 원복
+    _highlightSolidMesh(mesh.userData.elementData?.id, false);
+}
+
+function _highlightSolidMesh(elemId, on) {
+    if (!elemId || !window._solidMeshMap) return;
+    const sm = window._solidMeshMap[elemId];
+    if (!sm) return;
+    if (on) {
+        sm.material.color.setHex(COLORS.selected);
+        sm.material.emissive = new THREE.Color(0x330011);
+    } else {
+        const orig = sm.userData._solidOrigColor;
+        if (orig !== undefined) sm.material.color.setHex(orig);
+        sm.material.emissive = new THREE.Color(0x000000);
+    }
 }
 
 function clearAllSelection() {
+    if (typeof _clearStoryPreview === 'function') _clearStoryPreview();
     selectedMeshSet.forEach(m => unhighlightMesh(m));
     selectedMeshSet.clear();
     selectedMesh = null;
@@ -2890,6 +3138,8 @@ function finishBoxSelect(event) {
 
 // ─── Property Panel ───────────────────────────────────────────────────────
 function showMemberProperties(elem) {
+    // 부재 변경 시 이전 층 프리뷰 해제 (타입이 바뀔 수 있음)
+    if (typeof _clearStoryPreview === 'function') _clearStoryPreview();
     document.getElementById('prop-empty').style.display = 'none';
     document.getElementById('prop-node').style.display = 'none';
     document.getElementById('prop-member').style.display = 'none';
@@ -2963,6 +3213,9 @@ function showMemberProperties(elem) {
     document.getElementById('prop-edit-scope').textContent = `적용 범위: ${scopeLabel}`;
     const btnLabels = { column: 'Apply to All Columns', beam_x: 'Apply to All Beam X', beam_y: 'Apply to All Beam Y' };
     document.getElementById('btn-apply-member').textContent = btnLabels[elem.type] || 'Apply & Re-analyze';
+
+    // 층 체크박스 빌드/갱신
+    if (typeof _rebuildStoryCheckboxes === 'function') _rebuildStoryCheckboxes();
 }
 
 function hideMemberProperties() {
@@ -3171,7 +3424,21 @@ function bulkDeleteSelected() {
     if (!confirm(`Delete ${total} selected items?\n(${elemIds.size} elements, ${nodeIds.size} nodes)`)) return;
     if (typeof pushUndo === 'function') pushUndo();
 
-    // Delete elements
+    // Scene에서 선택된 mesh 직접 제거 (해석 결과 화면에서도 동작)
+    const removedMeshes = new Set();
+    selectedMeshSet.forEach(function(mesh) {
+        scene.remove(mesh);
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) {
+            if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
+            else mesh.material.dispose();
+        }
+        removedMeshes.add(mesh);
+    });
+    memberMeshes = memberMeshes.filter(function(m) { return !removedMeshes.has(m.mesh); });
+    nodeMeshes = nodeMeshes.filter(function(m) { return !removedMeshes.has(m); });
+
+    // Delete elements from model
     if (elemIds.size > 0) {
         window._v2Model.elements = window._v2Model.elements.filter(e => !elemIds.has(e.id));
     }
@@ -3184,7 +3451,10 @@ function bulkDeleteSelected() {
     }
 
     clearAllSelection();
-    refreshEditPreview();
+    // 편집 모드: 프리뷰 갱신 / 결과 모드: scene에서 이미 제거됨
+    if (window._editingEnabled) {
+        refreshEditPreview();
+    }
     setStatus(`Deleted ${total} items`, 'success');
 }
 
@@ -4427,6 +4697,7 @@ function buildIrregularPreview(data) {
 // Display Filter System + Load Arrow Visualization
 // ═══════════════════════════════════════════════════════════════════════════════
 let _loadArrowGroup = null;
+let _reactionLabelSprites = [];
 
 const _LOAD_COLORS = {
     DL:  0x00bcd4,  // cyan — 기둥(blue)과 구분
@@ -4531,14 +4802,26 @@ function _applyMemberVisibility(f) {
         if (t === 'beam') { typeSet.add('beam_x'); typeSet.add('beam_y'); }
     });
 
+    // 부재별 visibility 맵 (solid mesh 동기화용)
+    const _elemVisibility = {};
     memberMeshes.forEach(({ mesh, elementData }) => {
         const mType = elementData?.type || 'beam_x';
         const mStory = _getMemberStory(elementData);
 
         const typeOk = typeSet.has(mType) || typeSet.has('beam') && (mType === 'beam_x' || mType === 'beam_y');
         const storyOk = mStory === null || mStory === 0 || storySet.has(mStory);
+        const vis = typeOk && storyOk;
 
-        mesh.visible = typeOk && storyOk;
+        mesh.visible = window.solidMode ? false : vis;  // solid mode면 wire는 항상 숨김
+        if (elementData?.id != null) _elemVisibility[elementData.id] = vis;
+    });
+
+    // Solid mesh에도 같은 필터 적용
+    (window.solidMeshes || []).forEach(function(sm) {
+        const eid = sm.userData?._solidElementId;
+        if (eid != null && _elemVisibility[eid] !== undefined) {
+            sm.visible = _elemVisibility[eid];
+        }
     });
 
     // 노드 visibility: 연결된 부재가 하나라도 보이면 표시
@@ -4568,6 +4851,7 @@ function _clearLoadArrows() {
 
 function _buildLoadArrows() {
     _clearLoadArrows();
+    _reactionLabelSprites = [];
     if (!currentResult || !window._v2Model) return;
 
     const loadCases = currentResult.load_cases_raw;
@@ -4796,6 +5080,10 @@ function _buildLoadArrows() {
         }
     }
 
+    // Values 토글 상태에 따라 반력 라벨 표시/숨김
+    const valuesOn = document.getElementById('toggle-dgm-values')?.checked ?? true;
+    _reactionLabelSprites.forEach(s => { s.visible = valuesOn; });
+
     scene.add(_loadArrowGroup);
 }
 
@@ -4822,6 +5110,7 @@ function _addReactionLabel(position, text, color) {
     sprite.position.copy(position);
     sprite.scale.set(4.0, 0.9, 1);
     _loadArrowGroup.add(sprite);
+    _reactionLabelSprites.push(sprite);
 }
 
 function _addLoadLabel(position, text, color) {
@@ -4838,6 +5127,103 @@ function _addLoadLabel(position, text, color) {
     sprite.position.copy(position);
     sprite.scale.set(2, 0.5, 1);
     _loadArrowGroup.add(sprite);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Node / Member 번호 표시 (라벨 토글)
+// ═══════════════════════════════════════════════════════════════════════════════
+let _nodeNumberGroup = null;
+let _memberNumberGroup = null;
+
+function _addNumberLabel(group, position, text, color) {
+    const s = 3;
+    const canvas = document.createElement('canvas');
+    canvas.width = 100 * s; canvas.height = 28 * s;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(s, s);
+    ctx.clearRect(0, 0, 100, 28);
+    const hex = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 13px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, 50, 14);
+    ctx.fillStyle = hex;
+    ctx.fillText(text, 50, 14);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(position);
+    sprite.scale.set(2.0, 0.56, 1);
+    sprite.renderOrder = 999;
+    group.add(sprite);
+}
+
+function _disposeGroup(g) {
+    if (!g) return;
+    scene.remove(g);
+    g.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) { if (c.material.map) c.material.map.dispose(); c.material.dispose(); }
+    });
+}
+
+function _buildNodeNumbers() {
+    _disposeGroup(_nodeNumberGroup);
+    _nodeNumberGroup = new THREE.Group();
+    _nodeNumberGroup.name = 'nodeNumbers';
+    const model = window._v2Model;
+    if (!model || !model.nodes) { scene.add(_nodeNumberGroup); return; }
+    model.nodes.forEach(n => {
+        const pos = new THREE.Vector3(n.x, n.z, -n.y);
+        _addNumberLabel(_nodeNumberGroup, pos, String(n.id), 0x2e7d32);  // 녹색
+    });
+    scene.add(_nodeNumberGroup);
+}
+
+function _buildMemberNumbers() {
+    _disposeGroup(_memberNumberGroup);
+    _memberNumberGroup = new THREE.Group();
+    _memberNumberGroup.name = 'memberNumbers';
+    const model = window._v2Model;
+    if (!model || !model.elements || !model.nodes) { scene.add(_memberNumberGroup); return; }
+    const nodeMap = {};
+    model.nodes.forEach(n => { nodeMap[n.id] = n; });
+    model.elements.forEach(e => {
+        const ni = nodeMap[e.node_i], nj = nodeMap[e.node_j];
+        if (!ni || !nj) return;
+        const mid = new THREE.Vector3((ni.x + nj.x)/2, (ni.z + nj.z)/2, -(ni.y + nj.y)/2);
+        _addNumberLabel(_memberNumberGroup, mid, String(e.id), 0x6a1b9a);  // 보라
+    });
+    scene.add(_memberNumberGroup);
+}
+
+function toggleNodeNumbers() {
+    const on = document.getElementById('toggle-node-numbers')?.checked;
+    if (on) {
+        _buildNodeNumbers();
+    } else {
+        _disposeGroup(_nodeNumberGroup);
+        _nodeNumberGroup = null;
+    }
+}
+
+function toggleMemberNumbers() {
+    const on = document.getElementById('toggle-member-numbers')?.checked;
+    if (on) {
+        _buildMemberNumbers();
+    } else {
+        _disposeGroup(_memberNumberGroup);
+        _memberNumberGroup = null;
+    }
+}
+
+// 모델이 재생성되면 체크 상태 유지한 채 라벨도 재빌드
+function _refreshNumberLabels() {
+    if (document.getElementById('toggle-node-numbers')?.checked) _buildNodeNumbers();
+    if (document.getElementById('toggle-member-numbers')?.checked) _buildMemberNumbers();
 }
 
 // Case 선택 변경 시 화살표도 갱신
@@ -4863,6 +5249,7 @@ if (document.readyState === 'loading') {
 let _diagramMode = 'off';  // 'off' | 'axial' | 'shear' | 'moment'
 let _diagramGroup = null;
 let _showDiagramValues = true;
+let _diagramScaleMultiplier = 1.0;  // 사용자 스케일 조절 (기본 1× = 자동 스케일)
 let _nodeForceLabels = {};  // nid → {pos, normal, vals: [{val, side}]}
 
 // Force key는 부재 타입별로 동적 선택 (_getDiagramValues에서)
@@ -4876,6 +5263,9 @@ function setDiagramMode(mode) {
     document.querySelectorAll('.dgm-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.dgm === mode);
     });
+    // 스케일 슬라이더 표시/숨김
+    const sw = document.getElementById('diagram-scale-wrap');
+    if (sw) sw.style.display = (mode === 'off') ? 'none' : '';
     if (mode === 'off') {
         _clearDiagrams();
     } else {
@@ -4884,6 +5274,27 @@ function setDiagramMode(mode) {
 }
 
 function onDiagramValuesToggle() {
+    if (_diagramMode !== 'off') _buildDiagrams();
+    // 반력 수치 라벨도 토글
+    const show = document.getElementById('toggle-dgm-values')?.checked ?? true;
+    _reactionLabelSprites.forEach(s => { s.visible = show; });
+}
+
+function onDiagramScaleChange(v) {
+    // slider 0~100 → 0.1×~10× (log)
+    const sv = parseInt(v, 10);
+    _diagramScaleMultiplier = Math.pow(10, (sv - 50) / 50);
+    const label = document.getElementById('diagram-scale-val');
+    if (label) label.textContent = _diagramScaleMultiplier.toFixed(2) + '×';
+    if (_diagramMode !== 'off') _buildDiagrams();
+}
+
+function resetDiagramScale() {
+    _diagramScaleMultiplier = 1.0;
+    const slider = document.getElementById('diagram-scale-slider');
+    if (slider) slider.value = 50;
+    const label = document.getElementById('diagram-scale-val');
+    if (label) label.textContent = '1.00×';
     if (_diagramMode !== 'off') _buildDiagrams();
 }
 
@@ -4974,7 +5385,7 @@ function _buildDiagrams() {
     // 모델 크기 기반 스케일 (최대값 = 모델크기의 10%)
     let maxDim = 1;
     nodes.forEach(n => { maxDim = Math.max(maxDim, Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)); });
-    const diagramScale = maxDim * 0.10 / globalMax;
+    const diagramScale = maxDim * 0.10 / globalMax * _diagramScaleMultiplier;
 
     _diagramGroup = new THREE.Group();
     _diagramGroup.name = 'forceDiagrams';
@@ -5262,6 +5673,241 @@ if (document.readyState === 'loading') {
 // 5: Project Save / Load / Auto-save
 // ═══════════════════════════════════════════════════════════════════════════════
 const _AUTOSAVE_KEY = 'v2_editor_autosave';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Story Drift Chart (Viewer Tab)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function switchViewerTab(tab) {
+    document.querySelectorAll('.vtab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.vtab === tab);
+    });
+    const driftPanel = document.getElementById('drift-panel');
+    if (tab === 'drift') {
+        driftPanel.style.display = '';
+        _populateDriftCaseSelector();
+        onDriftCaseChange();  // 자동 전환 로직 + 차트 빌드
+    } else {
+        driftPanel.style.display = 'none';
+    }
+    // Three.js canvas resize
+    setTimeout(() => { if (typeof onWindowResize === 'function') onWindowResize(); }, 120);
+}
+
+function _populateDriftCaseSelector() {
+    const sel = document.getElementById('drift-case-selector');
+    if (!sel || !currentResult) return;
+    const prevVal = sel.value;
+    sel.innerHTML = '<option value="__envelope__">Envelope (Max)</option>';
+    (currentResult.case_names || []).concat(currentResult.combo_names || []).forEach(cn => {
+        sel.innerHTML += `<option value="${cn}">${cn}</option>`;
+    });
+    sel.value = prevVal || '__envelope__';
+}
+
+function onDriftCaseChange() {
+    // 케이스에 따라 허용치 자동 전환
+    const caseName = document.getElementById('drift-case-selector')?.value || '__envelope__';
+    const limitSel = document.getElementById('drift-limit-selector');
+    if (limitSel) {
+        const cu = caseName.toUpperCase();
+        if (cu.includes('EQ') || cu.includes('SEISMIC') || cu === '__ENVELOPE__') {
+            // 내진 → design_check 기준 or 기본 1/50
+            const dcAllow = currentResult?.design_check?.drift_check?.allowable;
+            const val = dcAllow || 0.020;
+            // 가장 가까운 옵션 선택
+            const opts = Array.from(limitSel.options);
+            const best = opts.reduce((a, b) =>
+                Math.abs(parseFloat(a.value) - val) < Math.abs(parseFloat(b.value) - val) ? a : b
+            );
+            limitSel.value = best.value;
+        } else {
+            // 비지진 (DL, LL, Wind 등) → 1/200
+            limitSel.value = '0.005';
+        }
+    }
+    _buildDriftCharts();
+}
+
+function onDriftLimitChange() { _buildDriftCharts(); }
+
+function _buildDriftCharts() {
+    if (!currentResult?.case_data) return;
+    const caseName = document.getElementById('drift-case-selector')?.value || '__envelope__';
+
+    let driftsX = [], driftsY = [], storyLabels = [];
+
+    if (caseName === '__envelope__') {
+        const storyMax = {};
+        Object.values(currentResult.case_data).forEach(cd => {
+            (cd.story_drifts || []).forEach(sd => {
+                const s = sd.story;
+                if (!storyMax[s]) storyMax[s] = { dx: 0, dy: 0 };
+                storyMax[s].dx = Math.max(storyMax[s].dx, Math.abs(sd.drift_x || 0));
+                storyMax[s].dy = Math.max(storyMax[s].dy, Math.abs(sd.drift_y || 0));
+            });
+        });
+        const keys = Object.keys(storyMax).sort((a, b) => Number(a) - Number(b));
+        keys.forEach(s => {
+            storyLabels.push(s + 'F');
+            driftsX.push(storyMax[s].dx);
+            driftsY.push(storyMax[s].dy);
+        });
+    } else {
+        const cd = currentResult.case_data[caseName];
+        if (!cd?.story_drifts) return;
+        const sorted = [...cd.story_drifts].sort((a, b) => a.story - b.story);
+        sorted.forEach(sd => {
+            storyLabels.push(sd.story + 'F');
+            driftsX.push(Math.abs(sd.drift_x || 0));
+            driftsY.push(Math.abs(sd.drift_y || 0));
+        });
+    }
+
+    if (storyLabels.length === 0) return;
+
+    // 허용치: 드롭다운 우선, 없으면 design_check fallback
+    const limitSel = document.getElementById('drift-limit-selector');
+    const allowable = limitSel ? parseFloat(limitSel.value) : (currentResult.design_check?.drift_check?.allowable || 0.020);
+
+    _drawDriftBarChart('canvas-drift-x', storyLabels, driftsX, allowable, 'X');
+    _drawDriftBarChart('canvas-drift-y', storyLabels, driftsY, allowable, 'Y');
+
+    // Info
+    const invStr = allowable > 0 ? Math.round(1 / allowable) : '-';
+    const limitLabel = limitSel ? limitSel.options[limitSel.selectedIndex]?.text : '';
+    const infoEl = document.getElementById('drift-info');
+    if (infoEl) {
+        infoEl.innerHTML = `<b>KDS 41 17 00</b><br>허용: 1/${invStr} (${allowable}) — ${limitLabel}<br>Case: ${caseName === '__envelope__' ? 'Envelope (모든 케이스 중 Max)' : caseName}`;
+    }
+}
+
+function _drawDriftBarChart(canvasId, labels, values, limit, direction) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || values.length === 0) return;
+
+    const dpr = 2;
+    const W_css = canvas.clientWidth || 380;
+    const H_css = Math.max(values.length * 36 + 50, 130);
+    canvas.style.height = H_css + 'px';
+    canvas.width = W_css * dpr;
+    canvas.height = H_css * dpr;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const marginL = 32, marginR = 70, marginT = 22, marginB = 18;
+    const plotW = W_css - marginL - marginR;
+    const plotH = H_css - marginT - marginB;
+    const gap = plotH / values.length;
+    const barH = Math.min(gap * 0.6, 22);
+
+    const maxVal = Math.max(...values, limit) * 1.3;
+
+    // 배경 (어두운 테마 대응: 반투명 어두운 배경)
+    ctx.clearRect(0, 0, W_css, H_css);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W_css, H_css);
+
+    // 제목 (밝은 흰색)
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText('Drift ' + direction, 4, 14);
+
+    // X축 눈금 (밝은 그리드)
+    const nTicks = 4;
+    ctx.font = '8px Arial';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= nTicks; i++) {
+        const v = (maxVal / nTicks) * i;
+        const x = marginL + (v / maxVal) * plotW;
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(x, marginT); ctx.lineTo(x, marginT + plotH); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        const tickLabel = v > 0.001 ? '1/' + Math.round(1/v) : '0';
+        ctx.fillText(tickLabel, x, H_css - 4);
+    }
+
+    // 수평 바 (limit 보다 먼저)
+    values.forEach((v, i) => {
+        const y = marginT + i * gap + (gap - barH) / 2;
+        const barW = Math.max((v / maxVal) * plotW, 2);
+        const isNG = v > limit;
+
+        // 바 배경 트랙
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(marginL, y, plotW, barH);
+
+        // 바
+        ctx.fillStyle = isNG ? '#ef5350' : '#4caf50';
+        ctx.fillRect(marginL, y, barW, barH);
+
+        // 바 외곽
+        ctx.strokeStyle = isNG ? '#ff8a80' : '#81c784'; ctx.lineWidth = 0.5;
+        ctx.strokeRect(marginL, y, barW, barH);
+
+        // 층 라벨 (왼쪽, 흰색)
+        ctx.font = 'bold 10px Arial';
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'right';
+        ctx.fillText(labels[i], marginL - 5, y + barH / 2 + 4);
+
+        // 값 라벨 (바 오른쪽) — 1/N 형식 위주, 짧게
+        ctx.font = 'bold 9px Arial';
+        ctx.fillStyle = isNG ? '#ff8a80' : 'rgba(255,255,255,0.8)';
+        ctx.textAlign = 'left';
+        const inv = v > 1e-8 ? '1/' + Math.round(1 / v) : '0';
+        ctx.fillText(inv, marginL + barW + 4, y + barH / 2 + 4);
+    });
+
+    // KDS 허용치 라인 — 바 위에 그려서 가리지 않게
+    const limitX = marginL + (limit / maxVal) * plotW;
+    ctx.strokeStyle = '#ffab00'; ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath(); ctx.moveTo(limitX, marginT - 2); ctx.lineTo(limitX, marginT + plotH + 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // limit 라벨 (배경 박스 + 텍스트)
+    const limitLabel = 'Limit 1/' + Math.round(1 / limit);
+    ctx.font = 'bold 9px Arial';
+    const lw = ctx.measureText(limitLabel).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(limitX + 3, marginT, lw + 6, 14);
+    ctx.fillStyle = '#ffab00'; ctx.textAlign = 'left';
+    ctx.fillText(limitLabel, limitX + 6, marginT + 10);
+}
+
+function _setExportBtnEnabled(on) {
+    const b = document.getElementById('btn-export-excel');
+    if (!b) return;
+    b.disabled = !on;
+    b.style.opacity = on ? '1' : '0.5';
+}
+
+async function exportToExcel() {
+    if (!currentJobId) { alert('해석을 먼저 실행해주세요.'); return; }
+    setStatus('Excel 생성 중...', 'running');
+    try {
+        const resp = await fetch(`/api/export/excel/${currentJobId}`);
+        if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || ('HTTP ' + resp.status));
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analysis_${currentJobId}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus('Excel 다운로드 완료', 'success');
+    } catch (e) {
+        console.error('Export failed:', e);
+        setStatus('Export 실패: ' + e.message, 'error');
+        alert('Export 실패: ' + e.message);
+    }
+}
 
 function saveProject() {
     const model = window._v2Model;

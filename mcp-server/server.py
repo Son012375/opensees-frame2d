@@ -327,6 +327,7 @@ class Frame3DInput(BaseModel):
     geometric_nonlinearity: str = Field(default="linear", description="기하비선형 해석 옵션: \"linear\"(기본, 1차 선형) 또는 \"pdelta\"(P-Delta 2차 효과 포함)")
     modal_analysis: bool = Field(default=False, description="고유치해석 수행 여부. True 시 rigid_diaphragm이 자동 활성화됩니다. 1~3차 고유주기, 지배방향 등을 반환합니다.")
     story_weights_kN: list[float] | None = Field(default=None, description="층별 중력하중 (kN). 고유치해석 시 질량 산정에 사용. None이면 DL 하중에서 자동 추정.")
+    slab_distribution: str = Field(default="2way", description="슬래브 하중 분배 방식: \"2way\"(45° yield line, 기본) 또는 \"uniform\"(50/50 균등)")
 
 
 class BuildingAnalysisInput(BaseModel):
@@ -1084,6 +1085,7 @@ async def call_tool(name: str, arguments: dict):
                 geometric_nonlinearity=input_data.geometric_nonlinearity,
                 modal_analysis=input_data.modal_analysis,
                 story_weights_kN=input_data.story_weights_kN,
+                slab_distribution=input_data.slab_distribution,
             )
 
             # 케이스별 결과 요약

@@ -333,8 +333,15 @@ def _generate_irregular_geometry(
                 for ix in range(n_cx - 1):
                     ni = coord_to_node[rkey(x_crds[ix], y, z)]
                     nj = coord_to_node[rkey(x_crds[ix + 1], y, z)]
+                    # 인접 패널 정보 (2-way 분배용)
+                    adj_panels = []
+                    if iy > 0:
+                        adj_panels.append((bays_x[ix], bays_y[iy - 1]))
+                    if iy < n_cy - 1:
+                        adj_panels.append((bays_x[ix], bays_y[iy]))
                     _add_conn(ni, nj, "beam_x", {
                         "story": s, "zone_id": zid, "trib_width": trib_y,
+                        "adj_panels": adj_panels,
                     })
 
         # Beam_Y: story ≥ 1, 인접 Y 노드 연결
@@ -354,8 +361,14 @@ def _generate_irregular_geometry(
                 for iy in range(n_cy - 1):
                     ni = coord_to_node[rkey(x, y_crds[iy], z)]
                     nj = coord_to_node[rkey(x, y_crds[iy + 1], z)]
+                    adj_panels = []
+                    if ix > 0:
+                        adj_panels.append((bays_x[ix - 1], bays_y[iy]))
+                    if ix < n_cx - 1:
+                        adj_panels.append((bays_x[ix], bays_y[iy]))
                     _add_conn(ni, nj, "beam_y", {
                         "story": s, "zone_id": zid, "trib_width": trib_x,
+                        "adj_panels": adj_panels,
                     })
 
     return nodes, connections, story_nodes, base_nodes, member_metadata
@@ -640,6 +653,33 @@ def _get_node_by_id(nodes: list[Node3D], node_id: int) -> Node3D:
 
 
 # ============================================================
+# 2-way slab 하중 분배
+# ============================================================
+
+def _panel_beam_contribution(w: float, panel_x: float, panel_y: float,
+                             beam_dir: str) -> float:
+    """한 패널이 인접 보에 기여하는 등가 UDL (kN/m) 반환.
+
+    45° yield line method, shear-equivalent UDL.
+    - 단변 보 (삼각형 하중): w_eq = w × a / 4
+    - 장변 보 (사다리꼴 하중): w_eq = w × a × (2b − a) / (4b)
+    총 하중 보존: 2×w_short×a + 2×w_long×b = w×a×b
+    """
+    if panel_x <= 0 or panel_y <= 0:
+        return 0.0
+    a = min(panel_x, panel_y)
+    b = max(panel_x, panel_y)
+    if beam_dir == "beam_x":
+        beam_span = panel_x
+    else:
+        beam_span = panel_y
+    if beam_span <= a:  # 단변 보 (삼각형)
+        return w * a / 4.0
+    else:  # 장변 보 (사다리꼴)
+        return w * a * (2.0 * b - a) / (4.0 * b)
+
+
+# ============================================================
 # 하중 적용
 # ============================================================
 
@@ -653,6 +693,7 @@ def _apply_loads_3d(
     member_to_elements: dict[int, list[int]],
     bays_x: list[float],
     bays_y: list[float],
+    slab_distribution: str = "2way",
 ):
     """3D 하중 적용."""
     ops.timeSeries('Linear', 1)
@@ -678,7 +719,8 @@ def _apply_loads_3d(
             # 면적하중 (kN/m²) → tributary width로 보 선하중 변환
             w_area = ld.get("value", 0.0)  # kN/m²
             _apply_floor_area_load(story, w_area, n_stories, n_cols_x, n_cols_y,
-                                   connections, member_to_elements, bays_x, bays_y)
+                                   connections, member_to_elements, bays_x, bays_y,
+                                   slab_distribution=slab_distribution)
 
         elif ld_type == "lateral_x":
             # X방향 횡하중 (kN)
@@ -744,10 +786,13 @@ def _apply_floor_load(story, w_Nmm, n_stories, n_cols_x, n_cols_y,
 
 
 def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
-                            connections, member_to_elements, bays_x, bays_y):
-    """면적하중을 tributary width로 보 선하중으로 변환 적용.
+                            connections, member_to_elements, bays_x, bays_y,
+                            slab_distribution="2way"):
+    """면적하중을 보 선하중으로 변환 적용.
 
-    2방향 슬래브 가정: 면적하중을 X/Y 양방향 보에 균등 분배 (각 방향 50%).
+    slab_distribution:
+      - "2way": 45° yield line method (패널 종횡비 반영, 기본값)
+      - "uniform": 기존 50/50 균등 분배 (하위 호환)
     총 반력 = w_area × floor_area 가 되도록 보장.
     """
     n_cols_total = n_cols_x * n_cols_y
@@ -755,48 +800,69 @@ def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
     beam_x_per_story = (n_cols_x - 1) * n_cols_y
     beam_y_per_story = n_cols_x * (n_cols_y - 1)
 
-    # 2방향 분배: 각 방향에 50%씩
-    w_area_half = w_area_kNm2 * 0.5
-
-    # Beam_X: 각 보의 tributary width = 인접 bay_y의 평균 절반
+    # Beam_X: 각 보에 인접 패널 기여 합산
     beam_x_start = col_count + (story - 1) * beam_x_per_story
     bx_idx = 0
     for cy in range(n_cols_y):
-        # tributary width for this Y-line
-        trib_y = 0.0
-        if cy > 0:
-            trib_y += bays_y[cy - 1] / 2.0
-        if cy < n_cols_y - 1:
-            trib_y += bays_y[cy] / 2.0
-        if trib_y == 0.0:
-            trib_y = bays_y[0] if bays_y else 1.0  # single bay_y fallback
-
-        w_line = w_area_half * trib_y  # kN/m
-        w_Nmm = w_line * 1000.0 / 1000.0
-
         for cx in range(n_cols_x - 1):
+            if slab_distribution == "2way":
+                # 인접 패널별 기여 합산
+                w_line = 0.0
+                if cy > 0:
+                    w_line += _panel_beam_contribution(
+                        w_area_kNm2, bays_x[cx], bays_y[cy - 1], "beam_x")
+                if cy < n_cols_y - 1:
+                    w_line += _panel_beam_contribution(
+                        w_area_kNm2, bays_x[cx], bays_y[cy], "beam_x")
+                if w_line == 0.0 and bays_y:
+                    # 단일 bay fallback (edge)
+                    w_line = _panel_beam_contribution(
+                        w_area_kNm2, bays_x[cx], bays_y[0], "beam_x")
+            else:
+                # uniform: 기존 50/50
+                trib_y = 0.0
+                if cy > 0:
+                    trib_y += bays_y[cy - 1] / 2.0
+                if cy < n_cols_y - 1:
+                    trib_y += bays_y[cy] / 2.0
+                if trib_y == 0.0:
+                    trib_y = bays_y[0] if bays_y else 1.0
+                w_line = w_area_kNm2 * 0.5 * trib_y
+
+            w_Nmm = w_line  # kN/m = N/mm
             mid = beam_x_start + bx_idx + 1
             if mid in member_to_elements:
                 for eid in member_to_elements[mid]:
                     ops.eleLoad('-ele', eid, '-type', '-beamUniform', 0.0, -w_Nmm, 0.0)
             bx_idx += 1
 
-    # Beam_Y: 각 보의 tributary width = 인접 bay_x의 평균 절반
+    # Beam_Y: 각 보에 인접 패널 기여 합산
     beam_y_start = col_count + n_stories * beam_x_per_story + (story - 1) * beam_y_per_story
     by_idx = 0
     for cx in range(n_cols_x):
-        trib_x = 0.0
-        if cx > 0:
-            trib_x += bays_x[cx - 1] / 2.0
-        if cx < n_cols_x - 1:
-            trib_x += bays_x[cx] / 2.0
-        if trib_x == 0.0:
-            trib_x = bays_x[0] if bays_x else 1.0
-
-        w_line = w_area_half * trib_x
-        w_Nmm = w_line * 1000.0 / 1000.0
-
         for cy in range(n_cols_y - 1):
+            if slab_distribution == "2way":
+                w_line = 0.0
+                if cx > 0:
+                    w_line += _panel_beam_contribution(
+                        w_area_kNm2, bays_x[cx - 1], bays_y[cy], "beam_y")
+                if cx < n_cols_x - 1:
+                    w_line += _panel_beam_contribution(
+                        w_area_kNm2, bays_x[cx], bays_y[cy], "beam_y")
+                if w_line == 0.0 and bays_x:
+                    w_line = _panel_beam_contribution(
+                        w_area_kNm2, bays_x[0], bays_y[cy], "beam_y")
+            else:
+                trib_x = 0.0
+                if cx > 0:
+                    trib_x += bays_x[cx - 1] / 2.0
+                if cx < n_cols_x - 1:
+                    trib_x += bays_x[cx] / 2.0
+                if trib_x == 0.0:
+                    trib_x = bays_x[0] if bays_x else 1.0
+                w_line = w_area_kNm2 * 0.5 * trib_x
+
+            w_Nmm = w_line
             mid = beam_y_start + by_idx + 1
             if mid in member_to_elements:
                 for eid in member_to_elements[mid]:
@@ -810,6 +876,7 @@ def _apply_loads_3d_irregular(
     connections: list[tuple[int, int, str]],
     member_to_elements: dict[int, list[int]],
     member_metadata: list[dict],
+    slab_distribution: str = "2way",
 ):
     """비정형 건물 하중 적용 (story_nodes + member_metadata 기반)."""
     ops.timeSeries('Linear', 1)
@@ -836,7 +903,6 @@ def _apply_loads_3d_irregular(
 
         elif ld_type == "floor_area":
             w_area = ld.get("value", 0.0)  # kN/m²
-            w_area_half = w_area * 0.5
             for mid_0, meta in enumerate(member_metadata):
                 mid = mid_0 + 1
                 if meta["story"] != story:
@@ -844,10 +910,22 @@ def _apply_loads_3d_irregular(
                 etype = connections[mid_0][2]
                 if etype not in ("beam_x", "beam_y"):
                     continue
-                trib = meta.get("trib_width", 0.0)
-                if trib <= 0:
+                if slab_distribution == "2way":
+                    adj_panels = meta.get("adj_panels", [])
+                    if adj_panels:
+                        w_line_Nmm = sum(
+                            _panel_beam_contribution(w_area, px, py, etype)
+                            for px, py in adj_panels
+                        )
+                    else:
+                        # fallback: adj_panels 미제공 시 50/50
+                        trib = meta.get("trib_width", 0.0)
+                        w_line_Nmm = w_area * 0.5 * trib
+                else:
+                    trib = meta.get("trib_width", 0.0)
+                    w_line_Nmm = w_area * 0.5 * trib
+                if w_line_Nmm <= 0:
                     continue
-                w_line_Nmm = w_area_half * trib  # kN/m² × m × 0.5 → kN/m → N/mm
                 if mid in member_to_elements:
                     for eid in member_to_elements[mid]:
                         ops.eleLoad('-ele', eid, '-type', '-beamUniform',
@@ -1667,6 +1745,7 @@ def analyze_frame_3d_multi(
     modal_analysis: bool = False,
     story_weights_kN: list[float] | None = None,
     zones: list[dict] | None = None,
+    slab_distribution: str = "2way",
 ) -> Frame3DMultiCaseResult:
     """3D 골조 멀티 하중케이스 정적 해석.
 
@@ -1727,6 +1806,7 @@ def analyze_frame_3d_multi(
         "solver_algorithm": "Linear",
         "fallback_used": False,
         "n_steps": 1,
+        "slab_distribution": slab_distribution,
     }
 
     # 단면 조회
@@ -1830,11 +1910,13 @@ def analyze_frame_3d_multi(
             _apply_loads_3d_irregular(
                 case_loads, story_nodes_map, connections,
                 member_to_elements, member_metadata,
+                slab_distribution=slab_distribution,
             )
         else:
             _apply_loads_3d(
                 case_loads, len(stories), n_cols_x, n_cols_y,
                 node_grid, connections, member_to_elements, bays_x, bays_y,
+                slab_distribution=slab_distribution,
             )
 
         # 해석

@@ -383,10 +383,37 @@ function disableEditing() {
     closeEditDialog();
 }
 
+function showResultSelectionToolbar() {
+    // 해석 결과 화면에서 Select/View 전환만 가능한 toolbar 표시
+    window._editingEnabled = false;
+    var tb = document.getElementById('edit-toolbar');
+    if (!tb) return;
+    tb.style.display = 'flex';
+    // 편집 전용 버튼 숨기기 (copy, addNode, addElement, delete, move, release, support)
+    tb.querySelectorAll('.edit-btn[data-mode]').forEach(function(b) {
+        var m = b.dataset.mode;
+        b.style.display = (m === 'view' || m === 'select') ? '' : 'none';
+    });
+    tb.querySelectorAll('.tool-btn[data-mode]').forEach(function(b) { b.style.display = 'none'; });
+    // addnode-options, edit-hint 등 편집 전용 UI 숨기기
+    var addnodeOpts = document.getElementById('addnode-options');
+    if (addnodeOpts) addnodeOpts.style.display = 'none';
+    var hint = document.getElementById('edit-hint');
+    if (hint) hint.textContent = 'Click or drag-select members';
+    // select 모드로 자동 전환
+    setEditMode('select');
+}
+
 function showEditToolbar() {
     window._editingEnabled = true;
     const tb = document.getElementById('edit-toolbar');
-    if (tb) { tb.style.display = 'flex'; populateZLevelSelector(); }
+    if (tb) {
+        tb.style.display = 'flex';
+        // 결과 모드에서 숨겨진 버튼 복원
+        tb.querySelectorAll('.edit-btn[data-mode]').forEach(function(b) { b.style.display = ''; });
+        tb.querySelectorAll('.tool-btn[data-mode]').forEach(function(b) { b.style.display = ''; });
+        populateZLevelSelector();
+    }
 }
 
 function setEditMode(mode) {

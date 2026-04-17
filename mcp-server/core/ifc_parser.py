@@ -557,19 +557,77 @@ def _ishape_to_dict(profile) -> dict | None:
 
 
 def _parse_revit_profile_name(name: str) -> dict | None:
-    """Revit 스타일 프로파일명에서 H형강 치수 파싱.
+    """Revit 스타일 프로파일명에서 단면 치수 파싱.
 
-    Revit IFC4 Reference View는 IfcArbitraryClosedProfileDef에
-    "H{높이}X{중량(kg/m)}" 형식으로 프로파일명을 저장한다.
+    Revit IFC4 Reference View는 IfcArbitraryClosedProfileDef/WithVoids에
+    다양한 형식으로 프로파일명을 저장한다.
 
-    예: "H400X197" → {"h": 400, "weight": 197.0}
-        "H250X72.4" → {"h": 250, "weight": 72.4}
+    H형강: "H400X197" → {"type": "H", "h": 400, "weight": 197.0}
+    SHS:   "150x150SHS" → {"type": "SHS", "b": 150}
+    RHS:   "200x100RHS" → {"type": "RHS", "h": 200, "b": 100}
+    CHS:   "267.4XSTD CHS" / "CHS-267.4x6.6" → {"type": "CHS", "d": 267.4}
+    채널:  "200x80PFC" → {"type": "PFC", "h": 200, "b": 80}
+    앵글:  "100x100x10L" → {"type": "L", "a": 100, "b": 100, "t": 10}
     """
     if not name:
         return None
-    m = re.match(r"[Hh](\d+)[Xx](\d+\.?\d*)", name.strip())
+    s = name.strip()
+
+    # SHS: "150x150SHS" 또는 "SHS 150x150" 또는 "150x150x6SHS"
+    m = re.match(r"(\d+\.?\d*)[xX×](\d+\.?\d*)(?:[xX×](\d+\.?\d*))?\s*SHS", s, re.IGNORECASE)
     if m:
-        return {"h": float(m.group(1)), "weight": float(m.group(2))}
+        h, b = float(m.group(1)), float(m.group(2))
+        t = float(m.group(3)) if m.group(3) else None
+        if abs(h - b) < 1:
+            return {"type": "SHS", "b": b, "t": t}
+        return {"type": "RHS", "h": max(h, b), "b": min(h, b), "t": t}
+    m = re.match(r"SHS\s*(\d+\.?\d*)[xX×](\d+\.?\d*)(?:[xX×](\d+\.?\d*))?", s, re.IGNORECASE)
+    if m:
+        h, b = float(m.group(1)), float(m.group(2))
+        t = float(m.group(3)) if m.group(3) else None
+        if abs(h - b) < 1:
+            return {"type": "SHS", "b": b, "t": t}
+        return {"type": "RHS", "h": max(h, b), "b": min(h, b), "t": t}
+
+    # RHS: "200x100RHS" 또는 "RHS 200x100"
+    m = re.match(r"(\d+\.?\d*)[xX×](\d+\.?\d*)(?:[xX×](\d+\.?\d*))?\s*RHS", s, re.IGNORECASE)
+    if not m:
+        m = re.match(r"RHS\s*(\d+\.?\d*)[xX×](\d+\.?\d*)(?:[xX×](\d+\.?\d*))?", s, re.IGNORECASE)
+    if m:
+        h, b = float(m.group(1)), float(m.group(2))
+        t = float(m.group(3)) if m.group(3) else None
+        return {"type": "RHS", "h": max(h, b), "b": min(h, b), "t": t}
+
+    # CHS: "267.4XSTD CHS" / "CHS-267.4x6.6" / "267.4CHS"
+    m = re.match(r"(\d+\.?\d*)[xX×]?\s*(?:STD\s*)?CHS", s, re.IGNORECASE)
+    if not m:
+        m = re.match(r"CHS[\s\-]*(\d+\.?\d*)(?:[xX×](\d+\.?\d*))?", s, re.IGNORECASE)
+    if m:
+        d = float(m.group(1))
+        t = float(m.group(2)) if m.lastindex and m.lastindex >= 2 and m.group(2) else None
+        return {"type": "CHS", "d": d, "t": t}
+
+    # 채널: "200x80PFC" / "PFC200x80" / "200x80TFC"
+    m = re.match(r"(\d+\.?\d*)[xX×](\d+\.?\d*)\s*(PFC|TFC)", s, re.IGNORECASE)
+    if not m:
+        m = re.match(r"(PFC|TFC)\s*(\d+\.?\d*)[xX×](\d+\.?\d*)", s, re.IGNORECASE)
+        if m:
+            return {"type": m.group(1).upper(), "h": float(m.group(2)), "b": float(m.group(3))}
+    if m:
+        return {"type": m.group(3).upper(), "h": float(m.group(1)), "b": float(m.group(2))}
+
+    # 앵글: "100x100x10L" 또는 "L100x100x10"
+    m = re.match(r"(\d+\.?\d*)[xX×](\d+\.?\d*)[xX×](\d+\.?\d*)\s*L\b", s, re.IGNORECASE)
+    if not m:
+        m = re.match(r"L\s*(\d+\.?\d*)[xX×](\d+\.?\d*)[xX×](\d+\.?\d*)", s, re.IGNORECASE)
+    if m:
+        return {"type": "L", "a": float(m.group(1)), "b": float(m.group(2)), "t": float(m.group(3))}
+
+    # H형강: "H400X197" (기존)
+    m = re.match(r"[Hh](\d+)[Xx](\d+\.?\d*)", s)
+    if m:
+        return {"type": "H", "h": float(m.group(1)), "weight": float(m.group(2))}
+
     return None
 
 
@@ -611,6 +669,114 @@ def _resolve_profile_by_weight(h_mm: float, weight_kg: float) -> dict | None:
         return None
 
 
+def _resolve_profile_by_parsed(parsed: dict) -> dict | None:
+    """파싱된 프로파일 정보로 Supabase DB 매칭.
+
+    Returns:
+        {"profile_name": ..., "db_name": ..., "section_type": ...} 또는 None
+    """
+    ptype = parsed.get("type")
+    if not ptype:
+        return None
+
+    try:
+        from core.section_3d import _get_supabase
+        supabase = _get_supabase()
+    except Exception:
+        return None
+
+    try:
+        if ptype == "SHS":
+            b = parsed["b"]
+            t = parsed.get("t")
+            query = (supabase.schema("ks3568").table("shs_sections")
+                     .select("name, b, t, area")
+                     .gte("b", b - 1).lte("b", b + 1))
+            result = query.execute()
+            if not result.data:
+                return None
+            if t:
+                best = min(result.data, key=lambda r: abs((r.get("t") or 0) - t))
+            else:
+                best = min(result.data, key=lambda r: r.get("t") or 999)
+            return {"profile_name": best["name"], "db_name": best["name"], "section_type": "SHS"}
+
+        if ptype == "RHS":
+            h, b = parsed["h"], parsed["b"]
+            t = parsed.get("t")
+            query = (supabase.schema("ks3568").table("rhs_hollow_sections")
+                     .select("name, h, b, t, area")
+                     .gte("h", h - 1).lte("h", h + 1)
+                     .gte("b", b - 1).lte("b", b + 1))
+            result = query.execute()
+            if not result.data:
+                return None
+            if t:
+                best = min(result.data, key=lambda r: abs((r.get("t") or 0) - t))
+            else:
+                best = min(result.data, key=lambda r: r.get("t") or 999)
+            return {"profile_name": best["name"], "db_name": best["name"], "section_type": "RHS"}
+
+        if ptype == "CHS":
+            d = parsed["d"]
+            t = parsed.get("t")
+            query = (supabase.schema("ks3568").table("chs_sections")
+                     .select("name, d, t, area")
+                     .gte("d", d - 1).lte("d", d + 1))
+            result = query.execute()
+            if not result.data:
+                return None
+            if t:
+                best = min(result.data, key=lambda r: abs((r.get("t") or 0) - t))
+            else:
+                best = min(result.data, key=lambda r: r.get("t") or 999)
+            return {"profile_name": best["name"], "db_name": best["name"], "section_type": "CHS"}
+
+        if ptype in ("PFC", "TFC"):
+            h, b = parsed["h"], parsed["b"]
+            table = "pfc_channel_sections" if ptype == "PFC" else "tfc_channel_sections"
+            query = (supabase.schema("ks3502").table(table)
+                     .select("name, h, b, area")
+                     .gte("h", h - 5).lte("h", h + 5)
+                     .gte("b", b - 5).lte("b", b + 5))
+            result = query.execute()
+            if not result.data:
+                return None
+            best = min(result.data, key=lambda r: abs((r.get("h") or 0) - h) + abs((r.get("b") or 0) - b))
+            return {"profile_name": best["name"], "db_name": best["name"], "section_type": ptype}
+
+        if ptype == "L":
+            a, b_val = parsed["a"], parsed["b"]
+            t = parsed.get("t")
+            if abs(a - b_val) < 1:
+                table = "equal_angle_sections"
+            else:
+                table = "unequal_angle_sections"
+            query = (supabase.schema("ks3502").table(table)
+                     .select("name, a, area")
+                     .gte("a", a - 2).lte("a", a + 2))
+            result = query.execute()
+            if not result.data:
+                return None
+            if t:
+                best = min(result.data, key=lambda r: abs((r.get("t") or 0) - t))
+            else:
+                best = result.data[0]
+            return {"profile_name": best["name"], "db_name": best["name"], "section_type": "L"}
+
+        if ptype == "H":
+            # 기존 H형강 로직으로 위임
+            resolved = _resolve_profile_by_weight(parsed["h"], parsed["weight"])
+            if resolved:
+                resolved["section_type"] = "H"
+            return resolved
+
+    except Exception as e:
+        print(f"[ifc_parser] Profile DB lookup failed: {e}")
+
+    return None
+
+
 def _extract_profile_from_item(item) -> dict | None:
     """representation item에서 프로파일 정보 재귀 추출.
 
@@ -627,14 +793,12 @@ def _extract_profile_from_item(item) -> dict | None:
         result = _ishape_to_dict(profile)
         if result:
             return result
-        # 2순위: Revit 폴리라인 프로파일 (IfcArbitraryClosedProfileDef)
+        # 2순위: ProfileName 기반 범용 파싱 (SHS/CHS/채널/앵글/H형강)
         profile_name = getattr(profile, "ProfileName", None)
         if profile_name:
             parsed = _parse_revit_profile_name(profile_name)
             if parsed:
-                resolved = _resolve_profile_by_weight(
-                    parsed["h"], parsed["weight"]
-                )
+                resolved = _resolve_profile_by_parsed(parsed)
                 if resolved:
                     return resolved
 
@@ -823,21 +987,32 @@ def _extract_materials(ifc_file) -> list[str]:
 
 
 def _most_common_profile(profiles: list[dict]) -> dict | None:
-    """프로파일 리스트에서 가장 많이 등장하는 h×b 조합 반환."""
+    """프로파일 리스트에서 가장 많이 등장하는 단면 반환.
+
+    db_name이 있으면 이름 기준, 없으면 h×b 기준으로 빈도 집계.
+    """
     if not profiles:
         return None
-    freq: dict[tuple, list[dict]] = {}
+    freq: dict[str, list[dict]] = {}
     for p in profiles:
-        key = (round(p["h"]), round(p["b"]))
+        if p.get("db_name"):
+            key = p["db_name"]
+        elif "h" in p and "b" in p:
+            key = f"{round(p['h'])}x{round(p['b'])}"
+        else:
+            key = str(p.get("profile_name", "unknown"))
         freq.setdefault(key, []).append(p)
-    # 가장 빈도 높은 그룹
     best_group = max(freq.values(), key=len)
-    # 그룹 내 평균 tw, tf
+    rep = best_group[0]
+    # db_name이 있으면 그대로 반환
+    if rep.get("db_name"):
+        return rep
+    # H형강 등: h/b/tw/tf 평균
     return {
-        "h": best_group[0]["h"],
-        "b": best_group[0]["b"],
-        "tw": round(sum(p["tw"] for p in best_group) / len(best_group), 1),
-        "tf": round(sum(p["tf"] for p in best_group) / len(best_group), 1),
+        "h": rep.get("h", 0),
+        "b": rep.get("b", 0),
+        "tw": round(sum(p.get("tw", 0) for p in best_group) / len(best_group), 1),
+        "tf": round(sum(p.get("tf", 0) for p in best_group) / len(best_group), 1),
     }
 
 
@@ -1028,13 +1203,13 @@ def parse_ifc(ifc_path: str, tolerance: float = 200.0) -> dict:
     if num_ifc_columns > 0 and not section_profiles["columns"]:
         warnings.append(
             f"IfcColumn {num_ifc_columns}개 존재하나 "
-            f"I형강 프로파일(IfcIShapeProfileDef)을 추출하지 못했습니다. "
+            f"단면 프로파일을 추출하지 못했습니다. "
             f"기본 단면이 사용됩니다."
         )
     if num_ifc_beams > 0 and not section_profiles["beams"]:
         warnings.append(
             f"IfcBeam {num_ifc_beams}개 존재하나 "
-            f"I형강 프로파일(IfcIShapeProfileDef)을 추출하지 못했습니다. "
+            f"단면 프로파일을 추출하지 못했습니다. "
             f"기본 단면이 사용됩니다."
         )
 

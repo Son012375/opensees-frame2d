@@ -18,7 +18,7 @@ load_dotenv(_project_root / ".env")
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -577,8 +577,24 @@ async def get_section_props(section_name: str):
             sys.path.insert(0, str(MCP_SERVER_PATH))
         from core.section_3d import get_section_3d
         sec = get_section_3d(section_name)
+        # 단면 타입 판별
+        stype = "H"
+        t_mm = 0.0
+        if section_name.startswith("□-") or section_name.startswith("\u25a1-"):
+            stype = "SHS" if abs(sec.h - sec.b) < 1 else "RHS"
+            t_mm = sec.tw  # SHS/RHS: tw에 두께 저장됨
+        elif section_name.startswith("○-") or section_name.startswith("\u25cb-"):
+            stype = "CHS"
+            t_mm = sec.tw
+        elif section_name.startswith("L-"):
+            stype = "L"
+        elif section_name.startswith("TFC-") or section_name.startswith("PFC-"):
+            stype = "C"
+        elif section_name.startswith("T-"):
+            stype = "T"
         return {
             "name": sec.name,
+            "section_type": stype,
             "A_cm2": round(sec.A / 100, 2),
             "Ix_cm4": round(sec.Ix / 10000, 1),
             "Iy_cm4": round(sec.Iy / 10000, 1),
@@ -587,6 +603,7 @@ async def get_section_props(section_name: str):
             "b_mm": round(sec.b, 1),
             "tw_mm": round(sec.tw, 1),
             "tf_mm": round(sec.tf, 1),
+            "t_mm": round(t_mm, 1),
             "j_source": sec.j_source,
         }
     except Exception as e:
@@ -1370,6 +1387,29 @@ async def analyze_v2_api(request: Request):
                         "num_stories": model.num_stories, "num_bays": 0},
         }
 
+        # Export용 결과 디스크 저장 (case_data, member_forces, envelope 등)
+        try:
+            export_payload = {
+                "job_id": job_id,
+                "created_at": jobs_db[job_id]["created_at"],
+                "envelope": env,
+                "case_names": response["case_names"],
+                "combo_names": response["combo_names"],
+                "case_data": case_data,
+                "member_forces": multi.member_forces,
+                "member_info": multi.member_info,
+                "nodes_info": {str(n.id): [n.x, n.y, n.z] for n in model.nodes.values()},
+                "num_stories": model.num_stories,
+                "num_nodes": len(model.nodes),
+                "num_elements": len(model.elements),
+                "analysis_type": "v2_building",
+                "seismic_method": seismic_method,
+            }
+            with open(job_dir / "result.json", "w", encoding="utf-8") as f:
+                json.dump(export_payload, f, ensure_ascii=False, default=str)
+        except Exception as save_err:
+            print(f"Result save failed: {save_err}")
+
         return response
 
     except Exception as e:
@@ -1384,6 +1424,376 @@ async def serve_v2_viewer(filename: str):
     if not viewer_path.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     return FileResponse(str(viewer_path), media_type="text/html")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Excel Export
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# 케이스 그룹별 헤더 배경/글자 색 (hex, 6자리)
+_GROUP_COLORS = {
+    'Info':   ('37474F', 'FFFFFF'),  # 짙은 회색
+    'DL':     ('0097A7', 'FFFFFF'),  # 시안
+    'LL':     ('F57C00', 'FFFFFF'),  # 주황
+    'EQ':     ('C62828', 'FFFFFF'),  # 빨강
+    'Wind':   ('6A1B9A', 'FFFFFF'),  # 보라
+    'RSA':    ('1565C0', 'FFFFFF'),  # 파랑
+    'Combo0': ('E8F5E9', '000000'),  # 연녹 1
+    'Combo1': ('F1F8E9', '000000'),  # 연녹 2
+}
+
+
+def _case_group(cname: str) -> str:
+    """케이스 이름 → 그룹 분류."""
+    if cname == 'Info':
+        return 'Info'
+    cu = cname.upper()
+    if 'RSA' in cu:
+        return 'RSA'
+    if 'WIND' in cu or cu.startswith('W'):
+        return 'Wind'
+    if 'EQ' in cu or cu.startswith('S_'):
+        return 'EQ'
+    if cu.startswith('DL') or cu == 'DEAD':
+        return 'DL'
+    if cu.startswith('LL') or cu == 'LIVE':
+        return 'LL'
+    return 'Combo'
+
+
+def _style_wide_header(ws, case_order, info_col_names, n_metrics):
+    """2행 MultiIndex 헤더에 그룹별 색 적용.
+
+    case_order: Info 제외한 케이스 이름 리스트
+    info_col_names: ['node_id', 'x_m', ...] (Info 레벨 컬럼 이름들)
+    n_metrics: 각 case 블록의 컬럼 수
+    """
+    from openpyxl.styles import PatternFill, Font, Alignment
+
+    col = 1
+    combo_idx = 0
+    # Info 컬럼 먼저
+    bg, fg = _GROUP_COLORS['Info']
+    info_fill = PatternFill('solid', fgColor=bg)
+    info_font = Font(bold=True, color=fg)
+    for _ in info_col_names:
+        for r in (1, 2):
+            cell = ws.cell(row=r, column=col)
+            cell.fill = info_fill
+            cell.font = info_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        col += 1
+
+    # 각 case 블록
+    for cname in case_order:
+        grp = _case_group(cname)
+        if grp == 'Combo':
+            fill_key = f'Combo{combo_idx % 2}'
+            combo_idx += 1
+        else:
+            fill_key = grp
+        bg, fg = _GROUP_COLORS[fill_key]
+        fill = PatternFill('solid', fgColor=bg)
+        font = Font(bold=True, color=fg)
+        for r in (1, 2):
+            for c in range(col, col + n_metrics):
+                cell = ws.cell(row=r, column=c)
+                cell.fill = fill
+                cell.font = font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+        col += n_metrics
+
+    ws.freeze_panes = 'A3'
+
+
+def _write_wide_sheet(writer, sheet_name, case_names, row_keys,
+                      info_col_names, info_values, metric_keys, fetch_value):
+    """openpyxl로 직접 wide sheet 쓰기 (MultiIndex + index=False 제약 회피).
+
+    헤더 1행: Info 컬럼은 각 컬럼명 + case 블록은 첫 셀에 케이스명(merge)
+    헤더 2행: Info 컬럼은 비움 + case 블록은 metric 이름들
+    3행~: 데이터
+    """
+    from openpyxl import Workbook
+    # pandas ExcelWriter.sheets는 기존 워크북 공유 → 새 시트 생성
+    wb = writer.book
+    if sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+    else:
+        ws = wb.create_sheet(sheet_name)
+    writer.sheets[sheet_name] = ws
+
+    n_info = len(info_col_names)
+    n_metrics = len(metric_keys)
+
+    # 1행 헤더: Info 컬럼명 + case별 merge 셀
+    for i, name in enumerate(info_col_names):
+        ws.cell(row=1, column=i + 1, value=name)
+    col = n_info + 1
+    for cname in case_names:
+        ws.cell(row=1, column=col, value=cname)
+        if n_metrics > 1:
+            ws.merge_cells(start_row=1, start_column=col,
+                           end_row=1, end_column=col + n_metrics - 1)
+        col += n_metrics
+
+    # 2행 헤더: Info 컬럼은 이미 1행이 이름이라 빈 셀(또는 동일)도 가능 —
+    # 보기 좋게 Info는 1행 이름 그대로 두고 2행도 동일값으로 유지 (merge 없이)
+    for i, name in enumerate(info_col_names):
+        ws.cell(row=2, column=i + 1, value=name)
+    col = n_info + 1
+    for _ in case_names:
+        for m in metric_keys:
+            ws.cell(row=2, column=col, value=m)
+            col += 1
+
+    # Info 컬럼 1~2행 세로 병합
+    for i in range(n_info):
+        ws.merge_cells(start_row=1, start_column=i + 1,
+                       end_row=2, end_column=i + 1)
+
+    # 3행~ 데이터
+    for ri, rk in enumerate(row_keys):
+        r = ri + 3
+        for ci, name in enumerate(info_col_names):
+            ws.cell(row=r, column=ci + 1, value=info_values[name][ri])
+        col = n_info + 1
+        for cname in case_names:
+            for m in metric_keys:
+                ws.cell(row=r, column=col, value=fetch_value(cname, rk, m))
+                col += 1
+
+
+@app.get("/api/export/excel/{job_id}")
+async def export_excel(job_id: str):
+    """해석 결과를 Excel 다중 시트(.xlsx)로 다운로드. Wide Pivot 구조."""
+    result_path = JOBS_DIR / job_id / "result.json"
+    if not result_path.exists():
+        raise HTTPException(status_code=404, detail="해석 결과를 찾을 수 없습니다. 해석을 다시 실행해주세요.")
+
+    try:
+        import pandas as pd
+        from io import BytesIO
+    except ImportError:
+        raise HTTPException(status_code=500, detail="pandas/openpyxl 미설치. `pip install pandas openpyxl` 실행 필요.")
+
+    with open(result_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    case_data = data.get("case_data", {}) or {}
+    member_forces = data.get("member_forces", {}) or {}
+    envelope = data.get("envelope", {}) or {}
+    nodes_info = data.get("nodes_info", {}) or {}
+
+    def _coord(nid, axis):
+        """nid의 x/y/z (없으면 None)."""
+        v = nodes_info.get(str(nid))
+        if not v:
+            return None
+        return v[axis] if axis < len(v) else None
+
+    def _nid_sort_key(nid):
+        try:
+            return (0, int(nid))
+        except (ValueError, TypeError):
+            return (1, str(nid))
+
+    # ─── 1) Displacements (Wide) ─────────────────────────────
+    disp_metrics = ["dx_mm", "dy_mm", "dz_mm", "rx_rad", "ry_rad", "rz_rad"]
+    disp_case_order = list(case_data.keys())
+    all_disp_nodes = set()
+    for cd in case_data.values():
+        all_disp_nodes.update((cd.get("displacements") or {}).keys())
+    all_disp_nodes = sorted(all_disp_nodes, key=_nid_sort_key)
+
+    def _disp_get(cname, nid, m):
+        vals = (case_data.get(cname, {}).get("displacements") or {}).get(str(nid))
+        if not vals:
+            return None
+        idx = disp_metrics.index(m)
+        return vals[idx] if idx < len(vals) else None
+
+    disp_info_cols = ["node_id", "x_m", "y_m", "z_m"]
+    disp_info_values = {
+        "node_id": list(all_disp_nodes),
+        "x_m": [_coord(n, 0) for n in all_disp_nodes],
+        "y_m": [_coord(n, 1) for n in all_disp_nodes],
+        "z_m": [_coord(n, 2) for n in all_disp_nodes],
+    }
+
+    # ─── 2) Member Forces (Wide) ─────────────────────────────
+    force_metrics = ["N_kN", "Vy_kN", "Vz_kN", "T_kNm", "My_kNm", "Mz_kNm"]
+    force_case_order = list(member_forces.keys())
+
+    # 모든 부재 수집 + 첫 등장 case에서 info 추출
+    member_info_map = {}  # member_id -> {ni, nj, type, section}
+    for cname in force_case_order:
+        mf_list = member_forces.get(cname, [])
+        if not isinstance(mf_list, list):
+            continue
+        for mf in mf_list:
+            mid = mf.get("member_id")
+            if mid is None or mid in member_info_map:
+                continue
+            member_info_map[mid] = {
+                "ni": mf.get("ni"),
+                "nj": mf.get("nj"),
+                "type": mf.get("type"),
+                "section": mf.get("section"),
+            }
+    all_members = sorted(member_info_map.keys(), key=lambda x: int(x) if str(x).isdigit() else 0)
+
+    # member_id → case → {metric: value} 맵 사전 구축 (O(N) lookup)
+    force_lookup = {}  # (cname, mid) -> mf dict
+    for cname in force_case_order:
+        mf_list = member_forces.get(cname, [])
+        if not isinstance(mf_list, list):
+            continue
+        for mf in mf_list:
+            mid = mf.get("member_id")
+            if mid is not None:
+                force_lookup[(cname, mid)] = mf
+
+    def _signed_peak(v):
+        """스칼라면 그대로, 배열이면 절댓값 최대(부호 유지)."""
+        if isinstance(v, (list, tuple)):
+            if not v:
+                return None
+            vals = [x for x in v if x is not None]
+            if not vals:
+                return None
+            return max(vals, key=lambda x: abs(x))
+        return v
+
+    def _force_get(cname, mid, m):
+        mf = force_lookup.get((cname, mid))
+        if not mf:
+            return None
+        return _signed_peak(mf.get(m))
+
+    force_info_cols = ["member_id", "ni", "nj", "type", "section"]
+    force_info_values = {
+        "member_id": list(all_members),
+        "ni": [member_info_map[m]["ni"] for m in all_members],
+        "nj": [member_info_map[m]["nj"] for m in all_members],
+        "type": [member_info_map[m]["type"] for m in all_members],
+        "section": [member_info_map[m]["section"] for m in all_members],
+    }
+
+    # ─── 3) Reactions (Wide) ─────────────────────────────────
+    react_metrics = ["RX_kN", "RY_kN", "RZ_kN", "MX_kNm", "MY_kNm", "MZ_kNm"]
+    react_case_order = list(case_data.keys())
+
+    # 지점 노드 수집 + 각 case의 lookup 구축
+    react_lookup = {}  # (cname, node_id) -> r dict
+    all_react_nodes = set()
+    for cname in react_case_order:
+        reactions = case_data.get(cname, {}).get("reactions") or []
+        for r in reactions:
+            nid = r.get("node_id") if "node_id" in r else r.get("node")
+            if nid is None:
+                continue
+            all_react_nodes.add(str(nid))
+            react_lookup[(cname, str(nid))] = r
+    all_react_nodes = sorted(all_react_nodes, key=_nid_sort_key)
+
+    def _react_get(cname, nid, m):
+        r = react_lookup.get((cname, str(nid)))
+        if not r:
+            return None
+        return _signed_peak(r.get(m))
+
+    def _react_coord(nid, axis):
+        """반력 노드 좌표: nodes_info 우선, fallback은 첫 case의 reaction 항목."""
+        v = nodes_info.get(str(nid))
+        if v:
+            return v[axis] if axis < len(v) else None
+        # fallback: 첫 등장 case의 좌표
+        for cname in react_case_order:
+            r = react_lookup.get((cname, str(nid)))
+            if r:
+                keys = ["x_m", "y_m", "z_m"]
+                return r.get(keys[axis])
+        return None
+
+    react_info_cols = ["node_id", "x_m", "y_m", "z_m"]
+    react_info_values = {
+        "node_id": list(all_react_nodes),
+        "x_m": [_react_coord(n, 0) for n in all_react_nodes],
+        "y_m": [_react_coord(n, 1) for n in all_react_nodes],
+        "z_m": [_react_coord(n, 2) for n in all_react_nodes],
+    }
+
+    # ─── 4) Envelope (기존 long-form 유지) ───────────────────
+    env_rows = [{"metric": k, "value": v} for k, v in envelope.items()]
+    df_env = pd.DataFrame(env_rows)
+
+    # ─── 5) Metadata ─────────────────────────────────────────
+    meta_rows = [
+        {"key": "job_id", "value": data.get("job_id", "")},
+        {"key": "created_at", "value": data.get("created_at", "")},
+        {"key": "analysis_type", "value": data.get("analysis_type", "")},
+        {"key": "seismic_method", "value": data.get("seismic_method", "")},
+        {"key": "num_stories", "value": data.get("num_stories", 0)},
+        {"key": "num_nodes", "value": data.get("num_nodes", 0)},
+        {"key": "num_elements", "value": data.get("num_elements", 0)},
+        {"key": "n_cases", "value": len(data.get("case_names", []))},
+        {"key": "n_combos", "value": len(data.get("combo_names", []))},
+    ]
+    df_meta = pd.DataFrame(meta_rows)
+
+    # ─── Excel 쓰기 ──────────────────────────────────────────
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        # Envelope/Metadata는 단순 long-form → pandas로
+        df_env.to_excel(writer, sheet_name='Envelope', index=False)
+        df_meta.to_excel(writer, sheet_name='Metadata', index=False)
+
+        # Wide sheets: openpyxl 직접 쓰기 (MultiIndex+index=False 미지원 회피)
+        _write_wide_sheet(writer, 'Displacements', disp_case_order, all_disp_nodes,
+                          disp_info_cols, disp_info_values, disp_metrics, _disp_get)
+        _write_wide_sheet(writer, 'Member_Forces', force_case_order, all_members,
+                          force_info_cols, force_info_values, force_metrics, _force_get)
+        _write_wide_sheet(writer, 'Reactions', react_case_order, all_react_nodes,
+                          react_info_cols, react_info_values, react_metrics, _react_get)
+
+        # 헤더 그룹별 색상 + freeze pane
+        _style_wide_header(writer.sheets['Displacements'],
+                           disp_case_order, disp_info_cols, len(disp_metrics))
+        _style_wide_header(writer.sheets['Member_Forces'],
+                           force_case_order, force_info_cols, len(force_metrics))
+        _style_wide_header(writer.sheets['Reactions'],
+                           react_case_order, react_info_cols, len(react_metrics))
+
+        # 시트 순서: Displacements, Member_Forces, Reactions, Envelope, Metadata
+        wb = writer.book
+        desired = ['Displacements', 'Member_Forces', 'Reactions', 'Envelope', 'Metadata']
+        wb._sheets = [wb[n] for n in desired if n in wb.sheetnames]
+
+        # 열 너비 자동 조정 (MergedCell 회피: 인덱스 기반 순회)
+        from openpyxl.utils import get_column_letter
+        from openpyxl.cell.cell import MergedCell
+        for sheet_name in writer.sheets:
+            ws = writer.sheets[sheet_name]
+            max_col = ws.max_column
+            for col_idx in range(1, max_col + 1):
+                col_letter = get_column_letter(col_idx)
+                max_len = 0
+                for row_idx in range(1, ws.max_row + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    if isinstance(cell, MergedCell):
+                        continue
+                    val = str(cell.value) if cell.value is not None else ""
+                    if len(val) > max_len:
+                        max_len = len(val)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 10), 32)
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename=analysis_{job_id}.xlsx'}
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

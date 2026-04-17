@@ -204,14 +204,17 @@ def _get_element_section_name(element) -> str | None:
     # V1 함수 재사용
     from core.ifc_parser import _get_element_profile
     profile = _get_element_profile(element)
-    if profile and profile.get("profile_name"):
+    if not profile:
+        return None
+    # DB 매칭된 이름 우선 (SHS/CHS 등 정확한 이름)
+    if profile.get("db_name"):
+        return profile["db_name"]
+    if profile.get("profile_name"):
         return profile["profile_name"]
-
-    # 프로파일 치수로 이름 생성
-    if profile:
+    # H형강 fallback: 치수로 이름 생성
+    if "h" in profile and "b" in profile:
         h, b = round(profile["h"]), round(profile["b"])
         return f"H-{h}x{b}"
-
     return None
 
 

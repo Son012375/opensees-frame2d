@@ -83,35 +83,48 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - Undo/Redo (Ctrl+Z/Y, 30단계)
 
 **3D 뷰어 기능**:
-- Wire/Solid Section 토글 (H형강 ExtrudeGeometry + 엣지 윤곽선)
+- Wire/Solid Section 토글 (H/SHS/RHS/CHS/L/채널 6종 ExtrudeGeometry + 엣지 윤곽선)
 - 노드 라벨: ID only / XYZ 좌표 (고해상도 Sprite)
 - 마우스 보조선 (X/Y/Z 점선 가이드) + Ghost Node 미리보기
 - 실시간 마우스 좌표 표시 (우측 하단)
 - 편집 모드에서 우클릭 회전 + 스크롤 줌 + Shift 패닝
 
-**해석 결과 시각화** (2026-04-15 추가):
+**해석 결과 시각화** (2026-04-15~17):
 - SFD/BMD/Axial 3D 다이어그램 (폴리곤 면 + 외곽선 + i/j-end + 고점 라벨)
-- Display Filter 패널 (Loads DL/LL/EQ/Wind, Story, Member Type 토글)
+- BMD/SFD 스케일 슬라이더 (0.1×~10× 로그)
+- Display Filter 패널 (Loads DL/LL/EQ/Wind, Story, Member Type, Node#/Member# 토글)
 - 하중 화살표 (분포하중 보 위 배열 + 수평하중 층 중심)
-- 반력 시각화 (지점 화살표 + kN 수치 라벨)
+- 반력 시각화 (지점 화살표 + kN 수치 라벨 + Values 토글 연동)
 - Deformed shape 토글 + 스케일 슬라이더 (1×~500×, Auto)
-- 부재력 hover tooltip (N/V/M 최대값)
+- 부재력 hover tooltip (N/V/M 최대값, 단면 타입별 필드 분기: H→H,B / SHS→B,t / CHS→D,t)
 - 개별 부재 Canvas 다이어그램 (N/V/M × 3, 클릭 시)
 - Properties 탭 정리 (Results / Modal / DC)
+- Story Drift 탭 ([3D Model] / [Story Drift] 뷰 전환, 수평 bar chart X/Y, KDS 허용치 자동전환 + 수동 오버라이드)
 
-**편집 도구** (2026-04-15 추가):
+**데이터 Export** (2026-04-16):
+- Excel Export (pandas + openpyxl): Wide Pivot 다중 시트 (Displacements / Member_Forces / Reactions / Envelope / Metadata)
+- 케이스 그룹별 헤더 색상 (DL=시안, LL=주황, EQ=빨강, Wind=보라, Combo=교차 연녹)
+- 2행 MultiIndex 헤더 + freeze pane
+
+**편집 도구** (2026-04-15~17):
 - 다중 선택 (Ctrl+클릭, 박스 드래그, Story 선택)
 - 복사/미러/층 복사 (플로팅 드래그 패널)
 - 개별 부재 단면 변경 ("이 부재만" + 재해석)
+- 층별 단면 일괄 변경 (Story 체크박스 + [선택 층] 버튼, 하위층 기준, 프리뷰 하이라이트)
 - 보-보 교차점 자동 분할 (2D line intersection)
 - 프로젝트 저장/불러오기 (.v2proj, 해석 결과 포함, 재해석 불필요)
 
+**다중 단면 타입 지원** (2026-04-17):
+- IFC 단면 매핑 확장: SHS/RHS/CHS/L/채널 ProfileName 파싱 → Supabase DB 자동 매칭
+- Solid Section(3D) 렌더링: H형강(I자), SHS(사각 중공), RHS, CHS(원형 중공), L(ㄱ자), 채널(ㄷ자)
+- Solid/Wire 전환 시 mesh 동기화 (필터/선택/프리뷰 연동)
+- API section_type + t_mm 필드 추가
+
 **향후 개선 예정**:
-- BMD 스케일 조절 슬라이더
-- Export (CSV/Excel — 부재력, 변위, 반력)
-- IFC 단면 매핑 확장 (Box/Pipe/C채널)
 - 슬래브 하중 분배 개선 (tributary → 2-way)
 - RC 단면 (직사각형, 원형) 확장
+- IFC 파싱 추가 검증 (CHS/L/채널 Revit IFC)
+- Design Check 비H형강 확장 (AISC HSS/Round HSS)
 
 ### 3.3 KDS-Based Auto Load Generation
 - **고정하중(DL)**: 슬래브 자중 + 마감 + 설비

@@ -29,6 +29,7 @@
                 📂 Load
                 <input type="file" accept=".json,.v2proj,.v2proj.json" onchange="loadProject(event)" style="display:none;">
             </label>
+            <button id="btn-export-excel" onclick="exportToExcel()" disabled title="해석 결과 Excel 다운로드" style="background:none;border:1px solid #ccc;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text-secondary);opacity:0.5;">📊 Export</button>
             <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
             <a href="/" class="nav-link">Home</a>
         </div>
@@ -495,7 +496,10 @@
         <!-- Center: 3D Viewer -->
         <div class="panel panel-center">
             <div class="panel-header">
-                <h3>3D Viewer</h3>
+                <div class="viewer-tabs">
+                    <button class="vtab-btn active" data-vtab="3d" onclick="switchViewerTab('3d')">3D Model</button>
+                    <button class="vtab-btn" data-vtab="drift" onclick="switchViewerTab('drift')">Story Drift</button>
+                </div>
                 <div class="viewer-controls">
                     <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
                     <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
@@ -554,8 +558,15 @@
                         <label><input type="checkbox" data-filter="type" value="brace" onchange="onFilterChange()" checked> Brace</label>
                     </div>
                 </div>
+                <!-- Numbers (Node / Member IDs) -->
+                <div style="margin-top:6px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                    <div style="font-weight:600; color:var(--text-secondary); margin-bottom:2px;">Numbers</div>
+                    <label style="margin-right:8px;"><input type="checkbox" id="toggle-node-numbers" onchange="toggleNodeNumbers()"> <span style="color:#2e7d32;">■</span> Node #</label>
+                    <label><input type="checkbox" id="toggle-member-numbers" onchange="toggleMemberNumbers()"> <span style="color:#6a1b9a;">■</span> Member #</label>
+                </div>
             </div>
-            <div id="viewer-container" style="position:relative;">
+            <div id="viewer-drift-wrap" style="display:flex; flex:1; overflow:hidden;">
+            <div id="viewer-container" style="position:relative; flex:1;">
                 <!-- Copy/Mirror 플로팅 패널 -->
                 <div id="copy-mirror-panel" style="display:none; position:absolute; top:50px; left:20px; z-index:200; background:var(--bg-card,#fff); border:1px solid var(--border-input,#ccc); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); width:280px; font-size:11px;">
                     <div id="cm-titlebar" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--accent,#1976d2); color:#fff; border-radius:7px 7px 0 0; cursor:move; user-select:none;">
@@ -692,6 +703,31 @@
                     <div class="legend-info" id="legend-info"></div>
                 </div>
             </div>
+            <!-- Story Drift Panel (3D 옆에 열림) -->
+            <div id="drift-panel" style="display:none; width:40%; min-width:280px; border-left:1px solid var(--border-input,#ddd); overflow-y:auto; padding:12px; background:var(--bg-card,#fff);">
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:10px; color:var(--text-secondary);">Case</label>
+                    <select id="drift-case-selector" onchange="onDriftCaseChange()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        <option value="__envelope__">Envelope (Max)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:10px; color:var(--text-secondary);">Allowable Drift</label>
+                    <select id="drift-limit-selector" onchange="onDriftLimitChange()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        <option value="0.005">1/200 (KDS General / Wind)</option>
+                        <option value="0.020">1/50 (KDS Seismic - II)</option>
+                        <option value="0.015">1/67 (KDS Seismic - I)</option>
+                        <option value="0.010">1/100 (KDS Seismic - Special)</option>
+                        <option value="0.0033">1/300 (Strict)</option>
+                    </select>
+                </div>
+                <h4 style="font-size:12px; margin-bottom:4px; color:var(--text-primary);">Drift X</h4>
+                <canvas id="canvas-drift-x" width="400" height="200" style="width:100%; border:1px solid var(--border-input); border-radius:3px; margin-bottom:12px;"></canvas>
+                <h4 style="font-size:12px; margin-bottom:4px; color:var(--text-primary);">Drift Y</h4>
+                <canvas id="canvas-drift-y" width="400" height="200" style="width:100%; border:1px solid var(--border-input); border-radius:3px;"></canvas>
+                <div id="drift-info" style="margin-top:10px; font-size:10px; color:var(--text-secondary); line-height:1.5;"></div>
+            </div>
+            </div><!-- /viewer-drift-wrap -->
         </div>
 
         <!-- Right: Property Panel -->
@@ -759,9 +795,23 @@
                     <div class="form-group">
                         <select id="prop-new-section"></select>
                     </div>
-                    <div style="display:flex; gap:4px;">
-                        <button class="btn btn-secondary" style="flex:1; font-size:10px;" onclick="applyMemberChange()">
+                    <div id="modify-story-wrap" style="margin-top:6px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                            <span style="font-size:10px; color:var(--text-secondary);">Story (선택 층 적용 시)</span>
+                            <span style="display:flex; gap:3px;">
+                                <button onclick="storySelAll(true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                                <button onclick="storySelAll(false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                                <button onclick="storySelCurrent()" title="이 부재가 속한 층만 체크 (하위 층 기준)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">이 부재 층</button>
+                            </span>
+                        </div>
+                        <div id="modify-story-checks" style="display:flex; flex-wrap:wrap; gap:6px; font-size:10px; padding:4px; background:var(--bg-input,#f7f7f7); border:1px solid var(--border-input,#ddd); border-radius:3px; min-height:24px;"></div>
+                    </div>
+                    <div style="display:flex; gap:4px; margin-top:6px;">
+                        <button id="btn-apply-member" class="btn btn-secondary" style="flex:1; font-size:10px;" onclick="applyMemberChange()">
                             전체 적용
+                        </button>
+                        <button id="btn-apply-story" class="btn btn-secondary" style="flex:1; font-size:10px;" onclick="applyStorySection()">
+                            선택 층
                         </button>
                         <button class="btn btn-primary" style="flex:1; font-size:10px;" onclick="applySingleMemberChange()">
                             이 부재만
@@ -896,6 +946,20 @@
                                         <input type="checkbox" id="toggle-dgm-values" onchange="onDiagramValuesToggle()" checked>
                                         <span style="font-size:10px;">Values</span>
                                     </label>
+                                </div>
+                            </div>
+                            <!-- Diagram Scale -->
+                            <div id="diagram-scale-wrap" style="display:none; margin-top:6px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                                <div style="display:flex; align-items:center; justify-content:space-between;">
+                                    <span style="font-size:10px; color:var(--text-secondary);">Diagram Scale</span>
+                                    <span id="diagram-scale-val" style="font-size:10px; font-weight:600;">1.00×</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:4px; margin-top:2px;">
+                                    <span style="font-size:9px;">0.1×</span>
+                                    <input type="range" id="diagram-scale-slider" min="0" max="100" value="50" step="1"
+                                           style="flex:1; accent-color:var(--accent);" oninput="onDiagramScaleChange(this.value)">
+                                    <span style="font-size:9px;">10×</span>
+                                    <button onclick="resetDiagramScale()" style="font-size:9px;padding:1px 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">Auto</button>
                                 </div>
                             </div>
                         </div>

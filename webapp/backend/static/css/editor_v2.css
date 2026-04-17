@@ -290,6 +290,17 @@ body {
     color: var(--text-secondary);
 }
 
+/* Viewer tab buttons */
+.viewer-tabs { display: flex; gap: 0; }
+.vtab-btn {
+    padding: 4px 14px; font-size: 12px; font-weight: 600;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer; color: var(--text-secondary, #888);
+    transition: all 0.15s;
+}
+.vtab-btn.active { color: var(--accent, #1976d2); border-bottom-color: var(--accent, #1976d2); }
+.vtab-btn:hover:not(.active) { color: var(--text-primary, #333); }
+
 .panel-body {
     flex: 1;
     overflow-y: auto;
