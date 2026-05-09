@@ -100,11 +100,16 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - 개별 부재 Canvas 다이어그램 (N/V/M × 3, 클릭 시)
 - Properties 탭 정리 (Results / Modal / DC)
 - Story Drift 탭 ([3D Model] / [Story Drift] 뷰 전환, 수평 bar chart X/Y, KDS 허용치 자동전환 + 수동 오버라이드)
+- **Drift Profile 차트** (2026-05-04): 높이방향 X/Y 꺾은선 + 영역 채우기 + 허용치 수직선, 층별 OK/NG 상세 테이블 (1/N + %, Max 행)
 
-**데이터 Export** (2026-04-16):
+**데이터 Export** (2026-04-16~05-04):
 - Excel Export (pandas + openpyxl): Wide Pivot 다중 시트 (Displacements / Member_Forces / Reactions / Envelope / Metadata)
 - 케이스 그룹별 헤더 색상 (DL=시안, LL=주황, EQ=빨강, Wind=보라, Combo=교차 연녹)
 - 2행 MultiIndex 헤더 + freeze pane
+- **DXF Export** (ezdxf, 2026-04-20): 층별 평면도 + X/Y 입면도 한 도면에 자동 배치
+  - 평면: GL/1F/2F... 수직 적층, 그리드선(중심선) + 축번호(X1/Y1) + 연속/전체 치수선 + 제목 박스
+  - 입면: 라인별 수직 LINE(기둥) + 수평 LINE(보) + 층고 치수
+  - 레이어 분리 (GRID/COL/BEAM/TEXT/DIM/FRAME) → AutoCAD/QCAD 호환
 
 **편집 도구** (2026-04-15~17):
 - 다중 선택 (Ctrl+클릭, 박스 드래그, Story 선택)
@@ -119,6 +124,18 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - Solid Section(3D) 렌더링: H형강(I자), SHS(사각 중공), RHS, CHS(원형 중공), L(ㄱ자), 채널(ㄷ자)
 - Solid/Wire 전환 시 mesh 동기화 (필터/선택/프리뷰 연동)
 - API section_type + t_mm 필드 추가
+- Solid 모드에서 Deformed shape/DC Colors 자동 동기화 (2026-05-04)
+- 헤더 Solid 토글 추가 (3D 뷰 어디서든 즉시 전환 가능)
+
+**해석 결과 ↔ 편집 워크플로우 개선** (2026-05-04):
+- 해석 직전 자동 undo 포인트 저장 → Ctrl+Z 한 번으로 편집 모드 복귀 가능
+- 결과 화면 우측 상단 "Edit" 복귀 버튼 (오렌지 강조)
+- IFC 위자드 이전 단계 이동 시 결과 정리 확인 다이얼로그
+- 결과 → 편집 전환 시 메쉬/필터/Deformed/Solid 상태 완전 초기화 (잔재 방지)
+
+**IFC 누락 최상층 자동 감지** (2026-05-04):
+- IfcBuildingStorey에 선언되지 않은 최상층 슬래브/지붕 노드를 구조 노드 Z좌표에서 추론
+- 0.3m 허용오차로 기존 층과 거리 검증 후 자동 추가, INFO 로그 기록
 
 **향후 개선 예정**:
 - 슬래브 하중 분배 개선 (tributary → 2-way)
@@ -186,19 +203,23 @@ opensees-MCP/
 ├── webapp/                            # 웹 애플리케이션
 │   └── backend/
 │       ├── app/
-│       │   ├── main_simple.py         # FastAPI 앱
-│       │   └── core/
-│       │       ├── claude_service.py   # Claude API 서비스
-│       │       ├── auth.py            # 데모 인증 미들웨어
-│       │       └── config.py
-│       ├── templates/                 # HTML 템플릿
+│       │   ├── main_simple.py         # FastAPI 앱 (모든 라우트, Excel/DXF Export)
+│       │   ├── core/
+│       │   │   ├── claude_service.py   # Claude API 서비스
+│       │   │   ├── auth.py            # 데모 인증 미들웨어
+│       │   │   └── config.py
+│       │   └── models/schemas.py      # Pydantic 스키마
+│       ├── templates/                 # HTML 템플릿 (Jinja2)
+│       │   ├── home.html, index.html
 │       │   ├── editor.html            # V1 3D Building Editor
 │       │   ├── editor_v2.html         # V2 3D Editor (Node-Element + Edit)
-│       │   └── ...
+│       │   ├── simple_beam*.html, continuous_beam*.html, jobs*.html
+│       │   └── partials/
 │       └── static/                    # JS/CSS
 │           ├── js/editor3d.js         # V1 Three.js 3D 뷰어
-│           ├── js/editor3d_v2.js      # V2 3D 뷰어 (V2 IFC + 편집)
+│           ├── js/editor3d_v2.js      # V2 3D 뷰어 (IFC + 결과 + DXF/Excel)
 │           ├── js/v2_edit.js          # V2 편집 도구 (Node/Element/Delete/Move)
+│           ├── js/v2_tools.js         # V2 Solid Section + Release/Support
 │           ├── css/editor.css         # V1 테마 시스템
 │           └── css/editor_v2.css      # V2 테마 + 편집 UI
 │
@@ -232,6 +253,8 @@ opensees-MCP/
 | Design Code | KDS 41 12 00, 41 17 00, 17 10 00 | 한국건설기준 |
 | Design Standard | AISC 360 | 강구조 부재강도 |
 | IFC Parser | ifcopenshell | 0.8.4+ |
+| DXF Export | ezdxf | 1.0.0+ (층별 평면도/입면도) |
+| Excel Export | pandas + openpyxl | 2.0+ / 3.1+ |
 | Protocol | MCP (Model Context Protocol) | 14개 도구 등록 |
 | Deployment | Azure Container Apps | Docker + ACR |
 

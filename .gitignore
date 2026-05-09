@@ -72,6 +72,12 @@ mcp-server/*.png
 
 # Binary / presentation files
 *.pptx
+*.docx
+
+# Local DXF samples / one-off scripts (not part of repo)
+test_*.dxf
+make_script_*.py
+mdpdf.log
 
 # Legacy directories (superseded by mcp-server + webapp)
 /adapters/

@@ -887,6 +887,69 @@ function clearIFCFile() {
 }
 
 // ─── Wizard Navigation ──────────────────────────────────────────────────
+function goToIFCStepSafely(step) {
+    // 해석 결과가 있는 상태에서 이전 단계로 돌아갈 때: 확인 + 정리
+    if (currentResult && step < ifcWizardStep) {
+        const ok = confirm('편집 모드로 돌아가면 해석 결과가 초기화됩니다.\n계속하시겠습니까?');
+        if (!ok) return;
+        _clearAnalysisResults();
+    }
+    goToIFCStep(step);
+}
+
+function _clearAnalysisResults() {
+    // 해석 결과 완전 정리
+    currentResult = null;
+    currentJobId = null;
+    // 결과 씬의 부재/노드 메쉬 완전 정리 (겹침 방지)
+    memberMeshes.forEach(({ mesh }) => {
+        if (!mesh) return;
+        if (mesh.parent) scene.remove(mesh);
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) {
+            if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
+            else mesh.material.dispose();
+        }
+    });
+    memberMeshes = [];
+    nodeMeshes.forEach(m => {
+        if (!m) return;
+        if (m.parent) scene.remove(m);
+        if (m.geometry) m.geometry.dispose();
+        if (m.material) m.material.dispose();
+    });
+    nodeMeshes = [];
+    // 결과 관련 3D 요소 정리
+    if (typeof _clearLoadArrows === 'function') _clearLoadArrows();
+    if (typeof _clearDiagrams === 'function') _clearDiagrams();
+    if (typeof clearAllSelection === 'function') clearAllSelection();
+    // Solid Section 리셋
+    if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
+    window.solidMode = false;
+    const chkSolid = document.getElementById('chk-solid-section');
+    if (chkSolid) chkSolid.checked = false;
+    const chkSolidTop = document.getElementById('chk-solid-section-top');
+    if (chkSolidTop) chkSolidTop.checked = false;
+    // Deformed shape 리셋
+    const chkDeformed = document.getElementById('toggle-deformed');
+    if (chkDeformed) chkDeformed.checked = false;
+    _lastDisplacements = null;
+    originalMemberState = null;
+    originalNodeState = null;
+    // 결과 패널 숨기기
+    const propResults = document.getElementById('prop-results');
+    if (propResults) propResults.style.display = 'none';
+    const propEmpty = document.getElementById('prop-empty');
+    if (propEmpty) propEmpty.style.display = 'block';
+    // Export 버튼 비활성화
+    if (typeof _setExportBtnEnabled === 'function') _setExportBtnEnabled(false);
+    // 3D Model 탭으로 전환
+    if (typeof switchViewerTab === 'function') switchViewerTab('model');
+    // 바닥 상태바 숨기기
+    const botBar = document.getElementById('bottom-bar');
+    if (botBar) botBar.style.display = 'none';
+}
+
 function goToIFCStep(step) {
     ifcWizardStep = step;
     // Update step containers
@@ -1595,6 +1658,8 @@ function clearPreviewScene() {
     memberMeshes = memberMeshes.filter(({ mesh }) => !mesh.userData._isPreviewElement);
     selectedMeshSet.clear();
     selectedMesh = null;
+    // Solid meshes도 함께 정리 (Solid Section이 켜져 있던 경우)
+    if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
     document.getElementById('preview-badge').style.display = 'none';
 }
 
@@ -1760,6 +1825,9 @@ async function runAnalysisFromIFCWizard() {
 async function runAnalysisV2() {
     if (!window._v2Model) { alert('V2 모델이 없습니다.'); return; }
 
+    // 해석 전 undo 포인트 저장 (Ctrl+Z로 해석 전 상태 복원 가능)
+    if (typeof pushUndo === 'function') pushUndo();
+
     setStatus('V2 해석 중 (KDS Load Gen + Analysis + Design Check)...', 'running');
 
     // 층별 용도 수집
@@ -1834,6 +1902,8 @@ async function runAnalysisV2() {
         window.solidMode = false;
         var chkSolid = document.getElementById('chk-solid-section');
         if (chkSolid) chkSolid.checked = false;
+        var chkSolidTop = document.getElementById('chk-solid-section-top');
+        if (chkSolidTop) chkSolidTop.checked = false;
         setStatus('V2 해석 완료 (KDS + Design Check)', 'success');
 
     } catch (e) {
@@ -2096,6 +2166,9 @@ async function runAnalysis(configOverride = null) {
             config.zones = zones;
         }
     }
+
+    // 해석 전 undo 포인트 저장
+    if (window._v2Model && typeof pushUndo === 'function') pushUndo();
 
     showLoading('Analyzing...');
     setStatus('Analyzing...', 'running');
@@ -2552,14 +2625,14 @@ function buildScene(result) {
         memberMeshes.push({ mesh, elementData: elem });
     });
 
-    // Draw all nodes (supports highlighted, others small)
+    // Draw all nodes (supports highlighted, others more visible for deformed shape)
     nodes.forEach(n => {
         const isSupport = Math.abs(n.z) < 0.01;
-        const geo = new THREE.SphereGeometry(isSupport ? 0.2 : 0.1, 8, 8);
+        const geo = new THREE.SphereGeometry(isSupport ? 0.2 : 0.15, 10, 10);
         const mat = new THREE.MeshPhongMaterial({
-            color: isSupport ? 0xff6600 : 0x888888,
+            color: isSupport ? 0xff6600 : 0x555555,
             transparent: !isSupport,
-            opacity: isSupport ? 1.0 : 0.4,
+            opacity: isSupport ? 1.0 : 0.85,
         });
         const sphere = new THREE.Mesh(geo, mat);
         sphere.position.set(n.x, n.z, -n.y);
@@ -3906,9 +3979,34 @@ function applyDeformedShape(displacements) {
     // Move node spheres to deformed positions
     nodeMeshes.forEach(m => {
         const nid = m.userData?.nodeId;
-        if (!nid || !deformedPos[nid]) return;
-        m.position.copy(deformedPos[nid]);
+        // nid가 0일 수도 있으므로 undefined/null만 배제
+        if (nid === undefined || nid === null) return;
+        const dp = deformedPos[nid];
+        if (!dp) return;
+        m.position.copy(dp);
+        m.updateMatrix();
     });
+
+    // Solid section meshes도 변형에 맞게 이동/회전/스케일
+    if (window.solidMode && window._solidMeshMap && window._v2Model) {
+        const elemMap = {};
+        window._v2Model.elements.forEach(e => { elemMap[e.id] = e; });
+        const defaultDir = new THREE.Vector3(0, 0, 1);  // ExtrudeGeometry 돌출 방향
+        Object.entries(window._solidMeshMap).forEach(([elemId, solidMesh]) => {
+            const elem = elemMap[elemId];
+            if (!elem) return;
+            const pi = deformedPos[elem.node_i];
+            const pj = deformedPos[elem.node_j];
+            if (!pi || !pj) return;
+            const dir = new THREE.Vector3().subVectors(pj, pi);
+            const newLen = dir.length();
+            if (newLen < 0.001) return;
+            const origLen = solidMesh.userData._solidOrigLen || newLen;
+            solidMesh.position.copy(pi);
+            solidMesh.quaternion.setFromUnitVectors(defaultDir, dir.clone().normalize());
+            solidMesh.scale.z = newLen / origLen;
+        });
+    }
 }
 
 function restoreOriginalPositions() {
@@ -3932,6 +4030,27 @@ function restoreOriginalPositions() {
                 m.material.color.setHex(orig.color);
                 m.material.opacity = orig.opacity;
             }
+        });
+    }
+    // Solid meshes 원상 복귀 (solid mode일 때만)
+    if (window.solidMode && window._solidMeshMap && window._v2Model) {
+        const nodeMap = {};
+        window._v2Model.nodes.forEach(n => { nodeMap[n.id] = n; });
+        const elemMap = {};
+        window._v2Model.elements.forEach(e => { elemMap[e.id] = e; });
+        const defaultDir = new THREE.Vector3(0, 0, 1);
+        Object.entries(window._solidMeshMap).forEach(([elemId, solidMesh]) => {
+            const elem = elemMap[elemId];
+            if (!elem) return;
+            const ni = nodeMap[elem.node_i];
+            const nj = nodeMap[elem.node_j];
+            if (!ni || !nj) return;
+            const startPos = new THREE.Vector3(ni.x, ni.z, -ni.y);
+            const endPos = new THREE.Vector3(nj.x, nj.z, -nj.y);
+            const dir = new THREE.Vector3().subVectors(endPos, startPos).normalize();
+            solidMesh.position.copy(startPos);
+            solidMesh.quaternion.setFromUnitVectors(defaultDir, dir);
+            solidMesh.scale.set(1, 1, 1);
         });
     }
 }
@@ -4060,8 +4179,11 @@ function applyModeShape(shape, amplitude) {
 
     nodeMeshes.forEach(m => {
         const nid = m.userData?.nodeId;
-        if (!nid) return;
-        if (deformedPos[nid]) m.position.copy(deformedPos[nid]);
+        if (nid === undefined || nid === null) return;
+        if (deformedPos[nid]) {
+            m.position.copy(deformedPos[nid]);
+            m.updateMatrix();
+        }
         // Color node spheres too
         const d = (nodeDisp[nid] || 0) * absAmp;
         m.material.color.copy(jetColormap(d));
@@ -4151,27 +4273,37 @@ function toggleDesignCheckColors() {
     }
 }
 
+function _dcColorForMember(mc) {
+    if (!mc) return null;
+    if (mc.status === 'OK') {
+        return (mc.interaction_ratio > 0.7) ? COLORS.dc_marginal : COLORS.dc_ok;
+    }
+    return COLORS.dc_ng;
+}
+
 function applyDesignCheckColors(memberChecks) {
+    // Wireframe (cylinder) meshes
     memberMeshes.forEach(({ mesh, elementData }) => {
+        const mc = memberChecks[String(elementData.id)];
+        const dcColor = _dcColorForMember(mc);
+        if (dcColor === null) return;
         if (selectedMeshSet.has(mesh)) {
             // Update stored orig color so deselection restores DC color
-            const mc = memberChecks[String(elementData.id)];
-            if (mc) {
-                mesh.userData._origColor = mc.status === 'OK'
-                    ? (mc.interaction_ratio > 0.7 ? COLORS.dc_marginal : COLORS.dc_ok)
-                    : COLORS.dc_ng;
-            }
+            mesh.userData._origColor = dcColor;
             return; // don't override selection highlight
         }
-        const mc = memberChecks[String(elementData.id)];
-        if (mc) {
-            if (mc.status === 'OK') {
-                mesh.material.color.setHex(mc.interaction_ratio > 0.7 ? COLORS.dc_marginal : COLORS.dc_ok);
-            } else {
-                mesh.material.color.setHex(COLORS.dc_ng);
-            }
-        }
+        mesh.material.color.setHex(dcColor);
     });
+    // Solid section meshes (when solid mode is on)
+    if (window._solidMeshMap) {
+        Object.entries(window._solidMeshMap).forEach(([elemId, solidMesh]) => {
+            const mc = memberChecks[String(elemId)];
+            const dcColor = _dcColorForMember(mc);
+            if (dcColor === null) return;
+            solidMesh.material.color.setHex(dcColor);
+            solidMesh.userData._dcColor = dcColor;
+        });
+    }
 }
 
 function resetElementColors() {
@@ -4182,6 +4314,16 @@ function resetElementColors() {
         }
         mesh.material.color.setHex(getElementColor(elementData));
     });
+    // Solid meshes: restore original color
+    if (window._solidMeshMap) {
+        Object.values(window._solidMeshMap).forEach(solidMesh => {
+            const origColor = solidMesh.userData._solidOrigColor;
+            if (origColor !== undefined) {
+                solidMesh.material.color.setHex(origColor);
+            }
+            delete solidMesh.userData._dcColor;
+        });
+    }
 }
 
 // ─── Viewer Controls ──────────────────────────────────────────────────────
@@ -4946,6 +5088,7 @@ function _buildLoadArrows() {
                 const norm = Math.abs(value) / maxGrav;
                 const aLen = gravArrowLen * Math.max(norm, 0.3);
                 const storyNodeIds = new Set(storyNodes.map(n => n.id));
+                let labelPlaced = false;
 
                 beamElements.forEach(e => {
                     const ni = nodeMap[e.node_i], nj = nodeMap[e.node_j];
@@ -4984,6 +5127,18 @@ function _buildLoadArrows() {
                     const lineGeo = new THREE.BufferGeometry().setFromPoints(topPts);
                     const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
                     _loadArrowGroup.add(new THREE.Line(lineGeo, lineMat));
+
+                    // 수치 라벨: 층당 첫 번째 보의 중앙 위에 1회만 표시
+                    if (!labelPlaced) {
+                        const mx = (ni.x + nj.x) / 2;
+                        const my = (ni.y + nj.y) / 2;
+                        const mz = (ni.z + nj.z) / 2;
+                        _addLoadLabel(
+                            new THREE.Vector3(mx, mz + aLen + 0.4, -(my)),
+                            caseName + ': ' + value.toFixed(1) + ' kN/m²', color
+                        );
+                        labelPlaced = true;
+                    }
                 });
 
             } else if (ld.type === 'lateral_x' || ld.type === 'lateral_y') {
@@ -5022,7 +5177,7 @@ function _buildLoadArrows() {
                 _addLoadLabel(
                     isX ? new THREE.Vector3(cx - len*0.3, cz + 0.5, -(cy))
                         : new THREE.Vector3(cx, cz + 0.5, -(cy) + len*0.3),
-                    value.toFixed(1) + ' kN', color
+                    caseName + ': ' + value.toFixed(1) + ' kN', color
                 );
             }
         });
@@ -5114,18 +5269,28 @@ function _addReactionLabel(position, text, color) {
 }
 
 function _addLoadLabel(position, text, color) {
+    const s = 3;
     const canvas = document.createElement('canvas');
-    canvas.width = 128; canvas.height = 32;
+    canvas.width = 200 * s; canvas.height = 36 * s;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
-    ctx.font = 'bold 18px Arial';
+    ctx.scale(s, s);
+    ctx.clearRect(0, 0, 200, 36);
+    const hex = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(text, 64, 22);
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, 100, 18);
+    ctx.fillStyle = hex;
+    ctx.fillText(text, 100, 18);
     const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    texture.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
     const sprite = new THREE.Sprite(mat);
     sprite.position.copy(position);
-    sprite.scale.set(2, 0.5, 1);
+    sprite.scale.set(5.0, 0.9, 1);
+    sprite.userData._isLoadLabel = true;
     _loadArrowGroup.add(sprite);
 }
 
@@ -5780,6 +5945,11 @@ function _buildDriftCharts() {
     if (infoEl) {
         infoEl.innerHTML = `<b>KDS 41 17 00</b><br>허용: 1/${invStr} (${allowable}) — ${limitLabel}<br>Case: ${caseName === '__envelope__' ? 'Envelope (모든 케이스 중 Max)' : caseName}`;
     }
+
+    // 수직 프로파일 차트 + 상세 테이블
+    const storyHeights = currentResult?.viewer?.stories || [];
+    _drawDriftProfileChart('canvas-drift-profile', storyLabels, driftsX, driftsY, allowable, storyHeights);
+    _buildDriftTable(storyLabels, driftsX, driftsY, allowable, storyHeights);
 }
 
 function _drawDriftBarChart(canvasId, labels, values, limit, direction) {
@@ -5876,6 +6046,222 @@ function _drawDriftBarChart(canvasId, labels, values, limit, direction) {
     ctx.fillText(limitLabel, limitX + 6, marginT + 10);
 }
 
+// ─── Drift Profile Chart (수직 높이 방향, X/Y 겹침) ─────────────────────
+function _drawDriftProfileChart(canvasId, labels, driftsX, driftsY, limit, storyHeights) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || labels.length === 0) return;
+
+    const nStories = labels.length;
+    // 층 높이에서 누적 높이(elevation) 계산
+    const elevations = [0]; // base
+    for (let i = 0; i < nStories; i++) {
+        const h = (storyHeights[i] || 3.5);
+        elevations.push(elevations[elevations.length - 1] + h);
+    }
+    const totalH = elevations[elevations.length - 1];
+
+    const dpr = 2;
+    const W_css = canvas.clientWidth || 380;
+    const H_css = Math.max(nStories * 40 + 80, 200);
+    canvas.style.height = H_css + 'px';
+    canvas.width = W_css * dpr;
+    canvas.height = H_css * dpr;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const marginL = 42, marginR = 20, marginT = 30, marginB = 28;
+    const plotW = W_css - marginL - marginR;
+    const plotH = H_css - marginT - marginB;
+
+    const maxDrift = Math.max(...driftsX, ...driftsY, limit) * 1.4;
+
+    // 배경
+    ctx.clearRect(0, 0, W_css, H_css);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W_css, H_css);
+
+    // 제목
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText('Drift Profile (Height vs Drift Ratio)', 4, 14);
+
+    // 범례
+    ctx.font = '9px Arial';
+    const legX = W_css - 110;
+    ctx.fillStyle = '#42a5f5'; ctx.fillRect(legX, 4, 12, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.textAlign = 'left';
+    ctx.fillText('Drift X', legX + 16, 10);
+    ctx.fillStyle = '#ef5350'; ctx.fillRect(legX + 55, 4, 12, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText('Drift Y', legX + 71, 10);
+
+    // 좌표 변환 헬퍼
+    function xPos(drift) { return marginL + (drift / maxDrift) * plotW; }
+    function yPos(elev) { return marginT + plotH - (elev / totalH) * plotH; }
+
+    // 수평 그리드 (층별)
+    ctx.font = '9px Arial';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= nStories; i++) {
+        const y = yPos(elevations[i]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(marginL, y); ctx.lineTo(marginL + plotW, y); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        const lbl = i === 0 ? 'Base' : labels[i - 1];
+        ctx.fillText(lbl, marginL - 4, y + 3);
+    }
+
+    // 수직 그리드 (drift ticks)
+    const nTicks = 5;
+    ctx.font = '8px Arial';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= nTicks; i++) {
+        const v = (maxDrift / nTicks) * i;
+        const x = xPos(v);
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(x, marginT); ctx.lineTo(x, marginT + plotH); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        if (v > 0.0005) ctx.fillText((v * 100).toFixed(1) + '%', x, H_css - 6);
+        else ctx.fillText('0', x, H_css - 6);
+    }
+
+    // X축 라벨
+    ctx.font = '8px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Drift Ratio', marginL + plotW / 2, H_css - 0);
+
+    // 허용치 수직선
+    const limitXpos = xPos(limit);
+    ctx.strokeStyle = '#ffab00'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(limitXpos, marginT); ctx.lineTo(limitXpos, marginT + plotH); ctx.stroke();
+    ctx.setLineDash([]);
+    // limit 라벨
+    ctx.font = 'bold 8px Arial';
+    ctx.fillStyle = '#ffab00'; ctx.textAlign = 'left';
+    ctx.fillText('1/' + Math.round(1 / limit), limitXpos + 2, marginT + plotH + 10);
+
+    // Drift X 프로파일 (파란선)
+    _drawProfileLine(ctx, driftsX, elevations, '#42a5f5', xPos, yPos);
+    // Drift Y 프로파일 (빨간선)
+    _drawProfileLine(ctx, driftsY, elevations, '#ef5350', xPos, yPos);
+}
+
+function _drawProfileLine(ctx, drifts, elevations, color, xPos, yPos) {
+    const n = drifts.length;
+    // 꺾은선: base(0) → 1F(drift[0]) → 2F(drift[1]) → ...
+    const pts = [{ x: xPos(0), y: yPos(0) }]; // base: drift=0
+    for (let i = 0; i < n; i++) {
+        pts.push({ x: xPos(drifts[i]), y: yPos(elevations[i + 1]) });
+    }
+
+    // 영역 채우기 (반투명)
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(xPos(0), yPos(0));
+    pts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(xPos(0), pts[pts.length - 1].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+
+    // 선
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // 점 + 값 라벨
+    pts.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.5; ctx.stroke();
+
+        if (i > 0) {
+            const v = drifts[i - 1];
+            const inv = v > 1e-8 ? '1/' + Math.round(1 / v) : '0';
+            ctx.font = 'bold 8px Arial';
+            ctx.fillStyle = color; ctx.textAlign = 'left';
+            ctx.fillText(inv, p.x + 5, p.y + 3);
+        }
+    });
+}
+
+// ─── Drift Detail Table ──────────────────────────────────────────────────
+function _buildDriftTable(labels, driftsX, driftsY, allowable, storyHeights) {
+    const wrap = document.getElementById('drift-table-wrap');
+    if (!wrap) return;
+
+    const n = labels.length;
+    if (n === 0) { wrap.innerHTML = ''; return; }
+
+    // 누적 높이
+    const elevations = [0];
+    for (let i = 0; i < n; i++) elevations.push(elevations[i] + (storyHeights[i] || 3.5));
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const borderC = isDark ? '#444' : '#ddd';
+    const bgHead = isDark ? '#2a2a3e' : '#f0f4f8';
+    const bgOK = isDark ? 'rgba(76,175,80,0.12)' : 'rgba(76,175,80,0.08)';
+    const bgNG = isDark ? 'rgba(239,83,80,0.15)' : 'rgba(239,83,80,0.08)';
+    const textC = isDark ? '#e0e0e0' : '#333';
+
+    let html = `<table style="width:100%; border-collapse:collapse; font-size:10px; color:${textC};">`;
+    html += `<thead><tr style="background:${bgHead};">`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">층</th>`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">높이(m)</th>`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">EL(m)</th>`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">Drift X</th>`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">Drift Y</th>`;
+    html += `<th style="border:1px solid ${borderC}; padding:4px 6px; text-align:center;">판정</th>`;
+    html += `</tr></thead><tbody>`;
+
+    // 위에서 아래로 (최상층 먼저)
+    for (let i = n - 1; i >= 0; i--) {
+        const dx = driftsX[i] || 0;
+        const dy = driftsY[i] || 0;
+        const maxD = Math.max(dx, dy);
+        const isNG = maxD > allowable;
+        const bg = isNG ? bgNG : bgOK;
+        const h = storyHeights[i] || 3.5;
+        const el = elevations[i + 1];
+
+        const fmtDrift = (v) => {
+            if (v < 1e-8) return '-';
+            const inv = Math.round(1 / v);
+            return `<span title="${(v * 100).toFixed(3)}%">1/${inv}</span> <span style="opacity:0.5">(${(v * 100).toFixed(2)}%)</span>`;
+        };
+
+        html += `<tr style="background:${bg};">`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center; font-weight:600;">${labels[i]}</td>`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center;">${h.toFixed(1)}</td>`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center;">${el.toFixed(1)}</td>`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:right;">${fmtDrift(dx)}</td>`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:right;">${fmtDrift(dy)}</td>`;
+        html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center; font-weight:700; color:${isNG ? '#ef5350' : '#4caf50'};">${isNG ? 'NG' : 'OK'}</td>`;
+        html += `</tr>`;
+    }
+
+    // Max 행
+    const maxDX = Math.max(...driftsX);
+    const maxDY = Math.max(...driftsY);
+    const maxAll = Math.max(maxDX, maxDY);
+    html += `<tr style="background:${bgHead}; font-weight:700;">`;
+    html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center;" colspan="3">Max</td>`;
+    html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:right; color:${maxDX > allowable ? '#ef5350' : '#4caf50'};">1/${Math.round(1 / maxDX)}</td>`;
+    html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:right; color:${maxDY > allowable ? '#ef5350' : '#4caf50'};">1/${Math.round(1 / maxDY)}</td>`;
+    html += `<td style="border:1px solid ${borderC}; padding:3px 6px; text-align:center; color:${maxAll > allowable ? '#ef5350' : '#4caf50'};">${maxAll > allowable ? 'NG' : 'OK'}</td>`;
+    html += `</tr>`;
+
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+}
+
 function _setExportBtnEnabled(on) {
     const b = document.getElementById('btn-export-excel');
     if (!b) return;
@@ -5906,6 +6292,51 @@ async function exportToExcel() {
         console.error('Export failed:', e);
         setStatus('Export 실패: ' + e.message, 'error');
         alert('Export 실패: ' + e.message);
+    }
+}
+
+async function exportToDXF() {
+    if (!window._v2Model) { alert('모델이 없습니다.'); return; }
+
+    // 파일명 입력
+    const ts = new Date();
+    const dateStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}`;
+    const defaultName = `structural_plan_${dateStr}`;
+    let filename = prompt('파일명 (확장자 제외):', defaultName);
+    if (filename === null) return;  // 취소
+    filename = filename.trim();
+    if (!filename) filename = defaultName;
+    // 확장자 중복 제거
+    if (filename.toLowerCase().endsWith('.dxf')) {
+        filename = filename.slice(0, -4);
+    }
+    // 파일명 안전화 (경로/특수문자 제거)
+    filename = filename.replace(/[\\/:*?"<>|]/g, '_');
+
+    setStatus('DXF 생성 중...', 'running');
+    try {
+        const resp = await fetch('/api/export/dxf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: window._v2Model }),
+        });
+        if (!resp.ok) {
+            const msg = await resp.text();
+            throw new Error(msg || ('HTTP ' + resp.status));
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename + '.dxf';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus(`DXF 다운로드 완료: ${filename}.dxf`, 'success');
+    } catch (e) {
+        console.error('DXF Export failed:', e);
+        setStatus('DXF Export 실패: ' + e.message, 'error');
     }
 }
 

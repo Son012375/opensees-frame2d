@@ -262,16 +262,43 @@ function confirmSupport(nodeId) {
 window.solidMeshes = window.solidMeshes || [];
 window.solidMode = window.solidMode || false;
 
-function toggleSolidSection() {
-    var chk = document.getElementById('chk-solid-section');
-    window.solidMode = chk ? chk.checked : false;
+function _applySolidMode(enabled) {
+    window.solidMode = !!enabled;
     if (window.solidMode) {
         _hideWireMeshes();
-        loadSectionPropsAndBuild();
+        loadSectionPropsAndBuild().then(function() {
+            // DC Colors가 활성화되어 있으면 solid에도 적용
+            var chkDC = document.getElementById('toggle-dc-colors');
+            if (chkDC && chkDC.checked && typeof currentResult !== 'undefined'
+                && currentResult && currentResult.member_checks
+                && typeof applyDesignCheckColors === 'function') {
+                applyDesignCheckColors(currentResult.member_checks);
+            }
+            // Deformed shape가 활성화되어 있으면 solid에도 적용
+            var chkDef = document.getElementById('toggle-deformed');
+            if (chkDef && chkDef.checked && typeof _applyDeformedIfEnabled === 'function') {
+                _applyDeformedIfEnabled();
+            }
+        });
     } else {
         removeSolidMeshes();
         _showWireMeshes();
     }
+    // 두 체크박스 동기화
+    var chkStep2 = document.getElementById('chk-solid-section');
+    var chkTop = document.getElementById('chk-solid-section-top');
+    if (chkStep2) chkStep2.checked = window.solidMode;
+    if (chkTop) chkTop.checked = window.solidMode;
+}
+
+function toggleSolidSection() {
+    var chk = document.getElementById('chk-solid-section');
+    _applySolidMode(chk ? chk.checked : false);
+}
+
+function toggleSolidSectionTop() {
+    var chk = document.getElementById('chk-solid-section-top');
+    _applySolidMode(chk ? chk.checked : false);
 }
 
 function _hideWireMeshes() {
@@ -604,17 +631,16 @@ function buildSolidMeshes() {
         mesh.setRotationFromQuaternion(quat);
         mesh.userData._solidElementId = elem.id;
         mesh.userData._solidOrigColor = color;
+        mesh.userData._solidOrigLen = length;
 
         scene.add(mesh);
         window.solidMeshes.push(mesh);
         window._solidMeshMap = window._solidMeshMap || {};
         window._solidMeshMap[elem.id] = mesh;
-        // 엣지 윤곽선
+        // 엣지 윤곽선 — mesh의 자식으로 추가 (mesh 변형 시 함께 이동)
         var edges = new THREE.EdgesGeometry(geometry, 15);
         var edgeLine = new THREE.LineSegments(edges, edgeMat);
-        edgeLine.position.copy(mesh.position);
-        edgeLine.rotation.copy(mesh.rotation);
-        scene.add(edgeLine);
+        mesh.add(edgeLine);  // 자식으로 추가 (position/rotation 상속)
         window.solidMeshes.push(edgeLine);
         built++;
     });

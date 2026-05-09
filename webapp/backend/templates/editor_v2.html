@@ -29,7 +29,8 @@
                 📂 Load
                 <input type="file" accept=".json,.v2proj,.v2proj.json" onchange="loadProject(event)" style="display:none;">
             </label>
-            <button id="btn-export-excel" onclick="exportToExcel()" disabled title="해석 결과 Excel 다운로드" style="background:none;border:1px solid #ccc;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text-secondary);opacity:0.5;">📊 Export</button>
+            <button id="btn-export-excel" onclick="exportToExcel()" disabled title="해석 결과 Excel 다운로드" style="background:none;border:1px solid #ccc;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text-secondary);opacity:0.5;">📊 Excel</button>
+            <button id="btn-export-dxf" onclick="exportToDXF()" title="DXF 평면도 내보내기" style="background:none;border:1px solid #ccc;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--text-secondary);">📐 DXF</button>
             <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
             <a href="/" class="nav-link">Home</a>
         </div>
@@ -392,7 +393,7 @@
                         <hr style="margin:12px 0">
 
                         <div class="ifc-nav-buttons">
-                            <button class="btn btn-secondary" onclick="goToIFCStep(1)">&#x2190; 이전</button>
+                            <button class="btn btn-secondary" onclick="goToIFCStepSafely(1)">&#x2190; 이전</button>
                             <button class="btn btn-primary" onclick="goToIFCStep(3)">다음: Config &#x2192;</button>
                         </div>
                     </div>
@@ -485,7 +486,7 @@
                             </div>
                         </div>
                         <div class="ifc-nav-buttons">
-                            <button class="btn btn-secondary" onclick="goToIFCStep(2)">&#x2190; 이전</button>
+                            <button class="btn btn-secondary" onclick="goToIFCStepSafely(2)">&#x2190; 이전</button>
                             <button class="btn btn-primary" onclick="runAnalysisFromIFCWizard()">해석 실행 (Analyze)</button>
                         </div>
                     </div>
@@ -512,6 +513,10 @@
                     <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
                         <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
                         <span>DC Colors</span>
+                    </label>
+                    <label class="toggle-label" title="3D 단면 실제 형상 표시">
+                        <input type="checkbox" id="chk-solid-section-top" onchange="toggleSolidSectionTop()">
+                        <span>Solid</span>
                     </label>
                     <button class="btn-icon" id="btn-filter-panel" onclick="toggleFilterPanel()" title="Display Filters" style="font-size:11px; padding:2px 6px; min-width:auto;">Filter ▼</button>
                 </div>
@@ -623,6 +628,7 @@
                     <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View (orbit/zoom)">View</button>
                     <button class="edit-btn" data-mode="select" onclick="setEditMode('select')" title="Select (click/drag to select members)">Select</button>
                     <button class="edit-btn" data-mode="copy" onclick="setEditMode('copy')" title="Copy/Mirror (선택 후 복사)">Copy</button>
+                    <button class="edit-btn" id="btn-back-to-edit" onclick="backToEditMode()" title="편집 모드로 돌아가기 (Ctrl+Z)" style="display:none; margin-left:auto; background:#ff9800; color:#fff; border-color:#ff9800;">&#x270E; Edit</button>
                     <span class="edit-separator"></span>
                     <span id="select-options" style="display:none;">
                         <select id="select-filter" class="select-filter" title="Selection filter">
@@ -726,6 +732,14 @@
                 <h4 style="font-size:12px; margin-bottom:4px; color:var(--text-primary);">Drift Y</h4>
                 <canvas id="canvas-drift-y" width="400" height="200" style="width:100%; border:1px solid var(--border-input); border-radius:3px;"></canvas>
                 <div id="drift-info" style="margin-top:10px; font-size:10px; color:var(--text-secondary); line-height:1.5;"></div>
+
+                <!-- Drift Profile Chart (수직 높이 방향) -->
+                <h4 style="font-size:12px; margin:16px 0 4px; color:var(--text-primary);">Drift Profile</h4>
+                <canvas id="canvas-drift-profile" width="400" height="300" style="width:100%; border:1px solid var(--border-input); border-radius:3px;"></canvas>
+
+                <!-- Drift Detail Table -->
+                <h4 style="font-size:12px; margin:16px 0 4px; color:var(--text-primary);">Detail</h4>
+                <div id="drift-table-wrap" style="overflow-x:auto;"></div>
             </div>
             </div><!-- /viewer-drift-wrap -->
         </div>

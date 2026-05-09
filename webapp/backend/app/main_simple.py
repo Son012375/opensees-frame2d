@@ -1797,6 +1797,599 @@ async def export_excel(job_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DXF Export (층별 평면도)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/export/dxf")
+async def export_dxf(request: Request):
+    """V2 모델을 층별 평면 DXF로 내보내기."""
+    import ezdxf
+    from io import BytesIO
+
+    body = await request.json()
+    model = body.get("model")
+    if not model:
+        return JSONResponse({"error": "모델 데이터 없음"}, status_code=400)
+
+    nodes = model.get("nodes", [])
+    elements = model.get("elements", [])
+    elevations = model.get("story_elevations", [])
+
+    if not nodes or not elements:
+        return JSONResponse({"error": "노드/요소 없음"}, status_code=400)
+
+    node_map = {n["id"]: n for n in nodes}
+    n_stories = len(elevations) - 1 if len(elevations) > 1 else 1
+
+    # ── 모델 크기 산정 (배치 offset용) ──
+    xs = [n["x"] for n in nodes]
+    ys = [n["y"] for n in nodes]
+    model_w = max(xs) - min(xs) if xs else 20
+    model_h = max(ys) - min(ys) if ys else 20
+    x_min = min(xs) if xs else 0
+    x_max = max(xs) if xs else 20
+    y_min = min(ys) if ys else 0
+    y_max = max(ys) if ys else 20
+
+    # 테두리 박스 margin
+    # 좌측: 그리드연장(5%) + 축번호(3%) + 개별치수선(5%) + 전체치수선(5%) + 여유(4%) = 22%
+    # 하단: 동일 = 22%
+    # 상단: 제목박스(8%) + 여유(4%) = 12%
+    # 우측: 여유(5%)
+    md = max(model_w, model_h)
+    margin_left = md * 0.28
+    margin_right = md * 0.08
+    margin_bottom = md * 0.26
+    margin_top = md * 0.18
+    plan_h = model_h + margin_bottom + margin_top
+    plan_w = model_w + margin_left + margin_right
+    spacing = plan_h + md * 0.10  # 평면도 간 Y간격
+
+    # ── DXF 문서 생성 ──
+    doc = ezdxf.new("R2010", setup=True)
+    msp = doc.modelspace()
+
+    # 색상 (DXF ACI color index)
+    COL_GRID = 8       # 회색 (그리드선)
+    COL_COLUMN = 1     # 빨강
+    COL_BEAM = 3       # 초록
+    COL_TEXT = 7       # 흰/검
+    COL_DIM = 2        # 노랑
+    COL_SUPPORT = 6    # 마젠타
+    COL_FRAME = 5      # 파랑 (테두리)
+
+    col_sym_size = 0.3  # m
+
+    # 치수 스타일 설정 (모델 크기 비례)
+    dim_scale = max(model_w, model_h) * 0.025
+    # 소수점 구분자를 "."로 강제 (기본은 locale에 따라 "," 사용)
+    doc.header["$DIMDSEP"] = ord(".")
+    if "STRUCT_DIM" not in doc.dimstyles:
+        dimstyle = doc.dimstyles.new("STRUCT_DIM")
+        dimstyle.dxf.dimtxt = dim_scale       # 치수 텍스트 높이
+        dimstyle.dxf.dimasz = dim_scale * 0.8 # 화살표 크기
+        dimstyle.dxf.dimexe = dim_scale * 0.4 # 연장선 돌출
+        dimstyle.dxf.dimexo = dim_scale * 0.3 # 원점 오프셋
+        dimstyle.dxf.dimgap = dim_scale * 0.3
+        dimstyle.dxf.dimclrt = COL_DIM
+        dimstyle.dxf.dimdec = 2               # 소수 자릿수
+        dimstyle.dxf.dimdsep = ord(".")       # 소수점 = "."
+
+    # 층 루프: 0=GL, 1=1F, 2=2F, ...
+    for story_idx in range(0, n_stories + 1):
+        is_gl = (story_idx == 0)
+        z_level = elevations[story_idx] if story_idx < len(elevations) else story_idx * 3.5
+        z_tol = 0.01
+        label = "GL" if is_gl else f"{story_idx}F"
+
+        layer_frame = f"{label}_FRAME"
+        layer_grid = f"{label}_GRID"
+        layer_col = f"{label}_COL"
+        layer_beam = f"{label}_BEAM"
+        layer_text = f"{label}_TEXT"
+        layer_dim = f"{label}_DIM"
+
+        for lname, lcolor in [
+            (layer_frame, COL_FRAME), (layer_grid, COL_GRID),
+            (layer_col, COL_COLUMN), (layer_beam, COL_BEAM),
+            (layer_text, COL_TEXT), (layer_dim, COL_DIM),
+        ]:
+            if lname not in doc.layers:
+                doc.layers.add(lname, color=lcolor)
+
+        # 배치 offset: 아래에서 위로 GL → 1F → 2F → ...
+        ox = 0
+        oy = story_idx * spacing
+
+        # 해당 층 노드
+        story_nodes = [n for n in nodes if abs(n["z"] - z_level) < z_tol]
+        story_node_ids = {n["id"] for n in story_nodes}
+
+        # 해당 층 요소 (GL은 요소 없음)
+        story_elements = [
+            e for e in elements
+            if e.get("node_i") in story_node_ids and e.get("node_j") in story_node_ids
+        ] if not is_gl else []
+
+        # 기둥: 하부 노드가 아래층, 상부 노드가 이 층 (GL은 없음)
+        column_elements = []
+        if not is_gl:
+            z_below = elevations[story_idx - 1] if story_idx - 1 >= 0 else 0
+            below_ids = {n["id"] for n in nodes if abs(n["z"] - z_below) < z_tol}
+            column_elements = [
+                e for e in elements
+                if e.get("elem_type") == "column"
+                and ((e["node_i"] in below_ids and e["node_j"] in story_node_ids)
+                     or (e["node_j"] in below_ids and e["node_i"] in story_node_ids))
+            ]
+
+        # ── 테두리 박스 ──
+        fx1 = ox + x_min - margin_left
+        fy1 = oy + y_min - margin_bottom
+        fx2 = ox + x_max + margin_right
+        fy2 = oy + y_max + margin_top
+        msp.add_lwpolyline(
+            [(fx1, fy1), (fx2, fy1), (fx2, fy2), (fx1, fy2)],
+            close=True,
+            dxfattribs={"layer": layer_frame, "lineweight": 50}
+        )
+        # 내부 박스 (여백)
+        inner_m = md * 0.012
+        msp.add_lwpolyline(
+            [(fx1+inner_m, fy1+inner_m), (fx2-inner_m, fy1+inner_m),
+             (fx2-inner_m, fy2-inner_m), (fx1+inner_m, fy2-inner_m)],
+            close=True,
+            dxfattribs={"layer": layer_frame, "lineweight": 25}
+        )
+        # 제목 박스 (우상단) — 텍스트가 충분히 들어갈 크기
+        title_text = f"{label} PLAN  EL. {z_level:.1f}m"
+        title_text_h = md * 0.028  # 텍스트 높이
+        title_box_h = title_text_h * 2.2  # 텍스트 높이의 2.2배 (상하 여유)
+        # 대략적인 텍스트 너비 계산 (AutoCAD txt 폰트: 글자당 폭 ≈ height × 0.9)
+        text_width_est = len(title_text) * title_text_h * 0.9
+        title_box_w = max(md * 0.5, text_width_est + title_text_h * 3.0)
+        tb_x2 = fx2 - inner_m
+        tb_y2 = fy2 - inner_m
+        tb_x1 = tb_x2 - title_box_w
+        tb_y1 = tb_y2 - title_box_h
+        msp.add_lwpolyline(
+            [(tb_x1, tb_y1), (tb_x2, tb_y1), (tb_x2, tb_y2), (tb_x1, tb_y2)],
+            close=True,
+            dxfattribs={"layer": layer_frame}
+        )
+        t = msp.add_text(
+            title_text,
+            dxfattribs={
+                "layer": layer_text, "height": title_text_h,
+                "color": COL_TEXT,
+            }
+        )
+        t.set_placement(
+            ((tb_x1 + tb_x2) / 2, (tb_y1 + tb_y2) / 2),
+            align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER,
+        )
+
+        # ── 그리드선 + 축번호 ──
+        story_xs = sorted(set(round(n["x"], 3) for n in (story_nodes if story_nodes else nodes)))
+        story_ys = sorted(set(round(n["y"], 3) for n in (story_nodes if story_nodes else nodes)))
+        grid_ext = max(model_w, model_h) * 0.05
+
+        for i, gx in enumerate(story_xs):
+            msp.add_line(
+                (ox + gx, oy + y_min - grid_ext),
+                (ox + gx, oy + y_max + grid_ext),
+                dxfattribs={"layer": layer_grid, "linetype": "CENTER"}
+            )
+            t = msp.add_text(
+                f"X{i+1}",
+                dxfattribs={"layer": layer_text, "height": dim_scale * 1.2, "color": COL_DIM}
+            )
+            t.set_placement(
+                (ox + gx, oy + y_min - grid_ext - dim_scale * 1.5),
+                align=ezdxf.enums.TextEntityAlignment.CENTER,
+            )
+
+        for j, gy in enumerate(story_ys):
+            msp.add_line(
+                (ox + x_min - grid_ext, oy + gy),
+                (ox + x_max + grid_ext, oy + gy),
+                dxfattribs={"layer": layer_grid, "linetype": "CENTER"}
+            )
+            t = msp.add_text(
+                f"Y{j+1}",
+                dxfattribs={"layer": layer_text, "height": dim_scale * 1.2, "color": COL_DIM}
+            )
+            t.set_placement(
+                (ox + x_min - grid_ext - dim_scale * 0.8, oy + gy),
+                align=ezdxf.enums.TextEntityAlignment.MIDDLE_RIGHT,
+            )
+
+        # ── 보 ──
+        for e in story_elements:
+            if e.get("elem_type") == "column":
+                continue
+            ni = node_map.get(e["node_i"])
+            nj = node_map.get(e["node_j"])
+            if not ni or not nj:
+                continue
+            msp.add_line(
+                (ox + ni["x"], oy + ni["y"]),
+                (ox + nj["x"], oy + nj["y"]),
+                dxfattribs={"layer": layer_beam}
+            )
+
+        # ── 기둥 심볼 ──
+        col_positions = set()
+        for e in column_elements:
+            ni = node_map.get(e["node_i"])
+            nj = node_map.get(e["node_j"])
+            top_node = nj if (nj and nj["id"] in story_node_ids) else ni
+            if not top_node:
+                continue
+            pos_key = (round(top_node["x"], 3), round(top_node["y"], 3))
+            if pos_key in col_positions:
+                continue
+            col_positions.add(pos_key)
+            cx, cy = ox + top_node["x"], oy + top_node["y"]
+            hs = col_sym_size / 2
+            msp.add_lwpolyline(
+                [(cx-hs, cy-hs), (cx+hs, cy-hs), (cx+hs, cy+hs), (cx-hs, cy+hs)],
+                close=True,
+                dxfattribs={"layer": layer_col}
+            )
+
+        # ── GL: 지점 심볼 (삼각형) ──
+        if is_gl:
+            for n in story_nodes:
+                if not n.get("support"):
+                    continue
+                sx, sy = ox + n["x"], oy + n["y"]
+                ts = 0.25
+                msp.add_lwpolyline(
+                    [(sx, sy), (sx - ts, sy - ts*1.5), (sx + ts, sy - ts*1.5)],
+                    close=True,
+                    dxfattribs={"layer": layer_col, "color": COL_SUPPORT}
+                )
+
+        # ── 치수선 (bay 간격) ──
+        # X방향 치수 (하단): 연속 치수
+        if len(story_xs) >= 2:
+            dim_y = oy + y_min - grid_ext - dim_scale * 3.5
+            for i in range(len(story_xs) - 1):
+                x1 = ox + story_xs[i]
+                x2 = ox + story_xs[i + 1]
+                dim = msp.add_linear_dim(
+                    base=(0, dim_y),
+                    p1=(x1, oy + y_min),
+                    p2=(x2, oy + y_min),
+                    angle=0,
+                    dimstyle="STRUCT_DIM",
+                    dxfattribs={"layer": layer_dim},
+                )
+                dim.render()
+            # 전체 치수 (overall)
+            dim_y_all = dim_y - dim_scale * 2.5
+            dim = msp.add_linear_dim(
+                base=(0, dim_y_all),
+                p1=(ox + story_xs[0], oy + y_min),
+                p2=(ox + story_xs[-1], oy + y_min),
+                angle=0,
+                dimstyle="STRUCT_DIM",
+                dxfattribs={"layer": layer_dim},
+            )
+            dim.render()
+
+        # Y방향 치수 (좌측)
+        if len(story_ys) >= 2:
+            dim_x = ox + x_min - grid_ext - dim_scale * 3.5
+            for j in range(len(story_ys) - 1):
+                y1 = oy + story_ys[j]
+                y2 = oy + story_ys[j + 1]
+                dim = msp.add_linear_dim(
+                    base=(dim_x, 0),
+                    p1=(ox + x_min, y1),
+                    p2=(ox + x_min, y2),
+                    angle=90,
+                    dimstyle="STRUCT_DIM",
+                    dxfattribs={"layer": layer_dim},
+                )
+                dim.render()
+            # 전체 치수
+            dim_x_all = dim_x - dim_scale * 2.5
+            dim = msp.add_linear_dim(
+                base=(dim_x_all, 0),
+                p1=(ox + x_min, oy + story_ys[0]),
+                p2=(ox + x_min, oy + story_ys[-1]),
+                angle=90,
+                dimstyle="STRUCT_DIM",
+                dxfattribs={"layer": layer_dim},
+            )
+            dim.render()
+
+    # ═══════════════════════════════════════════════════════════
+    # 입면도 (Elevations)
+    # ═══════════════════════════════════════════════════════════
+    total_z = elevations[-1] if elevations else 0
+    model_h_z = total_z  # 입면도의 세로 크기 = 전체 높이
+    # 평면도 우측으로 offset (평면 폭 + margin)
+    elev_col1_ox = plan_w + md * 0.20  # X방향 입면도 컬럼
+    elev_col2_ox = elev_col1_ox + (model_w + margin_left + margin_right) + md * 0.20  # Y방향 입면도 컬럼
+
+    # 입면도 그리기 공통 헬퍼
+    def _draw_elevation(ox, oy, label_text, horiz_coords, hmin, hmax,
+                        draw_columns, draw_beams, layer_prefix, axis_prefix):
+        """입면도 1개 그리기 (공통 로직).
+        horiz_coords: 수평축 그리드 좌표 (축번호용)
+        hmin, hmax: 수평축 범위
+        draw_columns: [(x_pos, z_start, z_end)] 기둥 리스트
+        draw_beams: [(x_start, x_end, z)] 보 리스트
+        """
+        # 레이어
+        lf = f"{layer_prefix}_FRAME"
+        lg = f"{layer_prefix}_GRID"
+        lc = f"{layer_prefix}_COL"
+        lb = f"{layer_prefix}_BEAM"
+        lt = f"{layer_prefix}_TEXT"
+        ld = f"{layer_prefix}_DIM"
+        for name, cc in [(lf, COL_FRAME), (lg, COL_GRID), (lc, COL_COLUMN),
+                         (lb, COL_BEAM), (lt, COL_TEXT), (ld, COL_DIM)]:
+            if name not in doc.layers:
+                doc.layers.add(name, color=cc)
+
+        # 테두리
+        fx1 = ox + hmin - margin_left
+        fy1 = oy - margin_bottom
+        fx2 = ox + hmax + margin_right
+        fy2 = oy + total_z + margin_top
+        msp.add_lwpolyline(
+            [(fx1, fy1), (fx2, fy1), (fx2, fy2), (fx1, fy2)],
+            close=True,
+            dxfattribs={"layer": lf, "lineweight": 50}
+        )
+        # 내부 박스
+        inner_mm = md * 0.012
+        msp.add_lwpolyline(
+            [(fx1+inner_mm, fy1+inner_mm), (fx2-inner_mm, fy1+inner_mm),
+             (fx2-inner_mm, fy2-inner_mm), (fx1+inner_mm, fy2-inner_mm)],
+            close=True,
+            dxfattribs={"layer": lf, "lineweight": 25}
+        )
+        # 제목 박스
+        t_title_h = md * 0.028
+        tb_h = t_title_h * 2.2
+        tw_est = len(label_text) * t_title_h * 0.9
+        tb_w = max(md * 0.5, tw_est + t_title_h * 3.0)
+        tbx2 = fx2 - inner_mm
+        tby2 = fy2 - inner_mm
+        tbx1 = tbx2 - tb_w
+        tby1 = tby2 - tb_h
+        msp.add_lwpolyline(
+            [(tbx1, tby1), (tbx2, tby1), (tbx2, tby2), (tbx1, tby2)],
+            close=True,
+            dxfattribs={"layer": lf}
+        )
+        tt = msp.add_text(
+            label_text,
+            dxfattribs={"layer": lt, "height": t_title_h, "color": COL_TEXT}
+        )
+        tt.set_placement(
+            ((tbx1 + tbx2) / 2, (tby1 + tby2) / 2),
+            align=ezdxf.enums.TextEntityAlignment.MIDDLE_CENTER,
+        )
+
+        gext = md * 0.05
+
+        # 수직 그리드 (수평 위치: horiz_coords) + 축번호
+        for i, hx in enumerate(horiz_coords):
+            msp.add_line(
+                (ox + hx, oy - gext),
+                (ox + hx, oy + total_z + gext),
+                dxfattribs={"layer": lg, "linetype": "CENTER"}
+            )
+            t = msp.add_text(
+                f"{axis_prefix}{i+1}",  # X1/X2... or Y1/Y2...
+                dxfattribs={"layer": lt, "height": dim_scale * 1.2, "color": COL_DIM}
+            )
+            t.set_placement(
+                (ox + hx, oy - gext - dim_scale * 1.5),
+                align=ezdxf.enums.TextEntityAlignment.CENTER,
+            )
+
+        # 수평 그리드 (각 층 z) + 층 라벨 (GL/1F/2F...)
+        for s_idx, ez in enumerate(elevations):
+            msp.add_line(
+                (ox + hmin - gext, oy + ez),
+                (ox + hmax + gext, oy + ez),
+                dxfattribs={"layer": lg, "linetype": "CENTER"}
+            )
+            story_label = "GL" if s_idx == 0 else f"{s_idx}F"
+            t = msp.add_text(
+                story_label,
+                dxfattribs={"layer": lt, "height": dim_scale * 1.2, "color": COL_DIM}
+            )
+            t.set_placement(
+                (ox + hmin - gext - dim_scale * 0.8, oy + ez),
+                align=ezdxf.enums.TextEntityAlignment.MIDDLE_RIGHT,
+            )
+
+        # 기둥 (수직 LINE)
+        for hx, z_start, z_end in draw_columns:
+            msp.add_line(
+                (ox + hx, oy + z_start),
+                (ox + hx, oy + z_end),
+                dxfattribs={"layer": lc}
+            )
+
+        # 보 (수평 LINE)
+        for hx_start, hx_end, z in draw_beams:
+            msp.add_line(
+                (ox + hx_start, oy + z),
+                (ox + hx_end, oy + z),
+                dxfattribs={"layer": lb}
+            )
+
+        # 수평 치수선 (bay 간격)
+        if len(horiz_coords) >= 2:
+            d_y = oy - gext - dim_scale * 3.5
+            for i in range(len(horiz_coords) - 1):
+                dim = msp.add_linear_dim(
+                    base=(0, d_y),
+                    p1=(ox + horiz_coords[i], oy),
+                    p2=(ox + horiz_coords[i + 1], oy),
+                    angle=0,
+                    dimstyle="STRUCT_DIM",
+                    dxfattribs={"layer": ld},
+                )
+                dim.render()
+            d_y_all = d_y - dim_scale * 2.5
+            dim = msp.add_linear_dim(
+                base=(0, d_y_all),
+                p1=(ox + horiz_coords[0], oy),
+                p2=(ox + horiz_coords[-1], oy),
+                angle=0,
+                dimstyle="STRUCT_DIM",
+                dxfattribs={"layer": ld},
+            )
+            dim.render()
+
+        # 수직 치수선 (층고)
+        if len(elevations) >= 2:
+            d_x = ox + hmin - gext - dim_scale * 3.5
+            for s_idx in range(len(elevations) - 1):
+                dim = msp.add_linear_dim(
+                    base=(d_x, 0),
+                    p1=(ox + hmin, oy + elevations[s_idx]),
+                    p2=(ox + hmin, oy + elevations[s_idx + 1]),
+                    angle=90,
+                    dimstyle="STRUCT_DIM",
+                    dxfattribs={"layer": ld},
+                )
+                dim.render()
+            d_x_all = d_x - dim_scale * 2.5
+            dim = msp.add_linear_dim(
+                base=(d_x_all, 0),
+                p1=(ox + hmin, oy + elevations[0]),
+                p2=(ox + hmin, oy + elevations[-1]),
+                angle=90,
+                dimstyle="STRUCT_DIM",
+                dxfattribs={"layer": ld},
+            )
+            dim.render()
+
+    # X방향 입면도 (Y_j 라인별) — 좌→우: X1, X2... / 상→하: Y_j
+    all_xs = sorted(set(round(n["x"], 3) for n in nodes))
+    all_ys = sorted(set(round(n["y"], 3) for n in nodes))
+    y_tol = 0.01
+
+    elev_x_h = total_z + margin_bottom + margin_top
+    elev_x_spacing = elev_x_h + md * 0.10
+
+    for j, y_line in enumerate(all_ys):
+        # 해당 Y 라인 상의 노드
+        at_line_nodes = [n for n in nodes if abs(n["y"] - y_line) < y_tol]
+        at_line_ids = {n["id"] for n in at_line_nodes}
+        if len(at_line_nodes) < 2:
+            continue
+
+        # 기둥: node_i, node_j 모두 이 라인, elem_type=column
+        draw_columns = []
+        for e in elements:
+            if e.get("elem_type") != "column":
+                continue
+            if e["node_i"] not in at_line_ids or e["node_j"] not in at_line_ids:
+                continue
+            ni = node_map[e["node_i"]]
+            nj = node_map[e["node_j"]]
+            if abs(ni["x"] - nj["x"]) > y_tol:
+                continue  # 경사 기둥 배제
+            draw_columns.append((ni["x"], min(ni["z"], nj["z"]), max(ni["z"], nj["z"])))
+
+        # 보: node_i, node_j 모두 이 라인, elem_type=beam_x or beam
+        draw_beams = []
+        for e in elements:
+            et = e.get("elem_type", "")
+            if et == "column":
+                continue
+            if e["node_i"] not in at_line_ids or e["node_j"] not in at_line_ids:
+                continue
+            ni = node_map[e["node_i"]]
+            nj = node_map[e["node_j"]]
+            if abs(ni["z"] - nj["z"]) > y_tol:
+                continue  # 수평 보만
+            draw_beams.append((min(ni["x"], nj["x"]), max(ni["x"], nj["x"]), ni["z"]))
+
+        # 배치
+        ox = elev_col1_ox
+        oy = j * elev_x_spacing
+        label_text = f"Y{j+1} ELEVATION"
+        layer_prefix = f"ELEV_Y{j+1}"
+        _draw_elevation(ox, oy, label_text, all_xs, x_min, x_max,
+                        draw_columns, draw_beams, layer_prefix, "X")
+
+    # Y방향 입면도 (X_i 라인별)
+    elev_y_w = model_h  # Y방향 입면도의 가로 = Y치수
+    for i, x_line in enumerate(all_xs):
+        at_line_nodes = [n for n in nodes if abs(n["x"] - x_line) < y_tol]
+        at_line_ids = {n["id"] for n in at_line_nodes}
+        if len(at_line_nodes) < 2:
+            continue
+
+        draw_columns = []
+        for e in elements:
+            if e.get("elem_type") != "column":
+                continue
+            if e["node_i"] not in at_line_ids or e["node_j"] not in at_line_ids:
+                continue
+            ni = node_map[e["node_i"]]
+            nj = node_map[e["node_j"]]
+            if abs(ni["y"] - nj["y"]) > y_tol:
+                continue
+            draw_columns.append((ni["y"], min(ni["z"], nj["z"]), max(ni["z"], nj["z"])))
+
+        draw_beams = []
+        for e in elements:
+            et = e.get("elem_type", "")
+            if et == "column":
+                continue
+            if e["node_i"] not in at_line_ids or e["node_j"] not in at_line_ids:
+                continue
+            ni = node_map[e["node_i"]]
+            nj = node_map[e["node_j"]]
+            if abs(ni["z"] - nj["z"]) > y_tol:
+                continue
+            draw_beams.append((min(ni["y"], nj["y"]), max(ni["y"], nj["y"]), ni["z"]))
+
+        ox = elev_col2_ox
+        oy = i * elev_x_spacing
+        label_text = f"X{i+1} ELEVATION"
+        layer_prefix = f"ELEV_X{i+1}"
+        _draw_elevation(ox, oy, label_text, all_ys, y_min, y_max,
+                        draw_columns, draw_beams, layer_prefix, "Y")
+
+    # ── Extents 및 뷰 자동 설정 (AutoCAD 열 때 도면이 보이도록) ──
+    try:
+        from ezdxf import zoom
+        zoom.extents(msp, factor=1.1)
+    except Exception as ex:
+        print(f"Warning: zoom.extents failed: {ex}")
+
+    # ── 파일 출력 (ezdxf는 파일 경로 필요) ──
+    import tempfile, os
+    tmp = tempfile.NamedTemporaryFile(suffix='.dxf', delete=False)
+    tmp.close()
+    doc.saveas(tmp.name)
+    buf = BytesIO(open(tmp.name, 'rb').read())
+    os.unlink(tmp.name)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/dxf",
+        headers={"Content-Disposition": "attachment; filename=structural_plan.dxf"}
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Health check
 # ═══════════════════════════════════════════════════════════════════════════════
 

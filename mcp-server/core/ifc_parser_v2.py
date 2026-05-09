@@ -614,6 +614,29 @@ def parse_ifc_v2(
     if storey_data:
         # IFC 층 표고를 mm → m 변환 후 설정
         model.story_elevations = [round(elev / 1000.0, 4) for _, elev in storey_data]
+
+        # 구조 노드 Z좌표에서 IfcBuildingStorey에 없는 층 검출 (최상층 누락 케이스)
+        # IFC에서 최상층 슬래브/지붕이 IfcBuildingStorey로 선언되지 않는 경우가 흔함
+        if model.nodes:
+            node_zs = sorted(set(round(n.z, 3) for n in model.nodes.values()))
+            tolerance = 0.3  # m
+            for z in node_zs:
+                # 기존 story_elevations와 거리 확인
+                min_dist = min(abs(z - e) for e in model.story_elevations)
+                if min_dist > tolerance:
+                    # 새로운 층으로 추가
+                    model.story_elevations.append(round(z, 4))
+                    validation.issues.append(ValidationIssue(
+                        severity=Severity.INFO,
+                        code="IFC_INFERRED_STOREY",
+                        message=(
+                            f"IfcBuildingStorey에 없는 Z={z}m 레벨을 구조 노드에서 "
+                            f"감지하여 추가 층으로 등록했습니다."
+                        ),
+                    ))
+            # 정렬 유지
+            model.story_elevations = sorted(set(model.story_elevations))
+
         # 각 노드에 가장 가까운 층 할당
         for node in model.nodes.values():
             best_story = 0

@@ -34,3 +34,6 @@ scipy>=1.11.0
 # Excel Export
 pandas>=2.0.0
 openpyxl>=3.1.0
+
+# DXF Export
+ezdxf>=1.0.0

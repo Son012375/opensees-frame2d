@@ -400,8 +400,16 @@ function showResultSelectionToolbar() {
     if (addnodeOpts) addnodeOpts.style.display = 'none';
     var hint = document.getElementById('edit-hint');
     if (hint) hint.textContent = 'Click or drag-select members';
+    // "Edit" 복귀 버튼 표시
+    var backBtn = document.getElementById('btn-back-to-edit');
+    if (backBtn) backBtn.style.display = '';
     // select 모드로 자동 전환
     setEditMode('select');
+}
+
+function backToEditMode() {
+    // 해석 결과 화면에서 편집 모드로 복귀
+    if (typeof editUndo === 'function') editUndo();
 }
 
 function showEditToolbar() {
@@ -412,6 +420,9 @@ function showEditToolbar() {
         // 결과 모드에서 숨겨진 버튼 복원
         tb.querySelectorAll('.edit-btn[data-mode]').forEach(function(b) { b.style.display = ''; });
         tb.querySelectorAll('.tool-btn[data-mode]').forEach(function(b) { b.style.display = ''; });
+        // "Edit" 복귀 버튼 숨기기
+        var backBtn = document.getElementById('btn-back-to-edit');
+        if (backBtn) backBtn.style.display = 'none';
         populateZLevelSelector();
     }
 }
@@ -497,13 +508,47 @@ function editUndo() {
     if (!undoStack.length) return;
     redoStack.push(JSON.stringify(window._v2Model));
     window._v2Model = JSON.parse(undoStack.pop());
-    refreshEditPreview();
+    _refreshAfterUndoRedo('Undo: 모델 복원됨');
 }
 function editRedo() {
     if (!redoStack.length) return;
     undoStack.push(JSON.stringify(window._v2Model));
     window._v2Model = JSON.parse(redoStack.pop());
-    refreshEditPreview();
+    _refreshAfterUndoRedo('Redo: 모델 복원됨');
+}
+function _refreshAfterUndoRedo(msg) {
+    // 해석 결과 화면에서 undo/redo → 프리뷰 모드로 전환
+    if (!window._editingEnabled && typeof currentResult !== 'undefined' && currentResult) {
+        currentResult = null;
+        // 결과 관련 3D 요소 정리
+        if (typeof _clearLoadArrows === 'function') _clearLoadArrows();
+        if (typeof _clearDiagrams === 'function') _clearDiagrams();
+        if (typeof clearAllSelection === 'function') clearAllSelection();
+        // Solid Section 상태 리셋 (편집 모드에서 solid mode가 남아있으면 안 됨)
+        if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
+        window.solidMode = false;
+        var chkSolid = document.getElementById('chk-solid-section');
+        if (chkSolid) chkSolid.checked = false;
+        var chkSolidTop = document.getElementById('chk-solid-section-top');
+        if (chkSolidTop) chkSolidTop.checked = false;
+        // 결과 패널 숨기기
+        var propResults = document.getElementById('prop-results');
+        if (propResults) propResults.style.display = 'none';
+        var propEmpty = document.getElementById('prop-empty');
+        if (propEmpty) propEmpty.style.display = 'block';
+        // Export 버튼 비활성화
+        if (typeof _setExportBtnEnabled === 'function') _setExportBtnEnabled(false);
+        // 3D Model 탭으로 전환
+        if (typeof switchViewerTab === 'function') switchViewerTab('model');
+        // 편집 모드 활성화
+        showEditToolbar();
+        // 프리뷰 재구축
+        refreshEditPreview();
+        if (typeof setStatus === 'function') setStatus(msg + '. 재해석 필요', 'warning');
+    } else {
+        refreshEditPreview();
+        if (typeof setStatus === 'function') setStatus(msg, 'success');
+    }
 }
 function refreshEditPreview() {
     if (window._v2Model && typeof buildV2PreviewScene === 'function')
