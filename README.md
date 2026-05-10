@@ -36,16 +36,15 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 
 ---
 
-## 2. Supported Analysis Types
+## 2. Supported Analysis Types (V2 웹앱 기준)
 
 | 해석 유형 | 상태 | DOF | 핵심 기능 |
 |-----------|------|-----|-----------|
-| Simple Beam | Ready | 3 | 단순지지/캔틸레버/고정단, 분포/집중/조합하중 |
-| Continuous Beam | Ready | 3 | 다경간, 내부 힌지, SFD 불연속 처리 |
-| 2D Frame | Ready | 3 | 다층/다경간, 릴리즈, P-Delta, Envelope |
-| 3D Frame | Ready | 6 | 양방향 경간, Corotational 비선형, Rigid Diaphragm |
-| Building Pipeline | Ready | 6 | IFC/JSON → 자동하중 → 3D해석 → 설계검토 |
+| 3D Frame (V2) | Ready | 6 | 양방향 경간, Corotational 비선형, Rigid Diaphragm |
+| Building Pipeline | Ready | 6 | IFC(V2)/Manual/NL → 자동하중 → 3D해석 → 설계검토 |
 | Response Spectrum | Ready | 6 | KDS 설계응답스펙트럼, CQC/SRSS, RSA/ELF 비교 |
+
+> **참고:** Simple Beam / Continuous Beam / 2D Frame 해석 엔진은 [mcp-server/core/](mcp-server/core/)에 그대로 남아있고 MCP tool로 접근 가능합니다. 웹앱에서는 V2 3D Editor에 집중합니다.
 
 ---
 
@@ -200,27 +199,21 @@ opensees-MCP/
 │       ├── result_interpreter.py      # 심각도/진단/제안 해석
 │       └── ...                        # 기타 모듈
 │
-├── webapp/                            # 웹 애플리케이션
+├── webapp/                            # 웹 애플리케이션 (V2 only)
 │   └── backend/
 │       ├── app/
-│       │   ├── main_simple.py         # FastAPI 앱 (모든 라우트, Excel/DXF Export)
+│       │   ├── main_simple.py         # FastAPI 앱 (V2 라우트, Excel/DXF Export)
 │       │   ├── core/
-│       │   │   ├── claude_service.py   # Claude API 서비스
+│       │   │   ├── claude_service.py   # Claude API → BuildingIntent
 │       │   │   ├── auth.py            # 데모 인증 미들웨어
 │       │   │   └── config.py
-│       │   └── models/schemas.py      # Pydantic 스키마
-│       ├── templates/                 # HTML 템플릿 (Jinja2)
-│       │   ├── home.html, index.html
-│       │   ├── editor.html            # V1 3D Building Editor
-│       │   ├── editor_v2.html         # V2 3D Editor (Node-Element + Edit)
-│       │   ├── simple_beam*.html, continuous_beam*.html, jobs*.html
-│       │   └── partials/
-│       └── static/                    # JS/CSS
-│           ├── js/editor3d.js         # V1 Three.js 3D 뷰어
+│       │   └── models/schemas.py      # JobStatus enum
+│       ├── templates/
+│       │   └── editor_v2.html         # V2 3D Editor (단일 SPA)
+│       └── static/
 │           ├── js/editor3d_v2.js      # V2 3D 뷰어 (IFC + 결과 + DXF/Excel)
 │           ├── js/v2_edit.js          # V2 편집 도구 (Node/Element/Delete/Move)
 │           ├── js/v2_tools.js         # V2 Solid Section + Release/Support
-│           ├── css/editor.css         # V1 테마 시스템
 │           └── css/editor_v2.css      # V2 테마 + 편집 UI
 │
 ├── tests/                             # 테스트 스위트
@@ -256,7 +249,7 @@ opensees-MCP/
 | DXF Export | ezdxf | 1.0.0+ (층별 평면도/입면도) |
 | Excel Export | pandas + openpyxl | 2.0+ / 3.1+ |
 | Protocol | MCP (Model Context Protocol) | 14개 도구 등록 |
-| Deployment | Azure Container Apps | Docker + ACR |
+| Deployment | Render.com (Singapore) | Python 3.12.7 / 512MB free plan |
 
 ---
 
@@ -282,6 +275,8 @@ SUPABASE_KEY=your-supabase-key
 python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
 ```
 
+접속: http://localhost:8001 → V2 3D Editor 바로 표시 (V1 라우트는 모두 제거됨)
+
 ### Docker
 
 ```bash
@@ -289,7 +284,18 @@ docker compose up --build
 # 접속: http://localhost:8000
 ```
 
-### Azure Deployment
+### Render 배포 (현재 운영)
+
+V2 전용 — `render.yaml` blueprint로 자동 배포 (Python 3.12, Singapore region, free plan).
+
+```bash
+# main 브랜치에 push만 하면 Render가 자동 빌드/배포
+git push origin main
+```
+
+대시보드에서 환경변수 설정 필요: `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`
+
+### Azure Container Apps (대안, 더 큰 메모리 필요시)
 
 [DEPLOY.md](DEPLOY.md) 참조
 

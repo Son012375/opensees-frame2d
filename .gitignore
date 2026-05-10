@@ -91,13 +91,11 @@ mdpdf.log
 /opensees-ai-agent/
 gpt용 md/
 
-# Legacy files
+# Legacy files (local notes/scripts, not part of build)
 opensees-mcp-copy.md
 openseespy_commands_reference.md
 test_ollama_opensees.py
 test_opensees.py
 conftest.py
 kds_pipeline.py
-render.yaml
-runtime.txt
-.python-version
+# render.yaml, runtime.txt, .python-version → tracked (Render deploy config)
