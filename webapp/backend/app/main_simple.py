@@ -67,7 +67,7 @@ jobs_db = {}
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Home — V2 3D Building Editor"""
-    return templates.TemplateResponse("editor_v2.html", {"request": request})
+    return templates.TemplateResponse(request, "editor_v2.html")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -129,7 +129,7 @@ async def resolve_building_config_api(body: BuildingResolveInput):
 @app.get("/editor-v2", response_class=HTMLResponse)
 async def editor_v2_page(request: Request):
     """V2 3D Building Editor (alias for /)"""
-    return templates.TemplateResponse("editor_v2.html", {"request": request})
+    return templates.TemplateResponse(request, "editor_v2.html")
 
 
 @app.get("/api/sections/list")
