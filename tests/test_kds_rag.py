@@ -1,0 +1,561 @@
+"""Tests for the KDS-RAG interface layer (test-double phase).
+
+Scope: schema serialization, in-memory retriever behavior, query
+construction from recommendation refs, payload-level enrichment, and
+citation-validator guardrails.
+
+Real RAG / vector DB / LLM are NOT covered here — none are
+implemented. Fixture chunks are SHORT synthetic snippets; do not
+paste real KDS source into this file.
+
+Run:
+    pytest tests/test_kds_rag.py -q
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+# mcp-server를 import path에 추가
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp-server"))
+
+from core.kds_rag import (  # noqa: E402
+    CitationValidationResult,
+    InMemoryKDSRetriever,
+    KDSChunk,
+    KDSRetrievalQuery,
+    KDSRetrievalResult,
+    KDSRetriever,
+    MAX_QUOTE_LEN,
+    build_kds_queries_for_candidate,
+    build_kds_queries_for_issue,
+    chunk_to_code_reference,
+    enrich_code_refs_with_kds,
+    enrich_recommendation_payload_with_kds,
+    validate_code_reference,
+    validate_code_references,
+)
+from core.recommendation import (  # noqa: E402
+    ActionType,
+    CodeReference,
+    IssueSource,
+    IssueType,
+    MODE_ANALYZE,
+    RetrofitCandidate,
+    Severity,
+    StructuralIssue,
+    build_recommendation_payload,
+)
+
+
+# ============================================================
+# Fixture builders (SHORT synthetic text only — no real KDS)
+# ============================================================
+
+def _h1_chunk() -> KDSChunk:
+    return KDSChunk(
+        chunk_id="kds_41_31_00_h1_p72",
+        standard_id="KDS 41 31 00",
+        version="2022-10-11",
+        clause_id="H1",
+        title="조합응력 상관식",
+        text="Synthetic H1 placeholder text for testing. Combined "
+             "axial + bending interaction check per AISC 360 H1.",
+        source_url="https://example.invalid/kds-41-31-00#h1",
+        page=72,
+        section_path=["KDS 41 31 00", "H", "H1"],
+        material="steel",
+        topic="steel_member_strength",
+        limit_state="combined_force_interaction",
+    )
+
+
+def _g2_chunk() -> KDSChunk:
+    return KDSChunk(
+        chunk_id="kds_41_31_00_g2_p65",
+        standard_id="KDS 41 31 00",
+        clause_id="G2",
+        title="전단강도",
+        text="Synthetic G2 placeholder. Shear strength provisions.",
+        source_url="https://example.invalid/kds-41-31-00#g2",
+        material="steel",
+        topic="steel_member_shear",
+        limit_state="shear_strength",
+    )
+
+
+def _drift_chunk() -> KDSChunk:
+    return KDSChunk(
+        chunk_id="kds_41_17_00_8_2_3_p41",
+        standard_id="KDS 41 17 00",
+        clause_id="§8.2.3",
+        title="허용 층간변위비",
+        text="Synthetic story-drift placeholder. Cd × δe / IE check.",
+        source_url="https://example.invalid/kds-41-17-00#8.2.3",
+        topic="seismic_story_drift",
+        limit_state="story_drift",
+    )
+
+
+def _long_chunk() -> KDSChunk:
+    """A chunk whose text exceeds MAX_QUOTE_LEN to test rejection."""
+    return KDSChunk(
+        chunk_id="kds_long_quote_p1",
+        standard_id="KDS 41 31 00",
+        clause_id="H1",
+        title="조합응력 상관식 (long)",
+        text="x" * (MAX_QUOTE_LEN + 50),
+        topic="steel_member_strength",
+        limit_state="combined_force_interaction",
+    )
+
+
+def _no_source_chunk() -> KDSChunk:
+    """A chunk that, if turned into a ref, has no source_url AND would
+    be created without a chunk_id propagated — used to test the
+    'missing source' rejection path on the ref itself."""
+    return KDSChunk(
+        chunk_id="",  # validator receives chunk_id="" → falsy
+        standard_id="KDS 41 31 00",
+        clause_id="H1",
+        title="No source",
+        text="Synthetic with no source_url and no chunk_id.",
+        topic="steel_member_strength",
+        limit_state="combined_force_interaction",
+    )
+
+
+def _h1_hint_ref() -> CodeReference:
+    return CodeReference(
+        standard_id="KDS 41 31 00",
+        clause_id="H1",
+        title="조합응력 상관식 (AISC 360 H1)",
+        query_hint="KDS 41 31 00 강구조 조합응력 AISC 360 H1 interaction",
+        topic="steel_member_strength",
+        material="steel",
+        limit_state="combined_force_interaction",
+        jurisdiction="KDS",
+    )
+
+
+def _drift_hint_ref() -> CodeReference:
+    return CodeReference(
+        standard_id="KDS 41 17 00",
+        clause_id="§8.2.3",
+        title="허용 층간변위비",
+        query_hint="KDS 41 17 00 허용 층간변위비 inelastic story drift",
+        topic="seismic_story_drift",
+        limit_state="story_drift",
+        jurisdiction="KDS",
+    )
+
+
+# ============================================================
+# Schemas
+# ============================================================
+
+class TestKDSChunkSerialization:
+    def test_serializes_to_dict_and_back_through_json(self):
+        c = _h1_chunk()
+        d = c.to_dict()
+        # JSON-safe
+        round_trip = json.loads(json.dumps(d))
+        assert round_trip["chunk_id"] == "kds_41_31_00_h1_p72"
+        assert round_trip["standard_id"] == "KDS 41 31 00"
+        assert round_trip["topic"] == "steel_member_strength"
+        # Optional fields with None are dropped
+        no_source = KDSChunk(chunk_id="x", standard_id="Y", text="z")
+        d2 = no_source.to_dict()
+        assert "source_url" not in d2
+        assert "clause_id" not in d2
+
+    def test_retrieval_result_to_dict(self):
+        q = KDSRetrievalQuery(query_id="q1", query_text="hello")
+        r = KDSRetrievalResult(query=q, chunks=[_h1_chunk()], warnings=["w"])
+        d = r.to_dict()
+        assert d["query"]["query_id"] == "q1"
+        assert len(d["chunks"]) == 1
+        assert d["warnings"] == ["w"]
+
+
+# ============================================================
+# InMemoryKDSRetriever
+# ============================================================
+
+class TestInMemoryRetriever:
+    def test_retrieves_by_topic_limit_state_material(self):
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk(), _drift_chunk()])
+        q = KDSRetrievalQuery(
+            query_id="q",
+            query_text="H1 combined force interaction",
+            topic="steel_member_strength",
+            material="steel",
+            limit_state="combined_force_interaction",
+            standard_id="KDS 41 31 00",
+        )
+        result = retr.retrieve(q, top_k=2)
+        assert isinstance(result, KDSRetrievalResult)
+        assert result.is_empty is False
+        assert result.chunks[0].chunk_id == "kds_41_31_00_h1_p72"
+        # G2 has the same standard_id but different topic/limit_state
+        assert all(c.chunk_id != "kds_41_17_00_8_2_3_p41" for c in result.chunks)
+
+    def test_respects_top_k(self):
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk(), _drift_chunk()])
+        # Broad query — let everything score, then cap at 2
+        q = KDSRetrievalQuery(
+            query_id="q", query_text="KDS",
+            standard_id="KDS 41 31 00",
+        )
+        result = retr.retrieve(q, top_k=2)
+        assert len(result.chunks) <= 2
+
+    def test_empty_index_returns_warning(self):
+        retr = InMemoryKDSRetriever([])
+        q = KDSRetrievalQuery(query_id="q", query_text="hi")
+        result = retr.retrieve(q, top_k=3)
+        assert result.is_empty
+        assert any("retriever_empty" in w for w in result.warnings)
+
+    def test_no_match_returns_warning_not_exception(self):
+        retr = InMemoryKDSRetriever([_h1_chunk()])
+        q = KDSRetrievalQuery(
+            query_id="q",
+            query_text="unrelated stuff",
+            topic="non_existent_topic",
+            limit_state="non_existent_state",
+        )
+        result = retr.retrieve(q, top_k=3)
+        assert result.is_empty
+        assert any("no_match" in w for w in result.warnings)
+
+    def test_results_are_deterministic_across_calls(self):
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk()])
+        q = KDSRetrievalQuery(
+            query_id="q", query_text="KDS 41 31 00",
+            standard_id="KDS 41 31 00",
+        )
+        a = retr.retrieve(q, top_k=2)
+        b = retr.retrieve(q, top_k=2)
+        assert [c.chunk_id for c in a.chunks] == [c.chunk_id for c in b.chunks]
+
+    def test_is_subclass_of_abstract(self):
+        # Contract: real backends will subclass KDSRetriever the same way.
+        assert issubclass(InMemoryKDSRetriever, KDSRetriever)
+
+
+# ============================================================
+# Query construction
+# ============================================================
+
+class TestQueryConstruction:
+    def test_issue_query_uses_query_hint(self):
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            member_id=7,
+            code_refs=[_h1_hint_ref()],
+        )
+        queries = build_kds_queries_for_issue(issue)
+        assert len(queries) == 1
+        q = queries[0]
+        assert q.issue_id == "iss_strength_m7"
+        assert q.topic == "steel_member_strength"
+        assert q.limit_state == "combined_force_interaction"
+        assert q.standard_id == "KDS 41 31 00"
+        assert "AISC 360 H1" in q.query_text
+
+    def test_candidate_query_inherits_from_issue(self):
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        cand = RetrofitCandidate(
+            candidate_id="cand_x",
+            issue_id="iss_strength_m7",
+            action_type=ActionType.INCREASE_SECTION,
+            description="…",
+            code_refs=[],  # candidate itself has no refs yet
+        )
+        queries = build_kds_queries_for_candidate(cand, issue)
+        assert len(queries) == 1
+        q = queries[0]
+        assert q.candidate_id == "cand_x"
+        assert q.issue_id == "iss_strength_m7"
+
+    def test_candidate_with_no_hints_returns_no_query(self):
+        cand = RetrofitCandidate(
+            candidate_id="cand_y",
+            issue_id="iss_y",
+            action_type=ActionType.REQUIRES_ENGINEER_REVIEW,
+            description="…",
+            code_refs=[],
+        )
+        queries = build_kds_queries_for_candidate(cand, issue=None)
+        assert queries == []
+
+    def test_duplicate_queries_are_deduped(self):
+        issue = StructuralIssue(
+            issue_id="iss",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        cand = RetrofitCandidate(
+            candidate_id="cand",
+            issue_id="iss",
+            action_type=ActionType.INCREASE_SECTION,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        # The cand and issue would otherwise yield the same query_id (same
+        # discriminator). Dedup keeps only one.
+        queries = build_kds_queries_for_candidate(cand, issue)
+        assert len(queries) == 1
+
+
+# ============================================================
+# Citation validator
+# ============================================================
+
+class TestCitationValidator:
+    def test_accepts_full_ref_with_chunk_id(self):
+        ref = chunk_to_code_reference(_h1_chunk())
+        ok, reason = validate_code_reference(
+            ref, chunk_id=_h1_chunk().chunk_id,
+            matched_topic="steel_member_strength",
+            matched_limit_state="combined_force_interaction",
+        )
+        assert ok, reason
+        assert reason == "ok"
+
+    def test_rejects_missing_source_and_chunk(self):
+        ref = CodeReference(
+            standard_id="KDS 41 31 00", clause_id="H1",
+            title="조합응력",
+        )
+        ok, reason = validate_code_reference(ref, chunk_id=None)
+        assert not ok
+        assert reason == "missing_source_url_and_chunk_id"
+
+    def test_rejects_missing_standard_id(self):
+        ref = CodeReference(standard_id="", clause_id="H1",
+                            source_url="http://x")
+        ok, reason = validate_code_reference(ref, chunk_id=None)
+        assert not ok
+        assert reason == "missing_standard_id"
+
+    def test_rejects_long_quote(self):
+        ref = CodeReference(
+            standard_id="KDS 41 31 00", clause_id="H1",
+            source_url="http://x",
+            quote="x" * (MAX_QUOTE_LEN + 5),
+        )
+        ok, reason = validate_code_reference(ref, chunk_id=None)
+        assert not ok
+        assert reason == "quote_too_long"
+
+    def test_rejects_topic_mismatch(self):
+        ref = _h1_hint_ref()
+        ref.source_url = "http://x"
+        ok, reason = validate_code_reference(
+            ref, chunk_id=None,
+            matched_topic="seismic_story_drift",
+        )
+        assert not ok
+        assert "topic_mismatch" in reason
+
+    def test_batch_validation_returns_split(self):
+        good = CodeReference(
+            standard_id="KDS 41 31 00", clause_id="H1",
+            source_url="http://x",
+        )
+        bad = CodeReference(standard_id="", clause_id="x")
+        result = validate_code_references([good, bad])
+        assert isinstance(result, CitationValidationResult)
+        assert result.valid is False
+        assert len(result.accepted_refs) == 1
+        assert len(result.rejected_refs) == 1
+
+
+# ============================================================
+# Chunk → CodeReference adapter
+# ============================================================
+
+class TestChunkAdapter:
+    def test_short_chunk_yields_quote(self):
+        ref = chunk_to_code_reference(_h1_chunk(), base_ref=_h1_hint_ref())
+        assert ref.quote is not None
+        assert ref.standard_id == "KDS 41 31 00"
+        assert ref.clause_id == "H1"
+        assert ref.topic == "steel_member_strength"
+        # query_hint preserved from the base hint
+        assert ref.query_hint is not None
+
+    def test_long_chunk_passes_through_so_validator_can_reject(self):
+        """Adapter never silently truncates — validator owns the cap."""
+        ref = chunk_to_code_reference(_long_chunk())
+        assert ref.quote is not None  # quote is passed through verbatim
+        assert len(ref.quote) > MAX_QUOTE_LEN
+        # Validator must catch the over-length quote even when chunk_id
+        # is otherwise present.
+        ok, reason = validate_code_reference(
+            ref, chunk_id="kds_long_quote_p1",
+        )
+        assert not ok
+        assert reason == "quote_too_long"
+
+
+# ============================================================
+# Enrichment — object level
+# ============================================================
+
+class TestEnrichCodeRefsWithKds:
+    def test_enrich_attaches_refs_to_issue_and_candidate(self):
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk(), _drift_chunk()])
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            member_id=7,
+            member_type="column",
+            section="H-300x300",
+            code_refs=[_h1_hint_ref()],
+        )
+        cand = RetrofitCandidate(
+            candidate_id="cand_increase",
+            issue_id="iss_strength_m7",
+            action_type=ActionType.INCREASE_SECTION,
+            description="…",
+            code_refs=[],
+        )
+        before_issue_refs = len(issue.code_refs)
+        before_cand_refs = len(cand.code_refs)
+
+        summary = enrich_code_refs_with_kds(
+            [issue], [cand], retr, top_k=2,
+        )
+
+        # New refs appended after the hint refs
+        assert len(issue.code_refs) > before_issue_refs
+        assert len(cand.code_refs) > before_cand_refs
+        s = summary["kds_rag_summary"]
+        assert s["enabled"] is True
+        assert s["num_queries"] >= 1
+        assert s["num_refs_attached"] >= 1
+        assert s["citation_ready"] is True
+        assert s["backend"] == "InMemoryKDSRetriever"
+
+    def test_no_match_marks_unresolved(self):
+        retr = InMemoryKDSRetriever([_drift_chunk()])
+        # Issue points at H1 / steel strength, retriever only has drift
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
+        s = summary["kds_rag_summary"]
+        assert s["num_unresolved"] >= 1
+        assert s["citation_ready"] is False
+
+    def test_long_quote_chunk_is_rejected(self):
+        retr = InMemoryKDSRetriever([_long_chunk()])
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
+        s = summary["kds_rag_summary"]
+        # Either rejected (if no source_url) OR attached without quote
+        # (since this chunk DOES have no source_url, it should reject).
+        # _long_chunk has no source_url, so the ref ends up with no
+        # source AND no quote — validator rejects it.
+        assert s["num_refs_rejected"] >= 1 or s["num_unresolved"] >= 1
+        assert s["citation_ready"] is False
+
+
+# ============================================================
+# Enrichment — payload level
+# ============================================================
+
+class TestEnrichRecommendationPayload:
+    def _build_payload(self) -> dict:
+        dc = {
+            "member_check": {
+                "members": [{
+                    "member_id": 7, "type": "column",
+                    "section": "H-300x300",
+                    "governing_combo": "1.2DL+1.0LL",
+                    "story": 2,
+                    "ratios": {"interaction": 1.42, "shear": 0.3},
+                    "status": "NG",
+                }],
+            },
+        }
+        return build_recommendation_payload(
+            design_check=dc, raw_warnings=None,
+            analysis_metadata={"member_info": [{
+                "member_id": 7, "type": "column", "ni": 11, "nj": 12,
+            }]},
+            stage="t", mode=MODE_ANALYZE,
+        )
+
+    def test_enriches_payload_does_not_mutate_input(self):
+        payload = self._build_payload()
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk()])
+
+        snapshot = json.loads(json.dumps(payload))
+        enriched = enrich_recommendation_payload_with_kds(
+            payload, retr, top_k=2,
+        )
+
+        # Input not mutated
+        assert payload == snapshot
+        # Output has kds_rag fields
+        assert "kds_rag_summary" in enriched
+        assert "kds_rag_warnings" in enriched
+        s = enriched["kds_rag_summary"]
+        assert s["enabled"] is True
+        assert s["citation_ready"] in (True, False)
+        # Issues have more refs than before (hint + enriched)
+        sissue = next(i for i in enriched["issues"]
+                      if i["issue_type"] == IssueType.STRENGTH_EXCEEDED)
+        before = next(i for i in snapshot["issues"]
+                      if i["issue_type"] == IssueType.STRENGTH_EXCEEDED)
+        assert len(sissue["code_refs"]) > len(before["code_refs"])
+
+    def test_citation_ready_false_when_retriever_has_no_chunks(self):
+        payload = self._build_payload()
+        retr = InMemoryKDSRetriever([])  # empty
+        enriched = enrich_recommendation_payload_with_kds(payload, retr, top_k=3)
+        s = enriched["kds_rag_summary"]
+        assert s["citation_ready"] is False
+        assert s["num_refs_attached"] == 0
+        # Warnings propagated from retriever
+        assert any("retriever_empty" in w for w in enriched["kds_rag_warnings"])
+
+    def test_recommendation_payload_default_does_not_include_kds(self):
+        """build_recommendation_payload alone must NOT auto-attach KDS."""
+        payload = self._build_payload()
+        assert "kds_rag_summary" not in payload
+        assert "kds_rag_warnings" not in payload

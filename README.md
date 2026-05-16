@@ -354,6 +354,135 @@ mcp-server/core/recommendation/
 
 ---
 
+## 3.Y KDS-RAG 인터페이스 레이어 (test-double 단계)
+
+> 향후 KDS-RAG + LLM 추천 시스템의 **데이터 계약과 검증 레이어** 만 먼저 봉합합니다.
+> 이번 단계에서도 **실제 RAG / 벡터DB / LLM 호출은 전혀 구현하지 않았습니다.**
+> 목적은 어떤 벡터DB / 임베딩 모델을 쓰더라도 기존 recommendation pipeline 과
+> 안정적으로 연결되도록 인터페이스를 고정하는 것입니다.
+
+### 3.Y.1 흐름
+
+```
+CodeReference.query_hint, topic, material, limit_state
+   ↓ (build_kds_queries_for_issue / _for_candidate)
+KDSRetrievalQuery[]
+   ↓ (KDSRetriever.retrieve — 현재는 InMemoryKDSRetriever test double)
+KDSRetrievalResult { chunks: KDSChunk[], warnings }
+   ↓ (chunk_to_code_reference + citation_validator)
+enriched CodeReference[]        ← issues[i].code_refs / candidates[j].code_refs 에 append
+   ↓
+kds_rag_summary { num_queries, num_refs_attached, num_unresolved,
+                  num_refs_rejected, citation_ready, backend }
+```
+
+### 3.Y.2 데이터 모델
+
+`mcp-server/core/kds_rag/schemas.py`:
+
+| 모델 | 역할 |
+|------|------|
+| `KDSChunk` | 검색 대상 단위. `chunk_id`, `standard_id`, `clause_id`, `text`, `source_url`, `page`, `section_path`, `material`, `topic`, `limit_state`, `jurisdiction` |
+| `KDSRetrievalQuery` | 단일 검색 요청. issue_id / candidate_id 로 출처 추적 가능 |
+| `KDSRetrievalResult` | `chunks: list[KDSChunk]` + `warnings: list[str]`. **빈 결과여도 예외 발생 금지**, warning 으로만 처리 |
+| `CitationValidationResult` | `accepted_refs` / `rejected_refs` / `valid` / `reason` |
+
+### 3.Y.3 Retriever 인터페이스 + 인메모리 더블
+
+`mcp-server/core/kds_rag/retriever.py`:
+
+- `KDSRetriever` (ABC) — 미래의 모든 RAG 백엔드가 따를 한 줄 인터페이스
+  - `retrieve(query, top_k=5) -> KDSRetrievalResult`
+- `InMemoryKDSRetriever(chunks)` — 테스트 더블
+  - topic / limit_state / material / standard_id 일치 + 키워드 overlap 스코어
+  - **결과 없으면 빈 chunks + warning** (절대 예외 발생 금지)
+  - 같은 입력 → 같은 결과 (insertion-order tie-break)
+  - 실제 KDS 원문을 repo 에 넣지 않음 — 테스트도 짧은 synthetic text 만 사용
+
+### 3.Y.4 Citation Validator (가드레일)
+
+`mcp-server/core/kds_rag/citation_validator.py`:
+
+`CodeReference` 가 **citation_ready** 가 되는 조건:
+1. `standard_id` 존재
+2. `clause_id` 또는 `title` 존재
+3. `source_url` 또는 (enrichment 시 전달되는) `chunk_id` 존재
+4. `quote` 가 있으면 `MIN_QUOTE_LEN (8) <= len(quote) <= MAX_QUOTE_LEN (400)`
+5. `ref.topic` 과 매칭된 chunk 의 `topic` 이 둘 다 있으면 일치 (cross-topic drift 방지)
+6. `limit_state` 도 동일
+
+거부 사유 (greppable):
+`missing_standard_id` / `missing_clause_id_and_title` /
+`missing_source_url_and_chunk_id` / `quote_too_short` /
+`quote_too_long` / `topic_mismatch` / `limit_state_mismatch`
+
+### 3.Y.5 enrich_recommendation_payload_with_kds (선택적 adapter)
+
+```python
+from core.kds_rag import enrich_recommendation_payload_with_kds, InMemoryKDSRetriever
+
+retriever = InMemoryKDSRetriever(chunks)
+enriched = enrich_recommendation_payload_with_kds(payload, retriever, top_k=3)
+# payload 자체는 mutation 없음 — 새 dict 반환
+# enriched["kds_rag_summary"] / enriched["kds_rag_warnings"] 추가
+```
+
+**중요:** `/api/v2/analyze` 응답에 자동으로 붙이지 **않습니다.** 호출자가 명시적으로
+`enrich_recommendation_payload_with_kds()` 를 부를 때만 KDS-RAG 가 동작합니다.
+기존 `build_recommendation_payload()` 동작은 그대로 유지됩니다.
+
+`enriched["kds_rag_summary"]` 예:
+```json
+{
+  "enabled": true,
+  "num_queries": 2,
+  "num_chunks_retrieved": 2,
+  "num_refs_attached": 2,
+  "num_unresolved": 0,
+  "num_refs_rejected": 0,
+  "citation_ready": true,
+  "backend": "InMemoryKDSRetriever",
+  "top_k": 3
+}
+```
+
+### 3.Y.6 LLM Guardrails
+
+전체 정책: [`docs/kds_rag_llm_guardrails.md`](docs/kds_rag_llm_guardrails.md).
+
+요약:
+- LLM 은 구조 계산을 수행하지 않는다 (deterministic 레이어가 판단).
+- LLM 은 `proposed_change.to` 를 임의로 채우지 않는다.
+- `citation_ready=false` 인 ref 를 근거처럼 말하지 않는다.
+- KDS 조항 `quote`/`source` 가 없으면 "근거 미확인" 으로 말한다.
+- 모든 candidate 는 "재해석 필요한 후보" 로 설명한다 (최종 설계 X).
+
+### 3.Y.7 명시적 비범위
+
+- ❌ 실제 KDS 원문 ingestion / repo 에 KDS 전문 포함
+- ❌ 벡터DB / 임베딩 모델 / 외부 서비스 연결
+- ❌ LLM 호출
+- ❌ `/api/v2/analyze` 응답 기본 동작 변경 (opt-in adapter 만 제공)
+- ❌ 자동 단면 산정 (`proposed_change.to` 채우기)
+
+### 3.Y.8 구현 위치
+
+```
+mcp-server/core/kds_rag/
+├── __init__.py
+├── schemas.py              # KDSChunk / Query / Result / CitationValidationResult
+├── retriever.py            # KDSRetriever (ABC) + InMemoryKDSRetriever
+├── citation_validator.py   # validate_code_reference + MAX_QUOTE_LEN
+└── pipeline.py             # query builders + chunk_to_code_reference
+                            # + enrich_code_refs_with_kds
+                            # + enrich_recommendation_payload_with_kds
+
+docs/kds_rag_llm_guardrails.md   # LLM/RAG 규칙
+tests/test_kds_rag.py            # 26 tests
+```
+
+---
+
 ## 4. Project Structure
 
 ```
@@ -385,6 +514,11 @@ opensees-MCP/
 │       │   ├── issue_extractor.py      # 해석/설계검토 → StructuralIssue[] (location 보강)
 │       │   ├── candidate_generator.py  # placeholder 후보 + proposed_change + no-auto-candidate 규칙
 │       │   └── pipeline.py             # build_recommendation_payload(mode=analyze|parse_only)
+│       ├── kds_rag/                    # KDS-RAG 인터페이스 (test-double 단계, RAG/LLM 미구현)
+│       │   ├── schemas.py              # KDSChunk / Query / Result / CitationValidationResult
+│       │   ├── retriever.py            # KDSRetriever(ABC) + InMemoryKDSRetriever
+│       │   ├── citation_validator.py   # validate_code_reference + MAX_QUOTE_LEN
+│       │   └── pipeline.py             # query builders + enrich_* (opt-in adapter)
 │       └── ...                        # 기타 모듈
 │
 ├── webapp/                            # 웹 애플리케이션 (V2 only)
