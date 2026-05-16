@@ -403,10 +403,12 @@ kds_rag_summary { num_queries, num_refs_attached, num_unresolved,
 
 `mcp-server/core/kds_rag/citation_validator.py`:
 
-`CodeReference` 가 **citation_ready** 가 되는 조건:
+`CodeReference` 가 **citation 가능** 한 조건:
 1. `standard_id` 존재
 2. `clause_id` 또는 `title` 존재
-3. `source_url` 또는 (enrichment 시 전달되는) `chunk_id` 존재
+3. `source_url` **또는** `chunk_id` 존재
+   - `chunk_id` 는 호출자가 인자로 넘기거나 (`validate_code_reference(ref, chunk_id=…)`)
+   - ref 자체의 `ref.chunk_id` 에 저장되어 있어도 됨 (enrichment 후 round-trip 검증용)
 4. `quote` 가 있으면 `MIN_QUOTE_LEN (8) <= len(quote) <= MAX_QUOTE_LEN (400)`
 5. `ref.topic` 과 매칭된 chunk 의 `topic` 이 둘 다 있으면 일치 (cross-topic drift 방지)
 6. `limit_state` 도 동일
@@ -416,7 +418,30 @@ kds_rag_summary { num_queries, num_refs_attached, num_unresolved,
 `missing_source_url_and_chunk_id` / `quote_too_short` /
 `quote_too_long` / `topic_mismatch` / `limit_state_mismatch`
 
-### 3.Y.5 enrich_recommendation_payload_with_kds (선택적 adapter)
+### 3.Y.5 chunk_id 는 internal citation key
+
+`CodeReference.chunk_id` 는 **내부 감사 / 출처 추적용 식별자** 입니다.
+KDS-RAG enrichment 시 매칭된 `KDSChunk.chunk_id` 가 자동으로 ref 에 채워지고,
+JSON payload 에도 그대로 노출됩니다. 향후 UI / LLM 응답이 "이 후보는 chunk X
+근거" 식으로 출처를 표시하거나, 동일 chunk 가 여러 ref 로 중복 인용되지 않도록
+디듀프할 때 쓰입니다.
+
+```json
+{
+  "standard_id": "KDS 41 31 00",
+  "clause_id": "H1",
+  "chunk_id": "kds_41_31_00_h1_p72",
+  "quote": "Synthetic H1 placeholder text...",
+  "topic": "steel_member_strength"
+}
+```
+
+`chunk_id` 가 있으면 validator 는 `source_url` 이 없어도 그것을 출처로
+인정합니다 — 단, `chunk_id` 는 외부 URL 이 아니라 내부 reference 임을 LLM
+prompt 가 명확히 전달해야 합니다 (자세한 규칙은
+[`docs/kds_rag_llm_guardrails.md`](docs/kds_rag_llm_guardrails.md)).
+
+### 3.Y.6 enrich_recommendation_payload_with_kds (선택적 adapter)
 
 ```python
 from core.kds_rag import enrich_recommendation_payload_with_kds, InMemoryKDSRetriever
@@ -441,12 +466,28 @@ enriched = enrich_recommendation_payload_with_kds(payload, retriever, top_k=3)
   "num_unresolved": 0,
   "num_refs_rejected": 0,
   "citation_ready": true,
+  "all_queries_resolved": true,
+  "has_unresolved_queries": false,
+  "has_rejected_refs": false,
   "backend": "InMemoryKDSRetriever",
   "top_k": 3
 }
 ```
 
-### 3.Y.6 LLM Guardrails
+#### Summary 필드 의미 분리 (중요)
+
+| 필드 | 의미 | 언제 true 인가 |
+|------|------|----------------|
+| `citation_ready` | **사용 가능한 인용이 하나라도 있음.** "쓸 수 있는 근거가 있다" — 그 이상도 이하도 아님. | `num_refs_attached > 0` |
+| `all_queries_resolved` | **모든 검색이 깨끗하게 해결됨.** "한 건도 빠짐없이 매칭됐고, validator 거부도 없음." | `num_unresolved == 0` AND `num_refs_rejected == 0` |
+| `has_unresolved_queries` | 검색했지만 빈손으로 돌아온 쿼리가 하나라도 있는지. | `num_unresolved > 0` |
+| `has_rejected_refs` | 검색은 됐지만 citation validator 가 거부한 ref 가 있는지. | `num_refs_rejected > 0` |
+
+즉 `citation_ready=true` 라도 `all_queries_resolved=false` 일 수 있습니다.
+LLM narration 은 이 차이를 인지해야 합니다 — 한 부재의 강도 근거는 찾았지만
+다른 부재의 drift 근거를 찾지 못한 상황에서 "모든 근거 확보" 라고 말하면 안 됩니다.
+
+### 3.Y.7 LLM Guardrails
 
 전체 정책: [`docs/kds_rag_llm_guardrails.md`](docs/kds_rag_llm_guardrails.md).
 
@@ -457,7 +498,7 @@ enriched = enrich_recommendation_payload_with_kds(payload, retriever, top_k=3)
 - KDS 조항 `quote`/`source` 가 없으면 "근거 미확인" 으로 말한다.
 - 모든 candidate 는 "재해석 필요한 후보" 로 설명한다 (최종 설계 X).
 
-### 3.Y.7 명시적 비범위
+### 3.Y.8 명시적 비범위
 
 - ❌ 실제 KDS 원문 ingestion / repo 에 KDS 전문 포함
 - ❌ 벡터DB / 임베딩 모델 / 외부 서비스 연결
@@ -465,7 +506,7 @@ enriched = enrich_recommendation_payload_with_kds(payload, retriever, top_k=3)
 - ❌ `/api/v2/analyze` 응답 기본 동작 변경 (opt-in adapter 만 제공)
 - ❌ 자동 단면 산정 (`proposed_change.to` 채우기)
 
-### 3.Y.8 구현 위치
+### 3.Y.9 구현 위치
 
 ```
 mcp-server/core/kds_rag/
@@ -478,7 +519,7 @@ mcp-server/core/kds_rag/
                             # + enrich_recommendation_payload_with_kds
 
 docs/kds_rag_llm_guardrails.md   # LLM/RAG 규칙
-tests/test_kds_rag.py            # 26 tests
+tests/test_kds_rag.py            # 34 tests
 ```
 
 ---

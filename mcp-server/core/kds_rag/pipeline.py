@@ -197,6 +197,7 @@ def chunk_to_code_reference(
             f"matched chunk {chunk.chunk_id} via "
             f"topic={chunk.topic!r} limit_state={chunk.limit_state!r}"
         ),
+        chunk_id=chunk.chunk_id or None,
         query_hint=getattr(base_ref, "query_hint", None) if base_ref else None,
         topic=_pick("topic"),
         material=_pick("material"),
@@ -318,6 +319,9 @@ def enrich_code_refs_with_kds(
         for k, v in c.items():
             totals[k] += v
 
+    has_unresolved = totals["unresolved"] > 0
+    has_rejected = totals["rejected"] > 0
+
     return {
         "kds_rag_summary": {
             "enabled": True,
@@ -326,7 +330,15 @@ def enrich_code_refs_with_kds(
             "num_refs_attached": totals["attached"],
             "num_unresolved": totals["unresolved"],
             "num_refs_rejected": totals["rejected"],
-            "citation_ready": totals["attached"] > 0 and totals["rejected"] == 0,
+            # "Some usable citation is attached." Says nothing about
+            # other queries that may have come back empty.
+            "citation_ready": totals["attached"] > 0,
+            # "Every query was answered AND every returned ref passed
+            # the citation guardrail." Use this to decide whether to
+            # surface a "근거 미확인" disclaimer to the user.
+            "all_queries_resolved": not has_unresolved and not has_rejected,
+            "has_unresolved_queries": has_unresolved,
+            "has_rejected_refs": has_rejected,
             "backend": type(retriever).__name__,
             "top_k": top_k,
         },
@@ -406,6 +418,7 @@ def _ref_from_dict(d: dict, CodeReference) -> Any:
         source_url=d.get("source_url"),
         quote=d.get("quote"),
         relevance_reason=d.get("relevance_reason"),
+        chunk_id=d.get("chunk_id"),
         query_hint=d.get("query_hint"),
         topic=d.get("topic"),
         material=d.get("material"),

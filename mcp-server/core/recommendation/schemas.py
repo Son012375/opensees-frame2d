@@ -219,6 +219,12 @@ class CodeReference:
     quote: Optional[str] = None              # TODO(rag): filled by RAG
     relevance_reason: Optional[str] = None   # TODO(rag): filled by RAG
 
+    # ─── Citation key (set during KDS-RAG enrichment) ─────────────────────
+    # Internal audit / provenance pointer back to the KDSChunk that
+    # produced this citation. The validator accepts a non-empty
+    # ``chunk_id`` in lieu of ``source_url``.
+    chunk_id: Optional[str] = None
+
     # ─── RAG search hints (deterministic layer can populate these) ────────
     query_hint: Optional[str] = None         # free-text query for KDS-RAG
     topic: Optional[str] = None              # e.g. "steel_member_strength"

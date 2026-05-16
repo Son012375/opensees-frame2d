@@ -69,20 +69,52 @@ The retrieval layer MUST:
 
 ## 4. Citation-ready definition
 
-A `CodeReference` is **citation-ready** iff
+A single `CodeReference` passes the citation guardrail iff
 `validate_code_reference(ref, chunk_id=...)` returns `(True, "ok")`.
 The current rule set:
 
 1. `standard_id` is set.
 2. `clause_id` OR `title` is set.
-3. `source_url` OR `chunk_id` is set (an internal hint is not enough).
+3. `source_url` OR `chunk_id` is set. The `chunk_id` may be passed
+   explicitly as a keyword arg (the enrichment path does this) **or**
+   stored on the ref as `ref.chunk_id` — the validator falls back to
+   the ref's own value if the kwarg is omitted. An internal hint
+   (`query_hint`, `topic`, …) is NOT enough.
 4. If `quote` is set: `MIN_QUOTE_LEN <= len(quote) <= MAX_QUOTE_LEN`.
 5. If both `ref.topic` and the matched chunk's `topic` are set, they
    must match. Same for `limit_state`.
 
-The `kds_rag_summary.citation_ready` boolean reflects the batch-level
-verdict: `True` only when at least one ref was attached and **none**
-were rejected.
+### 4.1 `chunk_id` is an internal citation key
+
+`CodeReference.chunk_id` is an **internal audit / provenance pointer**
+back to the `KDSChunk` that produced the citation. It's not a URL and
+must not be displayed to users as one. When `chunk_id` is the only
+"source" present (no `source_url`), the LLM narration must phrase
+attribution as "내부 인용 (chunk X)" / "internal reference (chunk X)",
+never as a public link.
+
+### 4.2 Batch-level summary semantics
+
+The `kds_rag_summary` block exposes **four** boolean flags. Read them
+carefully — they are NOT redundant:
+
+| flag | meaning | true when |
+|------|---------|-----------|
+| `citation_ready` | At least one usable citation is attached. Says **nothing** about queries that came back empty. | `num_refs_attached > 0` |
+| `all_queries_resolved` | Every query was answered AND every returned ref passed the guardrail. The strict "all green" flag. | `num_unresolved == 0` AND `num_refs_rejected == 0` |
+| `has_unresolved_queries` | At least one query returned empty. | `num_unresolved > 0` |
+| `has_rejected_refs` | At least one returned ref failed the guardrail. | `num_refs_rejected > 0` |
+
+**LLM consequences:**
+
+- `citation_ready=true` is permission to **cite the refs that are
+  present**. It is NOT permission to claim "all sources verified".
+- If `all_queries_resolved=false`, the narration MUST disclose which
+  parts of the response remain unverified — typically by emitting a
+  "근거 미확인 (unresolved)" / "근거 거부됨 (rejected)" disclaimer for
+  the affected issues / candidates.
+- The LLM should prefer the `all_queries_resolved` flag when deciding
+  whether to phrase the answer with high confidence.
 
 ## 5. Examples
 

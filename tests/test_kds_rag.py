@@ -559,3 +559,172 @@ class TestEnrichRecommendationPayload:
         payload = self._build_payload()
         assert "kds_rag_summary" not in payload
         assert "kds_rag_warnings" not in payload
+
+
+# ============================================================
+# chunk_id provenance (CodeReference + payload round-trip)
+# ============================================================
+
+class TestChunkIdProvenance:
+    def test_chunk_to_code_reference_preserves_chunk_id(self):
+        chunk = _h1_chunk()
+        ref = chunk_to_code_reference(chunk, base_ref=_h1_hint_ref())
+        assert ref.chunk_id == chunk.chunk_id
+        # And it serializes
+        d = ref.to_dict()
+        assert d["chunk_id"] == chunk.chunk_id
+
+    def test_validator_falls_back_to_ref_chunk_id(self):
+        """Caller can omit chunk_id and the validator should still find
+        it on the ref itself."""
+        ref = chunk_to_code_reference(_h1_chunk())
+        # Strip source_url so the validator must rely on chunk_id
+        ref.source_url = None
+        # No explicit chunk_id kwarg → falls back to ref.chunk_id
+        ok, reason = validate_code_reference(
+            ref,
+            matched_topic="steel_member_strength",
+            matched_limit_state="combined_force_interaction",
+        )
+        assert ok, reason
+
+    def test_validator_still_rejects_when_ref_has_no_chunk_id_or_url(self):
+        ref = CodeReference(
+            standard_id="KDS 41 31 00", clause_id="H1",
+            title="조합응력",
+        )
+        # No chunk_id arg, no ref.chunk_id, no source_url
+        ok, reason = validate_code_reference(ref)
+        assert not ok
+        assert reason == "missing_source_url_and_chunk_id"
+
+    def test_payload_enrichment_round_trip_keeps_chunk_id(self):
+        """Build a payload, enrich with KDS, serialize to JSON, and
+        confirm every attached citation ref carries chunk_id."""
+        dc = {"member_check": {"members": [{
+            "member_id": 7, "type": "column", "section": "H-300x300",
+            "governing_combo": "1.2DL+1.0LL", "story": 2,
+            "ratios": {"interaction": 1.42, "shear": 0.3},
+            "status": "NG",
+        }]}}
+        payload = build_recommendation_payload(
+            design_check=dc, raw_warnings=None,
+            stage="t", mode=MODE_ANALYZE,
+        )
+        retr = InMemoryKDSRetriever([_h1_chunk(), _g2_chunk()])
+        enriched = enrich_recommendation_payload_with_kds(payload, retr, top_k=3)
+
+        # JSON round-trip — chunk_id must survive
+        as_json = json.loads(json.dumps(enriched))
+
+        # At least one attached citation ref on the issue with a chunk_id
+        sissue = next(i for i in as_json["issues"]
+                      if i["issue_type"] == IssueType.STRENGTH_EXCEEDED)
+        chunk_ids_on_issue = [r.get("chunk_id") for r in sissue["code_refs"]
+                              if r.get("chunk_id")]
+        assert chunk_ids_on_issue, (
+            "expected at least one enriched ref with chunk_id on the issue"
+        )
+
+        # And on the corresponding candidate
+        scand = next(c for c in as_json["recommendation_candidates"]
+                     if c["action_type"] == ActionType.INCREASE_SECTION)
+        chunk_ids_on_cand = [r.get("chunk_id") for r in scand["code_refs"]
+                             if r.get("chunk_id")]
+        assert chunk_ids_on_cand, (
+            "expected at least one enriched ref with chunk_id on the candidate"
+        )
+
+
+# ============================================================
+# Split summary semantics (citation_ready vs all_queries_resolved)
+# ============================================================
+
+class TestSummarySemantics:
+    def test_summary_fields_present_with_correct_types(self):
+        retr = InMemoryKDSRetriever([_h1_chunk()])
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
+        s = summary["kds_rag_summary"]
+        for k in ("citation_ready", "all_queries_resolved",
+                  "has_unresolved_queries", "has_rejected_refs"):
+            assert isinstance(s[k], bool), f"{k} should be bool"
+
+    def test_partial_unresolved_separates_citation_ready_from_resolved(self):
+        """One query resolves cleanly, another finds nothing.
+
+        Expectation:
+            citation_ready = True   (the H1 query worked)
+            all_queries_resolved = False  (the drift query did not)
+            has_unresolved_queries = True
+        """
+        # Retriever only knows about H1, NOT drift.
+        retr = InMemoryKDSRetriever([_h1_chunk()])
+
+        strength_issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        drift_issue = StructuralIssue(
+            issue_id="iss_drift_s3_x",
+            issue_type=IssueType.DRIFT_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_drift_hint_ref()],
+        )
+
+        summary = enrich_code_refs_with_kds(
+            [strength_issue, drift_issue], [], retr, top_k=3,
+        )
+        s = summary["kds_rag_summary"]
+        assert s["citation_ready"] is True
+        assert s["all_queries_resolved"] is False
+        assert s["has_unresolved_queries"] is True
+        assert s["num_unresolved"] >= 1
+        assert s["num_refs_attached"] >= 1
+
+    def test_all_resolved_when_every_query_returns_accepted_ref(self):
+        retr = InMemoryKDSRetriever([_h1_chunk()])
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
+        s = summary["kds_rag_summary"]
+        assert s["citation_ready"] is True
+        assert s["all_queries_resolved"] is True
+        assert s["has_unresolved_queries"] is False
+        assert s["has_rejected_refs"] is False
+
+    def test_rejected_refs_make_all_queries_resolved_false(self):
+        """Even if a query returned chunks, a rejected ref invalidates
+        all_queries_resolved."""
+        retr = InMemoryKDSRetriever([_long_chunk()])
+        issue = StructuralIssue(
+            issue_id="iss_strength_m7",
+            issue_type=IssueType.STRENGTH_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            code_refs=[_h1_hint_ref()],
+        )
+        summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
+        s = summary["kds_rag_summary"]
+        assert s["has_rejected_refs"] is True
+        assert s["all_queries_resolved"] is False

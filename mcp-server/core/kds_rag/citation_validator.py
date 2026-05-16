@@ -61,7 +61,14 @@ def validate_code_reference(
     matched_topic: Optional[str] = None,
     matched_limit_state: Optional[str] = None,
 ) -> tuple[bool, str]:
-    """Validate a single CodeReference. Returns ``(accepted, reason)``."""
+    """Validate a single CodeReference. Returns ``(accepted, reason)``.
+
+    ``chunk_id`` may be passed explicitly by the caller (the enrichment
+    path does this so it can validate before the chunk_id is stored on
+    the ref). If the caller omits it, we fall back to ``ref.chunk_id``
+    so post-hoc validators don't need to remember which chunk produced
+    the citation.
+    """
     if not _has(getattr(ref, "standard_id", None)):
         return False, "missing_standard_id"
 
@@ -69,7 +76,9 @@ def validate_code_reference(
         return False, "missing_clause_id_and_title"
 
     has_url = _has(getattr(ref, "source_url", None))
-    has_chunk = _has(chunk_id)
+    # Explicit chunk_id arg wins; otherwise fall back to ref.chunk_id.
+    effective_chunk_id = chunk_id if _has(chunk_id) else getattr(ref, "chunk_id", None)
+    has_chunk = _has(effective_chunk_id)
     if not has_url and not has_chunk:
         return False, "missing_source_url_and_chunk_id"
 
