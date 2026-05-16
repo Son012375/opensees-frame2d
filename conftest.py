@@ -24,8 +24,17 @@ for _p in (_ROOT, _MCP_SERVER):
 # sys.exit() on failure. They terminate the whole pytest session, so
 # exclude them from auto-discovery. They can still be executed
 # directly with `python tests/test_xxx.py`.
+#
+# The MVP-era tests reference modules (`adapters/`, `core.contract_interpreter`)
+# that were intentionally removed in commit a8c7f6f ("cleanup legacy code")
+# but the test files themselves were left behind. They pass locally only when
+# the deleted source still exists in the working copy. Skip them in CI; they
+# can be revived if/when the legacy pipeline is reintroduced.
 collect_ignore = [
     "tests/test_pdelta_validation.py",
     "tests/test_stage5_metadata.py",
     "tests/test_stage6_building_nonlinear.py",
+    "tests/test_apply_mvp_pipeline.py",
+    "tests/test_contract_interpreter.py",
+    "tests/test_load_combo_adapter.py",
 ]
