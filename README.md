@@ -255,27 +255,49 @@ opensees-MCP/
 
 ## 6. Installation & Run
 
+> **운영 브랜치:** `v2/node-element` (현재 Render에 배포되는 브랜치).
+> 아래 명령은 모두 이 브랜치 기준입니다.
+
 ### Local Development
 
 ```bash
-# Python 3.12+ 환경
-conda create -n opensees python=3.12
+# Python 3.12.7 권장 (CI/Render와 동일)
+conda create -n opensees python=3.12.7
 conda activate opensees
 
-# 의존성 설치
-cd webapp/backend
-pip install -r requirements.txt
+# 의존성 설치 (Render와 동일한 파일)
+pip install -r webapp/backend/requirements.txt
 
-# 환경변수 (.env)
-ANTHROPIC_API_KEY=your-api-key
-SUPABASE_URL=your-supabase-url
-SUPABASE_KEY=your-supabase-key
+# 환경변수 (.env, 프로젝트 루트)
+ANTHROPIC_API_KEY=your-api-key   # 선택 — 없으면 자연어 입력만 비활성화
+SUPABASE_URL=your-supabase-url   # 선택 — 없으면 KDS DB fallback (로컬 매핑)
+SUPABASE_KEY=your-supabase-key   # 선택
+
+# PYTHONPATH 설정 — webapp/backend 와 mcp-server 둘 다 필요
+# (Render는 render.yaml 에서 동일하게 설정합니다)
+# Windows PowerShell:
+$env:PYTHONPATH = "$PWD;$PWD\mcp-server;$PWD\webapp\backend"
+# macOS/Linux:
+export PYTHONPATH="$PWD:$PWD/mcp-server:$PWD/webapp/backend"
 
 # 실행
+cd webapp/backend
 python -m uvicorn app.main_simple:app --host 0.0.0.0 --port 8001
 ```
 
 접속: http://localhost:8001 → V2 3D Editor 바로 표시 (V1 라우트는 모두 제거됨)
+
+### Running Tests
+
+```bash
+# CI와 동일 명령 (benchmark 제외, script-style 테스트는 conftest 에서 제외됨)
+pytest tests/ --ignore=tests/benchmark -q
+```
+
+`pytest tests/test_ifc_parser_v2.py` 는 ifcopenshell이 설치돼 있으면
+`tests/fixtures/minimal_v2_building.ifc` 픽스처를 자동 생성/재사용하여
+검증합니다. ifcopenshell이 없는 환경에서도 순수 함수 단위 테스트
+(`TestPureHelpers`, `TestModelJsonRoundtrip`)는 항상 실행됩니다.
 
 ### Docker
 
@@ -286,18 +308,73 @@ docker compose up --build
 
 ### Render 배포 (현재 운영)
 
-V2 전용 — `render.yaml` blueprint로 자동 배포 (Python 3.12, Singapore region, free plan).
+V2 전용 — `render.yaml` blueprint로 자동 배포 (Python 3.12.7, Singapore region, free plan).
 
 ```bash
-# main 브랜치에 push만 하면 Render가 자동 빌드/배포
-git push origin main
+# v2/node-element 브랜치에 push 하면 Render가 자동 빌드/배포
+git push origin v2/node-element
 ```
 
-대시보드에서 환경변수 설정 필요: `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`
+**Render 대시보드에서 설정해야 하는 환경변수:**
+
+| Key | 필수 | 설명 |
+|-----|------|------|
+| `PYTHONPATH` | 자동 | `render.yaml` 이 `/opt/render/project/src/webapp/backend:/opt/render/project/src/mcp-server` 로 설정 |
+| `MCP_SERVER_PATH` | 자동 | `render.yaml` 이 `/opt/render/project/src/mcp-server` 로 설정 |
+| `ANTHROPIC_API_KEY` | 선택 | 자연어 → BuildingIntent 변환에만 사용. 미설정 시 자연어 탭만 비활성화 |
+| `SUPABASE_URL` | 선택 | KDS 하중 DB 조회. 미설정 시 `data/mapping/occupancy.json` 로컬 fallback |
+| `SUPABASE_KEY` | 선택 | 위와 동일 |
 
 ### Azure Container Apps (대안, 더 큰 메모리 필요시)
 
 [DEPLOY.md](DEPLOY.md) 참조
+
+---
+
+## 6.1 Known Limitations
+
+### CI 검증 범위
+GitHub Actions (`.github/workflows/ci.yml`) 는 push/PR 마다 다음을 검증합니다:
+
+- `webapp/backend/requirements.txt` 가 Python 3.12.7 환경에서 설치 가능한지
+- 각 패키지가 실제 import 이름으로 로딩되는지 (예: `python-multipart` → `multipart`)
+- `core.ops_compat` 가 Linux에서 정상 동작하는지 (opensees 0.1.x 호환)
+- `pytest tests/` (benchmark 제외) 전체 통과
+- `app.main_simple:app` 임포트 + `uvicorn` 부팅 + `/health` 응답
+
+CI가 **검증하지 않는 부분**:
+- 실제 구조 해석 결과의 수치적 정확성 (Midas 비교는 수동, `tests/benchmark/` 참조)
+- 프론트엔드 동작 (Three.js, 편집 UI)
+- IFC 파서가 실제 Revit 출력물에서 작동하는지 (자체 생성한 미니멀 IFC만 검증)
+
+### IFC 파서 테스트 범위
+- `tests/fixtures/minimal_ifc.py` 가 4 기둥 + 2 보의 1층 IFC4 파일을
+  ifcopenshell.api 로 생성합니다.
+- 픽스처 IFC는 ifcopenshell.api 의 유닛 변환 버그로 노드 좌표가
+  부분적으로 mm 단위로 남아있어, **disconnect / snap 통합 테스트는 픽스처에서 검증하지 않습니다**.
+  대신 `TestPureHelpers` 가 m 단위 좌표로 같은 로직 경로를 직접 테스트합니다.
+- 실제 Revit IFC 호환성은 별도 수동 검증 필요.
+
+### Render free plan 한계
+- 메모리 512MB — `numpy + scipy + matplotlib + ifcopenshell + opensees + pandas`
+  가 모두 cold start에 로드되어 첫 요청에 ~25-30s 소요 가능.
+- 디스크는 컨테이너에 종속되며 sleep / redeploy 시 초기화됨.
+- 무료 플랜은 동시 요청 수가 제한되므로 큰 모델 해석 중에는 다른 요청이 대기열에 들어갈 수 있음.
+
+### Jobs 저장은 영속적이지 않음
+- 분석 결과 (`jobs_db` 메모리 + `webapp/backend/jobs/<job_id>/*.json`,
+  `report.html`) 는 모두 워커의 로컬 디스크에만 저장됩니다.
+- 서버 재시작 / Render sleep / 재배포 시 모든 job이 사라집니다.
+- API 응답 (`/api/jobs/{job_id}/report`, `/api/building/{job_id}`,
+  `/api/export/excel/{job_id}`) 가 404 를 반환하면 **해석을 다시 실행**해야 합니다.
+  404 응답 메시지에 동일한 안내가 포함되어 있습니다.
+- 외부 DB / S3 backing 은 후속 작업.
+
+### Partial Failure Surface (`warnings` field)
+`/api/v2/analyze`, `/api/v2/parse-ifc`, `/api/building/analyze` 응답에는
+`warnings: list[str]` 필드가 포함됩니다. Design check, RSA, HTML 리포트,
+IFC viewer 생성 등 보조 단계가 실패하더라도 핵심 응답은 success 로
+유지되며, 실패 원인이 이 배열에 기록됩니다.
 
 ---
 

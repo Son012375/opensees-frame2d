@@ -96,6 +96,9 @@ opensees-mcp-copy.md
 openseespy_commands_reference.md
 test_ollama_opensees.py
 test_opensees.py
-conftest.py
+# NOTE: conftest.py is required for pytest collection — keep tracked.
 kds_pipeline.py
+
+# Generated IFC test fixtures — rebuilt on demand by tests/fixtures/minimal_ifc.py.
+tests/fixtures/*.ifc
 # render.yaml, runtime.txt, .python-version → tracked (Render deploy config)

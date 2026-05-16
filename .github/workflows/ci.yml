@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - v2/node-element
+  pull_request:
+    branches:
+      - main
+      - v2/node-element
+
+# Cancel in-progress runs for the same branch when new commits land.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest-and-smoke:
+    name: pytest + FastAPI smoke (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12.7"]
+
+    env:
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/mcp-server:${{ github.workspace }}/webapp/backend
+      # The app reads .env at startup; CI never has it, which is fine
+      # (dotenv silently no-ops if the file is missing).
+      ANTHROPIC_API_KEY: ""
+      SUPABASE_URL: ""
+      SUPABASE_KEY: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: webapp/backend/requirements.txt
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install backend requirements
+        # Render uses the exact same file. If this step fails, the deploy
+        # would also fail — surface that early instead of at deploy time.
+        run: pip install -r webapp/backend/requirements.txt
+
+      - name: Install test runner
+        run: pip install pytest
+
+      - name: Sanity check — required imports
+        # Catches package-name / import-name mismatches in requirements.txt
+        # without waiting for the whole pytest suite to start.
+        run: |
+          python - <<'PY'
+          mods = [
+              "fastapi", "uvicorn", "multipart", "pydantic", "jinja2",
+              "opensees", "numpy", "plotly", "matplotlib",
+              "ifcopenshell", "anthropic", "supabase", "dateutil",
+              "dotenv", "scipy", "pandas", "openpyxl", "ezdxf",
+          ]
+          import importlib
+          missing = []
+          for m in mods:
+              try:
+                  importlib.import_module(m)
+              except Exception as e:
+                  missing.append(f"{m}: {e}")
+          if missing:
+              raise SystemExit("Missing imports:\n  " + "\n  ".join(missing))
+          print("All required imports OK")
+          PY
+
+      - name: Verify opensees compat layer
+        # opensees>=0.1 ships its own runtime; this guards against the
+        # legacy openseespy.opensees / Python 3.12 mismatch documented in
+        # mcp-server/core/ops_compat.py.
+        run: python -c "from core.ops_compat import ops; print('ops_compat OK')"
+
+      - name: Run pytest
+        run: pytest tests/ --ignore=tests/benchmark -q --tb=short
+
+      - name: FastAPI app import smoke test
+        run: |
+          python - <<'PY'
+          from app.main_simple import app
+          routes = [r.path for r in app.routes if hasattr(r, "path")]
+          assert any("/api/v2/analyze" in r for r in routes), routes
+          assert any("/api/v2/parse-ifc" in r for r in routes), routes
+          assert any("/health" in r for r in routes), routes
+          print(f"app.main_simple:app imported OK ({len(routes)} routes)")
+          PY
+
+      - name: Uvicorn startup smoke test
+        # Boot the server, hit /health, then tear down. If the app
+        # imports cleanly but crashes during ASGI startup (e.g. broken
+        # template / mount path) this catches it.
+        run: |
+          python -m uvicorn app.main_simple:app \
+              --host 127.0.0.1 --port 8765 --log-level warning &
+          SERVER_PID=$!
+          # Give uvicorn up to 30s to bind the port.
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/health > /tmp/health.json 2>/dev/null; then
+              echo "health OK: $(cat /tmp/health.json)"
+              kill $SERVER_PID || true
+              wait $SERVER_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "uvicorn never became ready"
+          kill $SERVER_PID || true
+          exit 1

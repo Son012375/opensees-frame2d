@@ -3,6 +3,7 @@ OpenSees Structural Analysis Platform
 Simplified FastAPI app - No Redis/Celery required
 Runs analysis synchronously (blocking)
 """
+import logging
 import sys
 import json
 import uuid
@@ -14,6 +15,16 @@ from datetime import datetime
 from dotenv import load_dotenv
 _project_root = Path(__file__).resolve().parents[3]  # app/main_simple.py -> opensees-MCP
 load_dotenv(_project_root / ".env")
+
+# Logger — replaces ad-hoc print()/traceback.print_exc() so warnings surface
+# in Render logs (and locally in `uvicorn` output) instead of being silently
+# swallowed.
+logger = logging.getLogger("opensees.app")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
 
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
@@ -56,8 +67,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
-# In-memory job storage
-jobs_db = {}
+# In-memory job storage.
+#
+# LIMITATION: jobs and on-disk artifacts under JOBS_DIR (report.html,
+# result.json, v2_viewers/*.html) live only on the worker that handled the
+# request. On Render free plan the disk is wiped on cold start / redeploy
+# and the worker sleeps after inactivity. There is no Redis / object
+# store backing this yet, so any old job_id will 404 after restart and
+# the user must re-run the analysis. See README §"Known limitations".
+jobs_db: dict[str, dict] = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -247,12 +265,14 @@ async def analyze_building_api(input_data: BuildingInput):
 
         # 4. Design check
         dc_result = None
+        warnings: list[str] = []
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result["reports"].get("seismic")
             dc_result = run_design_check(multi, model, seismic_rpt)
-        except Exception:
-            pass
+        except Exception as dc_err:
+            logger.warning("Building design check failed: %s", dc_err, exc_info=True)
+            warnings.append(f"design_check_failed: {dc_err}")
 
         # 5. Result interpretation
         interpretation = None
@@ -263,8 +283,12 @@ async def analyze_building_api(input_data: BuildingInput):
                     dc_result, multi,
                     modal_analysis=multi.modal_analysis or None,
                 )
-            except Exception:
-                pass
+            except Exception as interp_err:
+                logger.warning(
+                    "Building result interpretation failed: %s",
+                    interp_err, exc_info=True,
+                )
+                warnings.append(f"result_interpretation_failed: {interp_err}")
 
         jobs_db[job_id]["progress"] = 85
 
@@ -401,8 +425,8 @@ async def analyze_building_api(input_data: BuildingInput):
                     case_names.append("__RSA__")  # Marker for frontend
                     combo_names.extend(rsa_cases.keys())
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                logger.warning("Building RSA failed: %s", e, exc_info=True)
+                warnings.append(f"rsa_failed: {e}")
 
         # 8. Design check per-member results for coloring
         # Map design check member_id (1-based) to viewer structural member IDs
@@ -476,11 +500,14 @@ async def analyze_building_api(input_data: BuildingInput):
             report_url = f"/api/jobs/{job_id}/report"
             jobs_db[job_id]["report_url"] = report_url
         except Exception as report_err:
-            import traceback as tb
-            print(f"Report generation warning: {report_err}")
-            tb.print_exc()
+            logger.warning(
+                "Building HTML report failed (job %s): %s",
+                job_id, report_err, exc_info=True,
+            )
+            warnings.append(f"report_generation_failed: {report_err}")
 
         response["report_url"] = report_url
+        response["warnings"] = warnings
 
         # Store for re-analysis
         jobs_db[job_id]["config"] = input_data.config
@@ -491,19 +518,34 @@ async def analyze_building_api(input_data: BuildingInput):
 
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         jobs_db[job_id]["status"] = JobStatus.FAILED
         jobs_db[job_id]["error"] = str(e)
-        print(f"Building analysis error: {traceback.format_exc()}")
+        logger.exception("Building analysis failed (job_id=%s)", job_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 
 @app.get("/api/building/{job_id}")
 async def get_building_result(job_id: str):
-    """Get stored building analysis result"""
+    """Get stored building analysis result.
+
+    Jobs live in in-process memory only (see ``jobs_db``), so any job_id
+    issued before the most recent server restart will return 404. The
+    fix is to re-run the analysis — there is no persistent backing
+    store yet.
+    """
     if job_id not in jobs_db:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Job '{job_id}' not found. Jobs are stored in process memory "
+                "and are lost when the server restarts (e.g. Render sleep / "
+                "redeploy). Please re-run the analysis to get a fresh job_id."
+            ),
+        )
     response = jobs_db[job_id].get("response")
     if not response:
         raise HTTPException(status_code=400, detail="No results available")
@@ -538,8 +580,9 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
 
         model, validation = parse_ifc_v2(tmp_path)
 
-        # HTML 뷰어 생성
+        # HTML 뷰어 생성 — 실패는 응답에 warning으로 노출 (success는 유지)
         viewer_path = None
+        warnings: list[str] = []
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             viewer_dir = JOBS_DIR / "v2_viewers"
@@ -549,8 +592,12 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
                 output_path=str(viewer_dir / f"model_{ts}.html"),
                 title=f"IFC Model: {file.filename}",
             )
-        except Exception:
-            pass
+        except Exception as viewer_err:
+            logger.warning(
+                "IFC viewer generation failed for %s: %s",
+                file.filename, viewer_err, exc_info=True,
+            )
+            warnings.append(f"viewer_generation_failed: {viewer_err}")
 
         result = {
             "success": validation.is_valid,
@@ -573,6 +620,7 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
                 ],
             },
             "summary": model.summary(),
+            "warnings": warnings,
         }
         if viewer_path:
             result["viewer_url"] = f"/api/v2/viewer/{Path(viewer_path).name}"
@@ -581,13 +629,16 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
 
     except ImportError:
         raise HTTPException(status_code=500, detail="ifcopenshell 패키지가 필요합니다.")
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("IFC V2 parse failed for %s", file.filename)
         raise HTTPException(status_code=500, detail=f"IFC V2 파싱 오류: {str(e)}")
     finally:
         try:
             os.unlink(tmp_path)
-        except Exception:
-            pass
+        except OSError as cleanup_err:
+            logger.warning("Failed to cleanup IFC temp file %s: %s", tmp_path, cleanup_err)
 
 
 @app.post("/api/v2/snap-joints")
@@ -640,24 +691,29 @@ async def analyze_v2_api(request: Request):
 
     model = StructuralModel.from_json(model_json)
 
+    warnings: list[str] = []  # 부분 실패 정보 (success 응답에 포함)
+
     # 요소 분류 확인 + 자동 분류
     from core.structural_model import ElementType as _ET
     type_set = set(e.elem_type for e in model.elements.values())
-    print(f"[V2] Element types before classify: {[t.value for t in type_set]}")
+    logger.info("[V2] Element types before classify: %s", [t.value for t in type_set])
     if len(type_set) == 1 and len(model.elements) > 3:
         model.classify_elements()
         type_set2 = set(e.elem_type for e in model.elements.values())
-        print(f"[V2] Auto-classified: {[t.value for t in type_set2]}")
+        logger.info("[V2] Auto-classified: %s", [t.value for t in type_set2])
 
     # A-1: 근접 노드 병합 (보-기둥 접합 보장)
     merged = model.merge_nearby_nodes()  # 적응형: 단면 높이 기반 자동 계산
     if merged > 0:
-        print(f"[V2] Merged {merged} nearby nodes")
+        logger.info("[V2] Merged %d nearby nodes", merged)
 
     # 보-보 교차점 자동 분할
     intersections = model.split_at_intersections()
     if intersections > 0:
-        print(f"[V2] Created {intersections} intersection nodes, model: {len(model.nodes)} nodes, {len(model.elements)} elems")
+        logger.info(
+            "[V2] Created %d intersection nodes, model: %d nodes, %d elems",
+            intersections, len(model.nodes), len(model.elements),
+        )
 
     # 사용자 config 반영
     for key in ["region", "site_class", "importance", "seismic_system", "exposure_category", "geometric_nonlinearity"]:
@@ -705,16 +761,18 @@ async def analyze_v2_api(request: Request):
             from core.design_check import run_design_check
             seismic_rpt = load_result.get("reports", {}).get("seismic")
             dc_result = run_design_check(multi, building_model, seismic_rpt)
-        except Exception as e:
-            print(f"Design check: {e}")
+        except Exception as dc_err:
+            logger.warning("V2 design check failed: %s", dc_err, exc_info=True)
+            warnings.append(f"design_check_failed: {dc_err}")
 
         try:
             from core.result_interpreter import interpret_results
             if dc_result:
                 interpretation = interpret_results(dc_result, multi,
                     modal_analysis=getattr(multi, 'modal_analysis', None) or None)
-        except Exception:
-            pass
+        except Exception as interp_err:
+            logger.warning("V2 result interpretation failed: %s", interp_err, exc_info=True)
+            warnings.append(f"result_interpretation_failed: {interp_err}")
 
         # ── Step 4: HTML 리포트 ──
         report_path = str(job_dir / "report.html")
@@ -723,15 +781,25 @@ async def analyze_v2_api(request: Request):
             plot_frame_3d_interactive(multi, output_path=report_path,
                                       design_check=dc_result, interpretation=interpretation)
         except Exception as viz_err:
-            print(f"V1 report failed ({viz_err}), trying V2 viewer")
+            logger.warning(
+                "V2: primary HTML report failed (%s); falling back to V2 viewer.",
+                viz_err, exc_info=True,
+            )
+            warnings.append(f"report_primary_failed: {viz_err}")
             try:
                 from core.visualization_v2 import generate_model_viewer
                 generate_model_viewer(model, result=multi, output_path=report_path,
                                       title="V2 Analysis Results")
-            except Exception:
-                pass
+            except Exception as fallback_err:
+                logger.error(
+                    "V2: fallback viewer also failed: %s",
+                    fallback_err, exc_info=True,
+                )
+                warnings.append(f"report_fallback_failed: {fallback_err}")
 
         report_url = f"/api/jobs/{job_id}/report" if Path(report_path).exists() else None
+        if report_url is None:
+            warnings.append("report_unavailable: HTML report could not be generated")
 
         # ── Step 5: 응답 ──
         env = {"max_dx_mm": 0, "max_dy_mm": 0, "max_dz_mm": 0,
@@ -803,9 +871,8 @@ async def analyze_v2_api(request: Request):
                     case_data.update(rsa_cases)
                     extra_combo_names = list(rsa_cases.keys())
             except Exception as rsa_err:
-                print(f"V2 RSA error: {rsa_err}")
-                import traceback
-                traceback.print_exc()
+                logger.warning("V2 RSA failed: %s", rsa_err, exc_info=True)
+                warnings.append(f"rsa_failed: {rsa_err}")
 
         member_checks = {}
         if dc_result and "member_check" in dc_result:
@@ -836,6 +903,9 @@ async def analyze_v2_api(request: Request):
             "rsa": rsa_result,
             "seismic_method": seismic_method,
             "report_url": report_url,
+            # Partial-failure surface — frontend can show these without
+            # the whole call appearing to have failed.
+            "warnings": warnings,
         }
 
         # Job DB 저장
@@ -872,12 +942,18 @@ async def analyze_v2_api(request: Request):
             with open(job_dir / "result.json", "w", encoding="utf-8") as f:
                 json.dump(export_payload, f, ensure_ascii=False, default=str)
         except Exception as save_err:
-            print(f"Result save failed: {save_err}")
+            logger.warning(
+                "V2: failed to persist result.json for job %s: %s",
+                job_id, save_err, exc_info=True,
+            )
+            warnings.append(f"export_save_failed: {save_err}")
 
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("V2 analyze failed (job_id=%s)", job_id)
         raise HTTPException(status_code=500, detail=f"V2 해석 오류: {str(e)}")
 
 
@@ -886,8 +962,36 @@ async def serve_v2_viewer(filename: str):
     """V2 HTML 뷰어/리포트 서빙"""
     viewer_path = JOBS_DIR / "v2_viewers" / filename
     if not viewer_path.exists():
-        raise HTTPException(status_code=404, detail="Report not found")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Viewer not found. Reports are written to local disk and are "
+                "lost on Render redeploy / sleep. Please re-run the IFC parse."
+            ),
+        )
     return FileResponse(str(viewer_path), media_type="text/html")
+
+
+@app.get("/api/jobs/{job_id}/report")
+async def serve_job_report(job_id: str):
+    """Serve the HTML report written by ``/api/v2/analyze`` (or the legacy
+    ``/api/building/analyze``) into ``JOBS_DIR/{job_id}/report.html``.
+
+    Jobs are stored on local disk only; on Render free plan the disk is
+    wiped on each cold start / redeploy. A 404 here means the user needs
+    to re-run the analysis with their current model.
+    """
+    report_path = JOBS_DIR / job_id / "report.html"
+    if not report_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Report for job '{job_id}' not found. Job artifacts live on "
+                "the worker's local disk and are lost on server restart "
+                "(Render sleep / redeploy). Re-run the analysis to regenerate."
+            ),
+        )
+    return FileResponse(str(report_path), media_type="text/html")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1033,7 +1137,14 @@ async def export_excel(job_id: str):
     """해석 결과를 Excel 다중 시트(.xlsx)로 다운로드. Wide Pivot 구조."""
     result_path = JOBS_DIR / job_id / "result.json"
     if not result_path.exists():
-        raise HTTPException(status_code=404, detail="해석 결과를 찾을 수 없습니다. 해석을 다시 실행해주세요.")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "해석 결과를 찾을 수 없습니다. 결과 파일은 서버 로컬 디스크에만 "
+                "저장되며 Render 슬립/재배포 시 사라집니다. 해석을 다시 실행해 "
+                "주세요."
+            ),
+        )
 
     try:
         import pandas as pd
@@ -1835,7 +1946,7 @@ async def export_dxf(request: Request):
         from ezdxf import zoom
         zoom.extents(msp, factor=1.1)
     except Exception as ex:
-        print(f"Warning: zoom.extents failed: {ex}")
+        logger.warning("DXF zoom.extents failed: %s", ex)
 
     # ── 파일 출력 (ezdxf는 파일 경로 필요) ──
     import tempfile, os
