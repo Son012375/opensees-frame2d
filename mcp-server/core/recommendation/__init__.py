@@ -15,7 +15,8 @@ Public surface:
         MemberForceSummary, MemberDesignCheck,
         StructuralIssue, IssueExtractionResult, extract_issues,
         RetrofitCandidate, generate_candidates,
-        CodeReference,
+        CodeReference, build_recommendation_payload,
+        MODE_ANALYZE, MODE_PARSE_ONLY,
     )
 """
 from __future__ import annotations
@@ -34,11 +35,16 @@ from .schemas import (
     IssueSource,
     IssueType,
     ActionType,
+    ChangeOperation,
     Confidence,
 )
+from .ids import make_issue_id, make_candidate_id, slugify
+from .context import MemberContext, MemberContextIndex, build_context_index
 from .issue_extractor import extract_issues
-from .candidate_generator import generate_candidates
+from .candidate_generator import generate_candidates, _should_block_auto_candidate
 from .pipeline import (
+    MODE_ANALYZE,
+    MODE_PARSE_ONLY,
     build_recommendation_payload,
     normalize_warnings,
     warnings_to_payload,
@@ -61,10 +67,20 @@ __all__ = [
     "IssueSource",
     "IssueType",
     "ActionType",
+    "ChangeOperation",
     "Confidence",
+    "MemberContext",
+    "MemberContextIndex",
+    "build_context_index",
+    "make_issue_id",
+    "make_candidate_id",
+    "slugify",
     "extract_issues",
     "generate_candidates",
+    "_should_block_auto_candidate",
     "build_recommendation_payload",
+    "MODE_ANALYZE",
+    "MODE_PARSE_ONLY",
     "normalize_warnings",
     "warnings_to_payload",
     "envelope_from_dict",

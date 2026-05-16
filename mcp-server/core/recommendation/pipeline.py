@@ -163,12 +163,20 @@ def member_checks_from_design_check(
 # Main entry point used by the API
 # ---------------------------------------------------------------------------
 
+# Mode constants — pre-analysis stages (IFC parse, etc.) should not surface
+# missing_design_check as an issue because it's not really missing yet.
+MODE_ANALYZE = "analyze"
+MODE_PARSE_ONLY = "parse_only"
+
+
 def build_recommendation_payload(
     *,
     design_check: Optional[dict] = None,
     raw_warnings: Optional[Iterable[Any]] = None,
     analysis_metadata: Optional[dict] = None,
     stage: str = "analysis",
+    mode: str = MODE_ANALYZE,
+    include_missing_design_check: Optional[bool] = None,
 ) -> dict[str, Any]:
     """Build the additive recommendation block for the API response.
 
@@ -180,7 +188,43 @@ def build_recommendation_payload(
         issues                : list[StructuralIssue.to_dict()]
         recommendation_candidates : list[RetrofitCandidate.to_dict()]
         recommendation_summary    : dict
+
+    Parameters
+    ----------
+    design_check : dict | None
+        ``run_design_check`` output. May be ``None`` if the design check
+        failed or was skipped.
+    raw_warnings : iterable | None
+        Legacy strings, dicts, or :class:`AnalysisWarning` instances.
+    analysis_metadata : dict | None
+        Model/analysis context used to enrich issues with member section,
+        story, connected nodes, etc. Tolerant of missing fields. Common
+        shapes:
+
+            {
+              "member_info": [{member_id, type, section, ni, nj, …}, …],
+              "updated_model": {"nodes": {...}, "elements": {...}},
+              "envelope": {...},
+              "case_data": {...},
+              "combo_names": [...],
+              "load_summary": {...},
+              "seismic_method": "ELF" | "RSA",
+              "material_name": "SS275",
+              "building": {...},
+            }
+    stage : str
+        Free-form tag carried on emitted warnings (e.g. ``"v2_analyze"``).
+    mode : str
+        ``"analyze"`` (default) or ``"parse_only"``. The latter suppresses
+        ``missing_design_check`` issues because pre-analysis stages have
+        no design_check to begin with.
+    include_missing_design_check : bool | None
+        Explicit override for the parse-only behaviour. ``None`` (default)
+        derives the flag from ``mode``.
     """
+    if include_missing_design_check is None:
+        include_missing_design_check = (mode != MODE_PARSE_ONLY)
+
     normalized = normalize_warnings(raw_warnings, stage=stage)
 
     # Extractor may emit additional warnings — collect them into the same list.
@@ -190,6 +234,7 @@ def build_recommendation_payload(
         warnings=normalized,
         analysis_metadata=analysis_metadata,
         out_warnings=extra_warnings,
+        include_missing_design_check=include_missing_design_check,
     )
     normalized.extend(extra_warnings)
 
@@ -205,6 +250,7 @@ def build_recommendation_payload(
         "num_candidates": len(candidates),
         "rag_enabled": False,
         "llm_enabled": False,
+        "mode": mode,
         "note": (
             "Deterministic placeholder pipeline. Candidates are NOT a "
             "final design — re-analysis and engineer review required."

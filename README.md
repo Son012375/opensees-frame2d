@@ -185,15 +185,16 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 LLM은 추후 **설명/근거/선택지 정리** 에만 붙고, **계산/판정은 deterministic layer가 담당**합니다.
 
 ```
-analysis result + design_check + warnings
-   ↓
+analysis result + design_check + warnings + analysis_metadata
+   ↓                                          (member_info, updated_model, …)
 extract_issues()         (deterministic — 이번 단계)
    ↓
-StructuralIssue[]
+StructuralIssue[]        ← top-level location/context 필드 포함
    ↓
 generate_candidates()    (placeholder — 이번 단계)
    ↓
-RetrofitCandidate[]   ← 향후 KDS-RAG 가 CodeReference 채움
+RetrofitCandidate[]      ← target + proposed_change (재해석 루프 계약)
+                         ← 향후 KDS-RAG 가 CodeReference 채움
 ```
 
 ### 3.X.2 응답 추가 필드 (additive)
@@ -206,8 +207,8 @@ RetrofitCandidate[]   ← 향후 KDS-RAG 가 CodeReference 채움
 | `warnings` | `list[AnalysisWarning]` | 구조화된 경고 객체 (code/severity/stage/recoverable/detail) |
 | `warning_messages` | `list[str]` | 기존 프론트 호환용 문자열 미러 (`"code: msg"`) |
 | `issues` | `list[StructuralIssue]` | deterministic 이슈 목록 (strength_exceeded / drift_exceeded / missing_design_check / analysis_warning / shear_exceeded) |
-| `recommendation_candidates` | `list[RetrofitCandidate]` | 수정 후보 placeholder. `requires_reanalysis: true` 가 데이터 모델에 인코딩됨 |
-| `recommendation_summary` | `dict` | 카운트 + `rag_enabled: false` / `llm_enabled: false` 명시 |
+| `recommendation_candidates` | `list[RetrofitCandidate]` | 수정 후보 placeholder. `requires_reanalysis: true` + `proposed_change` 가 데이터 모델에 인코딩됨 |
+| `recommendation_summary` | `dict` | 카운트 + `rag_enabled: false` / `llm_enabled: false` / `mode` 명시 |
 
 ### 3.X.3 핵심 데이터 모델
 
@@ -220,46 +221,136 @@ RetrofitCandidate[]   ← 향후 KDS-RAG 가 CodeReference 채움
 | `MemberForceSummary` | 부재별 envelope 부재력 (Pu/Mux/Muy/Vu + governing_combo) |
 | `MemberDesignCheck` | 부재별 설계검토 (interaction/shear ratio, status, code_refs, raw 원본) |
 | `AnalysisWarning` | 구조화된 경고 — `list[str]` 대체 |
-| `StructuralIssue` | 이슈 단위. issue_type / severity / evidence / code_refs |
-| `RetrofitCandidate` | 수정 후보 placeholder. `requires_reanalysis: true` 기본값 |
-| `CodeReference` | KDS-RAG 가 채울 자리 (현재 standard_id/clause_id 만 채움, quote/relevance_reason 은 `None` placeholder) |
+| `StructuralIssue` | 이슈 단위. **top-level location 필드** (member_type / section / material / story / level / connected_node_ids / grid_location / coordinates) + evidence + code_refs |
+| `RetrofitCandidate` | 수정 후보. `target` + `proposed_change` + `requires_reanalysis: true` 기본값 |
+| `CodeReference` | KDS-RAG 가 채울 자리. 현재 deterministic 레이어가 **검색 힌트** (query_hint / topic / material / limit_state / jurisdiction) 만 채움. quote / relevance_reason / source_url 은 RAG가 채울 자리로 비워둠 |
 
-### 3.X.4 결정론(deterministic) 규칙
+### 3.X.4 analysis_metadata 가 이슈를 보강한다
 
-`generate_candidates()` 의 placeholder 매핑:
+`/api/v2/analyze` 는 다음을 `analysis_metadata` 로 추천 파이프라인에 전달합니다.
+issue extractor 는 이 정보로 `StructuralIssue.member_type` / `section` / `material` /
+`connected_node_ids` / `coordinates` 를 채워서, **downstream RAG/LLM 이 부재를
+재해석할 필요가 없게** 합니다.
 
-| 이슈 유형 | action_type |
-|-----------|-------------|
-| `strength_exceeded`, `shear_exceeded` (interaction > 1.0) | `increase_section` |
-| `drift_exceeded` | `add_lateral_resistance` |
-| `missing_design_check` | `requires_engineer_review` |
-| `analysis_warning` (severity=error) | `requires_engineer_review` |
-| 정보 부족 / 미분류 | `requires_engineer_review` |
+| metadata 키 | 사용처 |
+|-------------|--------|
+| `member_info` | 부재별 section/type/엔드포인트 노드 (가장 우선) |
+| `updated_model` | V2 StructuralModel JSON (요소/노드 좌표) |
+| `material_name` | 기본 재료 (부재 row 에 없으면 fallback) |
+| `building` / `envelope` / `combo_names` / `load_summary` / `seismic_method` | 향후 RAG 검색 컨텍스트 (현재는 패스스루) |
 
-후보는 모두 `requires_reanalysis: true`, `confidence: low|medium` 이며,
-`code_refs` 는 현재 빈 배열입니다. (향후 KDS-RAG 가 채움)
+### 3.X.5 proposed_change — 재해석 루프 계약
 
-### 3.X.5 명시적 비범위 (NOT in scope)
+각 candidate 는 단순 설명을 넘어 **machine-readable change contract** 를 가집니다.
+**자동 적용용이 아니라**, 향후 재해석 루프가 디스패치할 수 있게 키만 약속한 것입니다.
+
+```json
+{
+  "candidate_id": "cand_iss_strength_exceeded_m7_1_2dl_1_0ll_increase_section",
+  "issue_id": "iss_strength_exceeded_m7_1_2dl_1_0ll",
+  "action_type": "increase_section",
+  "target": {
+    "member_id": 7,
+    "element_id": null,
+    "member_type": "column"
+  },
+  "proposed_change": {
+    "operation": "replace_section",
+    "from": "H-300x300",
+    "to": null,
+    "requires_user_selection": true,
+    "reason": "strength_exceeded"
+  },
+  "requires_reanalysis": true,
+  "confidence": "medium",
+  "code_refs": []
+}
+```
+
+`proposed_change.to` 는 자동 최적화 / KDS-RAG 가 붙기 전까지 `null` 입니다.
+`requires_user_selection: true` 가 그 의미를 데이터로 명시합니다.
+
+### 3.X.6 결정론(deterministic) 규칙
+
+| 이슈 유형 | action_type | proposed_change.operation |
+|-----------|-------------|---------------------------|
+| `strength_exceeded` (interaction > 1.0) | `increase_section` | `replace_section` |
+| `shear_exceeded` (shear > 1.0) | `increase_section` | `replace_section` |
+| `drift_exceeded` | `add_lateral_resistance` | `add_lateral_resistance` |
+| `missing_design_check` | `requires_engineer_review` | `manual_review` |
+| `analysis_warning` (severity=error) | `requires_engineer_review` | `manual_review` |
+| `analysis_warning` (severity=warning/info) | _no candidate_ | — |
+| 정보 부족 (member_type/section 없음, drift story 없음 …) | `requires_engineer_review` | `manual_review` |
+
+자동 후보 생성을 거부하는 사유는 `_should_block_auto_candidate()` 에 모여 있고,
+사유 문자열이 candidate 의 `metadata.reason` 으로 흘러갑니다.
+
+### 3.X.7 Deterministic IDs
+
+같은 해석 결과는 항상 같은 `issue_id` / `candidate_id` 를 만들어야 사용자가
+후보를 선택하고 재해석을 반복할 수 있습니다.
+
+```
+iss_strength_exceeded_m7_1_2dl_1_0ll
+cand_iss_strength_exceeded_m7_1_2dl_1_0ll_increase_section
+
+iss_drift_exceeded_s3_x_1_0dl_1_0ll_1_0eqx
+cand_iss_drift_exceeded_s3_x_1_0dl_1_0ll_1_0eqx_add_lateral_resistance
+```
+
+- `issue_id` 는 (issue_type, member_id 또는 story+direction, governing_combo) 의
+  슬러그(`[a-z0-9_-]+`)로 만듭니다. 식별 정보가 전혀 없는 예외 케이스만 UUID 폴백.
+- `candidate_id` 는 `issue_id` + `action_type` 결합.
+
+### 3.X.8 parse-ifc 단계는 추천 이슈를 만들지 않는다
+
+`/api/v2/parse-ifc` 는 해석 전 단계이므로 `mode="parse_only"` 로 호출됩니다.
+
+- `missing_design_check` 이슈가 **생성되지 않습니다.**
+- `recommendation_candidates` 는 비어 있습니다.
+- 구조화된 `warnings` / `warning_messages` 는 그대로 유지됩니다.
+
+`/api/v2/analyze` 와 `/api/building/analyze` 는 `mode="analyze"` 로 호출되어
+기존 동작을 유지합니다.
+
+### 3.X.9 CodeReference 의 RAG 검색 힌트
+
+deterministic 레이어가 현재 채우는 필드 (RAG는 아직 사용하지 않음):
+
+| 필드 | 예시 |
+|------|------|
+| `query_hint` | `"KDS 41 31 00 강구조 조합응력 AISC 360 H1 interaction"` |
+| `topic` | `"steel_member_strength"` / `"steel_member_shear"` / `"seismic_story_drift"` |
+| `material` | `"steel"` (해당되는 경우) |
+| `limit_state` | `"combined_force_interaction"` / `"shear_strength"` / `"story_drift"` |
+| `jurisdiction` | `"KDS"` |
+
+향후 KDS-RAG 는 이 힌트로 벡터DB 를 조회하여 `quote` / `relevance_reason` /
+`source_url` 을 채울 예정입니다.
+
+### 3.X.10 명시적 비범위 (NOT in scope)
 
 - ❌ RAG 검색 / 벡터DB
 - ❌ LLM 호출 / 프롬프트
-- ❌ 실제 단면 최적화 / 자동 설계 확정
+- ❌ 실제 단면 최적화 / 자동 설계 확정 (`proposed_change.to` 채우기)
 - ❌ 프론트엔드 UI 대규모 변경
 - ❌ Midas Gen / NX 비교 수치 검증 (별도 축)
 - ❌ Render 배포 최적화 (임시 인프라)
 
-### 3.X.6 구현 위치
+### 3.X.11 구현 위치
 
 ```
 mcp-server/core/recommendation/
 ├── __init__.py
-├── schemas.py              # dataclass 정의
+├── schemas.py              # dataclass 정의 (+ CodeReference RAG hints, proposed_change)
+├── ids.py                  # deterministic make_issue_id / make_candidate_id / slugify
+├── context.py              # analysis_metadata → MemberContextIndex
 ├── issue_extractor.py      # extract_issues()
-├── candidate_generator.py  # generate_candidates()
-└── pipeline.py             # build_recommendation_payload() — API 통합용
+├── candidate_generator.py  # generate_candidates() + _should_block_auto_candidate
+└── pipeline.py             # build_recommendation_payload(mode=analyze|parse_only)
 ```
 
-테스트: `tests/test_recommendation.py` (26 tests).
+테스트: `tests/test_recommendation.py` (46 tests).
 
 ---
 
@@ -289,9 +380,11 @@ opensees-MCP/
 │       ├── result_interpreter.py      # 심각도/진단/제안 해석
 │       ├── recommendation/             # 추천 시스템 토대 (deterministic only)
 │       │   ├── schemas.py              # AnalysisWarning / StructuralIssue / RetrofitCandidate / CodeReference …
-│       │   ├── issue_extractor.py      # 해석/설계검토 → StructuralIssue[]
-│       │   ├── candidate_generator.py  # placeholder 후보 생성
-│       │   └── pipeline.py             # build_recommendation_payload() (API 통합)
+│       │   ├── ids.py                  # deterministic issue/candidate ID (slugify)
+│       │   ├── context.py              # analysis_metadata → 부재 컨텍스트 인덱스
+│       │   ├── issue_extractor.py      # 해석/설계검토 → StructuralIssue[] (location 보강)
+│       │   ├── candidate_generator.py  # placeholder 후보 + proposed_change + no-auto-candidate 규칙
+│       │   └── pipeline.py             # build_recommendation_payload(mode=analyze|parse_only)
 │       └── ...                        # 기타 모듈
 │
 ├── webapp/                            # 웹 애플리케이션 (V2 only)

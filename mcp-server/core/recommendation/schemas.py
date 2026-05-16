@@ -53,6 +53,19 @@ class ActionType:
     REQUIRES_ENGINEER_REVIEW = "requires_engineer_review"
 
 
+class ChangeOperation:
+    """``proposed_change.operation`` values.
+
+    Stable string keys so future re-analysis loops can dispatch on them.
+    """
+    REPLACE_SECTION = "replace_section"
+    CHANGE_MATERIAL = "change_material"
+    ADD_LATERAL_RESISTANCE = "add_lateral_resistance"
+    ADD_MEMBER = "add_member"
+    CHANGE_SUPPORT = "change_support"
+    MANUAL_REVIEW = "manual_review"
+
+
 class Confidence:
     LOW = "low"
     MEDIUM = "medium"
@@ -190,8 +203,13 @@ class CodeReference:
     """Pointer to a clause in a design code.
 
     Populated by the future KDS-RAG layer. The deterministic layer creates
-    *empty* or hand-coded references only; ``quote`` / ``relevance_reason``
-    stay ``None`` until RAG runs.
+    *partial* references with search hints (``query_hint``, ``topic``,
+    ``material``, ``limit_state``) so RAG can match against them; the
+    layer never fills in ``quote`` / ``relevance_reason`` / ``source_url``.
+
+    Search-hint fields (``query_hint``..``confidence``) are *not* part of
+    the citation itself — they exist so the deterministic layer can hand
+    RAG enough context to retrieve the correct clause.
     """
     standard_id: str                         # e.g. "KDS 41 31 00"
     version: Optional[str] = None
@@ -200,6 +218,14 @@ class CodeReference:
     source_url: Optional[str] = None
     quote: Optional[str] = None              # TODO(rag): filled by RAG
     relevance_reason: Optional[str] = None   # TODO(rag): filled by RAG
+
+    # ─── RAG search hints (deterministic layer can populate these) ────────
+    query_hint: Optional[str] = None         # free-text query for KDS-RAG
+    topic: Optional[str] = None              # e.g. "steel_member_strength"
+    material: Optional[str] = None           # e.g. "steel" / "rc"
+    limit_state: Optional[str] = None        # e.g. "shear_strength"
+    jurisdiction: Optional[str] = None       # e.g. "KR" / "KDS"
+    confidence: Optional[str] = None         # low/medium/high — RAG match confidence
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -211,7 +237,13 @@ class CodeReference:
 
 @dataclass
 class StructuralIssue:
-    """A single design issue that the recommendation engine should react to."""
+    """A single design issue that the recommendation engine should react to.
+
+    The location / context fields (``member_type``..``coordinates``) are
+    populated opportunistically from design_check + analysis_metadata so
+    that downstream RAG/LLM layers do NOT need to re-resolve the member
+    against the model graph.
+    """
     issue_id: str
     issue_type: str                          # see IssueType.*
     severity: str                            # see Severity.*
@@ -222,6 +254,17 @@ class StructuralIssue:
     governing_combo: Optional[str] = None
     demand_capacity_ratio: Optional[float] = None
     status: Optional[str] = None             # OK / NG / UNKNOWN
+
+    # ─── Member / location context (top-level for RAG/LLM convenience) ────
+    member_type: Optional[str] = None        # column / beam_x / beam_y / ...
+    section: Optional[str] = None
+    material: Optional[str] = None
+    story: Optional[int] = None
+    level: Optional[float] = None            # elevation (m)
+    connected_node_ids: list[int] = field(default_factory=list)
+    grid_location: Optional[str] = None      # e.g. "A-3" / "B-2"
+    coordinates: Optional[dict[str, Any]] = None  # {"x": .., "y": .., "z": ..}
+
     evidence: dict[str, Any] = field(default_factory=dict)
     code_refs: list[CodeReference] = field(default_factory=list)
 
@@ -229,6 +272,11 @@ class StructuralIssue:
         d = asdict(self)
         d["code_refs"] = [c.to_dict() if hasattr(c, "to_dict") else c
                           for c in self.code_refs]
+        # Drop None for the location/context block so JSON stays tidy
+        for k in ("member_type", "section", "material", "story", "level",
+                  "grid_location", "coordinates"):
+            if d.get(k) is None:
+                d.pop(k, None)
         return d
 
 
@@ -258,6 +306,12 @@ class RetrofitCandidate:
         * ``confidence`` is low/medium/high; the deterministic layer
           emits low/medium only. High is reserved for RAG-validated picks.
         * ``code_refs`` is empty for now; RAG will fill it.
+        * ``target`` identifies what the change applies to (member-level
+          for now; could be a story or a system later).
+        * ``proposed_change`` is the *machine-readable* contract a future
+          re-analysis loop reads. For the placeholder layer most fields
+          are ``null`` — only ``operation`` / ``from`` /
+          ``requires_user_selection`` are reliably filled.
     """
     candidate_id: str
     issue_id: str
@@ -270,6 +324,11 @@ class RetrofitCandidate:
     requires_reanalysis: bool = True
     confidence: str = Confidence.LOW
     code_refs: list[CodeReference] = field(default_factory=list)
+
+    # ─── Machine-readable change contract ─────────────────────────────────
+    target: dict[str, Any] = field(default_factory=dict)
+    proposed_change: dict[str, Any] = field(default_factory=dict)
+
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

@@ -42,7 +42,9 @@ def _build_recommendation_block(
     *,
     design_check: Optional[dict] = None,
     raw_warnings: Optional[List[Any]] = None,
+    analysis_metadata: Optional[Dict[str, Any]] = None,
     stage: str = "analysis",
+    mode: str = "analyze",
 ) -> Dict[str, Any]:
     """Thin wrapper around ``core.recommendation.build_recommendation_payload``.
 
@@ -50,6 +52,11 @@ def _build_recommendation_block(
     endpoints without each one re-importing / re-handling errors. On any
     failure we degrade gracefully — analysis itself has already succeeded
     by the time we get here.
+
+    ``analysis_metadata`` is forwarded as-is to the recommendation layer
+    where it enriches issues with member/section/story/coords context.
+    ``mode="parse_only"`` suppresses ``missing_design_check`` issues for
+    pre-analysis stages (e.g. /api/v2/parse-ifc).
     """
     if str(MCP_SERVER_PATH) not in sys.path:
         sys.path.insert(0, str(MCP_SERVER_PATH))
@@ -58,7 +65,9 @@ def _build_recommendation_block(
         return build_recommendation_payload(
             design_check=design_check,
             raw_warnings=raw_warnings,
+            analysis_metadata=analysis_metadata,
             stage=stage,
+            mode=mode,
         )
     except Exception as rec_err:  # noqa: BLE001 — defensive: analysis was OK
         logger.warning("Recommendation pipeline failed (%s): %s", stage, rec_err, exc_info=True)
@@ -80,6 +89,7 @@ def _build_recommendation_block(
                 "num_candidates": 0,
                 "rag_enabled": False,
                 "llm_enabled": False,
+                "mode": mode,
             },
         }
 
@@ -558,10 +568,20 @@ async def analyze_building_api(input_data: BuildingInput):
         response["report_url"] = report_url
 
         # Recommendation pipeline foundation (deterministic, no RAG/LLM).
+        rec_metadata = {
+            "member_info": multi.member_info,
+            "building": model.summary() if hasattr(model, "summary") else None,
+            "envelope": env,
+            "combo_names": combo_names,
+            "seismic_method": seismic_method,
+            "material_name": getattr(multi, "material_name", None),
+        }
         rec_payload = _build_recommendation_block(
             design_check=dc_result,
             raw_warnings=warnings,
+            analysis_metadata=rec_metadata,
             stage="building_analyze",
+            mode="analyze",
         )
         response["warnings"] = rec_payload["warnings"]
         response["warning_messages"] = rec_payload["warning_messages"]
@@ -660,11 +680,14 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
             warnings.append(f"viewer_generation_failed: {viewer_err}")
 
         # Structured warnings via the recommendation pipeline helper.
-        # No design_check yet at parse stage — recommendation/issues stay empty.
+        # parse-ifc is a pre-analysis stage so we run in parse_only mode:
+        # missing_design_check is NOT raised, and no recommendation
+        # candidates are generated yet.
         rec_payload = _build_recommendation_block(
             design_check=None,
             raw_warnings=warnings,
             stage="parse_ifc",
+            mode="parse_only",
         )
 
         result = {
@@ -954,10 +977,29 @@ async def analyze_v2_api(request: Request):
         # Recommendation pipeline foundation — deterministic layer only.
         # Adds `issues`, `recommendation_candidates`, and a structured
         # warning object alongside the legacy string list. NO RAG/LLM.
+        #
+        # The analysis_metadata payload lets the issue extractor enrich
+        # issues with member section/story/connected-nodes context.
+        # Whole model + member_forces are intentionally NOT included —
+        # they'd inflate the recommendation surface; member_info +
+        # updated_model is enough for location resolution.
+        rec_metadata = {
+            "member_info": multi.member_info,
+            "updated_model": model.to_json(),
+            "building": model.summary(),
+            "envelope": env,
+            "combo_names": list(multi.combo_results.keys()) + extra_combo_names,
+            "load_summary": load_result.get("summary", {}),
+            "seismic_method": seismic_method,
+            "material_name": getattr(multi, "material_name", None)
+                            or getattr(model, "material_name", None),
+        }
         rec_payload = _build_recommendation_block(
             design_check=dc_result,
             raw_warnings=warnings,
+            analysis_metadata=rec_metadata,
             stage="v2_analyze",
+            mode="analyze",
         )
 
         response = {
