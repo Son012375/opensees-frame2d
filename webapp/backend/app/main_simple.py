@@ -7,7 +7,6 @@ import logging
 import sys
 import json
 import uuid
-import traceback
 from pathlib import Path
 from datetime import datetime
 
@@ -117,8 +116,11 @@ async def parse_building_natural_language(input_data: NaturalLanguageInput):
             "resolved": resolved,
         }
     except ValueError as e:
+        # Expected validation error path — keep at info level.
+        logger.info("NL parse rejected (ValueError): %s", e)
         return {"success": False, "error": str(e)}
     except Exception as e:
+        logger.exception("NL parse-building failed")
         return {"success": False, "error": f"파싱 오류: {str(e)}"}
 
 
@@ -137,6 +139,7 @@ async def resolve_building_config_api(body: BuildingResolveInput):
         resolved = resolve_building_config(body.intent)
         return {"success": True, "resolved": resolved}
     except Exception as e:
+        logger.exception("resolve-config failed")
         return {"success": False, "error": str(e)}
 
 
@@ -1975,7 +1978,7 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    print("=" * 50)
-    print("OpenSees Structural Analysis Platform")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("OpenSees Structural Analysis Platform")
+    logger.info("=" * 50)
     uvicorn.run(app, host="0.0.0.0", port=8000)
