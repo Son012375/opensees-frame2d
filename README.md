@@ -173,6 +173,96 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 
 ---
 
+## 3.X Recommendation Pipeline Foundation
+
+> 향후 **KDS-RAG + LLM 기반 "구조 부재 수정 추천 시스템"** 의 토대.
+> 이번 단계에서는 **결정론(deterministic) 추출 계층만** 구현되어 있고,
+> RAG / 벡터DB / LLM 호출 / 실제 최적화 / 프론트엔드 대규모 변경은 **아직 구현되지 않았습니다.**
+
+### 3.X.1 개요
+
+"해석 결과 → 설계 이슈 → 수정 후보 → KDS 근거" 흐름의 데이터 계약(data contract) 만을 먼저 안정화했습니다.
+LLM은 추후 **설명/근거/선택지 정리** 에만 붙고, **계산/판정은 deterministic layer가 담당**합니다.
+
+```
+analysis result + design_check + warnings
+   ↓
+extract_issues()         (deterministic — 이번 단계)
+   ↓
+StructuralIssue[]
+   ↓
+generate_candidates()    (placeholder — 이번 단계)
+   ↓
+RetrofitCandidate[]   ← 향후 KDS-RAG 가 CodeReference 채움
+```
+
+### 3.X.2 응답 추가 필드 (additive)
+
+`/api/v2/analyze`, `/api/v2/parse-ifc`, `/api/building/analyze` 응답에 다음 필드가 **추가** 되었습니다.
+기존 필드는 그대로 유지되어 V2 Editor 와 V1 fallback 모두 호환됩니다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `warnings` | `list[AnalysisWarning]` | 구조화된 경고 객체 (code/severity/stage/recoverable/detail) |
+| `warning_messages` | `list[str]` | 기존 프론트 호환용 문자열 미러 (`"code: msg"`) |
+| `issues` | `list[StructuralIssue]` | deterministic 이슈 목록 (strength_exceeded / drift_exceeded / missing_design_check / analysis_warning / shear_exceeded) |
+| `recommendation_candidates` | `list[RetrofitCandidate]` | 수정 후보 placeholder. `requires_reanalysis: true` 가 데이터 모델에 인코딩됨 |
+| `recommendation_summary` | `dict` | 카운트 + `rag_enabled: false` / `llm_enabled: false` 명시 |
+
+### 3.X.3 핵심 데이터 모델
+
+`mcp-server/core/recommendation/schemas.py` 의 dataclass:
+
+| 모델 | 역할 |
+|------|------|
+| `AnalysisEnvelope` | 케이스 전체 envelope (변위/부재력/층간변위 최대값) |
+| `AnalysisCaseSummary` | 케이스/조합별 요약 |
+| `MemberForceSummary` | 부재별 envelope 부재력 (Pu/Mux/Muy/Vu + governing_combo) |
+| `MemberDesignCheck` | 부재별 설계검토 (interaction/shear ratio, status, code_refs, raw 원본) |
+| `AnalysisWarning` | 구조화된 경고 — `list[str]` 대체 |
+| `StructuralIssue` | 이슈 단위. issue_type / severity / evidence / code_refs |
+| `RetrofitCandidate` | 수정 후보 placeholder. `requires_reanalysis: true` 기본값 |
+| `CodeReference` | KDS-RAG 가 채울 자리 (현재 standard_id/clause_id 만 채움, quote/relevance_reason 은 `None` placeholder) |
+
+### 3.X.4 결정론(deterministic) 규칙
+
+`generate_candidates()` 의 placeholder 매핑:
+
+| 이슈 유형 | action_type |
+|-----------|-------------|
+| `strength_exceeded`, `shear_exceeded` (interaction > 1.0) | `increase_section` |
+| `drift_exceeded` | `add_lateral_resistance` |
+| `missing_design_check` | `requires_engineer_review` |
+| `analysis_warning` (severity=error) | `requires_engineer_review` |
+| 정보 부족 / 미분류 | `requires_engineer_review` |
+
+후보는 모두 `requires_reanalysis: true`, `confidence: low|medium` 이며,
+`code_refs` 는 현재 빈 배열입니다. (향후 KDS-RAG 가 채움)
+
+### 3.X.5 명시적 비범위 (NOT in scope)
+
+- ❌ RAG 검색 / 벡터DB
+- ❌ LLM 호출 / 프롬프트
+- ❌ 실제 단면 최적화 / 자동 설계 확정
+- ❌ 프론트엔드 UI 대규모 변경
+- ❌ Midas Gen / NX 비교 수치 검증 (별도 축)
+- ❌ Render 배포 최적화 (임시 인프라)
+
+### 3.X.6 구현 위치
+
+```
+mcp-server/core/recommendation/
+├── __init__.py
+├── schemas.py              # dataclass 정의
+├── issue_extractor.py      # extract_issues()
+├── candidate_generator.py  # generate_candidates()
+└── pipeline.py             # build_recommendation_payload() — API 통합용
+```
+
+테스트: `tests/test_recommendation.py` (26 tests).
+
+---
+
 ## 4. Project Structure
 
 ```
@@ -197,6 +287,11 @@ opensees-MCP/
 │       ├── visualization.py           # 2D HTML 리포트
 │       ├── visualization_3d.py        # 3D HTML 리포트
 │       ├── result_interpreter.py      # 심각도/진단/제안 해석
+│       ├── recommendation/             # 추천 시스템 토대 (deterministic only)
+│       │   ├── schemas.py              # AnalysisWarning / StructuralIssue / RetrofitCandidate / CodeReference …
+│       │   ├── issue_extractor.py      # 해석/설계검토 → StructuralIssue[]
+│       │   ├── candidate_generator.py  # placeholder 후보 생성
+│       │   └── pipeline.py             # build_recommendation_payload() (API 통합)
 │       └── ...                        # 기타 모듈
 │
 ├── webapp/                            # 웹 애플리케이션 (V2 only)

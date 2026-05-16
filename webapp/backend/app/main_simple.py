@@ -38,6 +38,52 @@ from app.core.config import MCP_SERVER_PATH, JOBS_DIR
 from app.core.claude_service import parse_building, check_api_key
 
 
+def _build_recommendation_block(
+    *,
+    design_check: Optional[dict] = None,
+    raw_warnings: Optional[List[Any]] = None,
+    stage: str = "analysis",
+) -> Dict[str, Any]:
+    """Thin wrapper around ``core.recommendation.build_recommendation_payload``.
+
+    Kept here so the recommendation foundation can be wired into multiple
+    endpoints without each one re-importing / re-handling errors. On any
+    failure we degrade gracefully — analysis itself has already succeeded
+    by the time we get here.
+    """
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+    try:
+        from core.recommendation import build_recommendation_payload
+        return build_recommendation_payload(
+            design_check=design_check,
+            raw_warnings=raw_warnings,
+            stage=stage,
+        )
+    except Exception as rec_err:  # noqa: BLE001 — defensive: analysis was OK
+        logger.warning("Recommendation pipeline failed (%s): %s", stage, rec_err, exc_info=True)
+        # Fall back to legacy-style mirror so the response stays usable.
+        legacy = [str(w) for w in (raw_warnings or [])]
+        return {
+            "warnings": [{
+                "code": "recommendation_pipeline_failed",
+                "message": str(rec_err),
+                "severity": "warning",
+                "stage": stage,
+                "recoverable": True,
+            }],
+            "warning_messages": legacy,
+            "issues": [],
+            "recommendation_candidates": [],
+            "recommendation_summary": {
+                "num_issues": 0,
+                "num_candidates": 0,
+                "rag_enabled": False,
+                "llm_enabled": False,
+            },
+        }
+
+
 class NaturalLanguageInput(BaseModel):
     """Natural language input for Claude parsing"""
     text: str
@@ -510,7 +556,18 @@ async def analyze_building_api(input_data: BuildingInput):
             warnings.append(f"report_generation_failed: {report_err}")
 
         response["report_url"] = report_url
-        response["warnings"] = warnings
+
+        # Recommendation pipeline foundation (deterministic, no RAG/LLM).
+        rec_payload = _build_recommendation_block(
+            design_check=dc_result,
+            raw_warnings=warnings,
+            stage="building_analyze",
+        )
+        response["warnings"] = rec_payload["warnings"]
+        response["warning_messages"] = rec_payload["warning_messages"]
+        response["issues"] = rec_payload["issues"]
+        response["recommendation_candidates"] = rec_payload["recommendation_candidates"]
+        response["recommendation_summary"] = rec_payload["recommendation_summary"]
 
         # Store for re-analysis
         jobs_db[job_id]["config"] = input_data.config
@@ -602,6 +659,14 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
             )
             warnings.append(f"viewer_generation_failed: {viewer_err}")
 
+        # Structured warnings via the recommendation pipeline helper.
+        # No design_check yet at parse stage — recommendation/issues stay empty.
+        rec_payload = _build_recommendation_block(
+            design_check=None,
+            raw_warnings=warnings,
+            stage="parse_ifc",
+        )
+
         result = {
             "success": validation.is_valid,
             "filename": file.filename,
@@ -623,7 +688,8 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
                 ],
             },
             "summary": model.summary(),
-            "warnings": warnings,
+            "warnings": rec_payload["warnings"],
+            "warning_messages": rec_payload["warning_messages"],
         }
         if viewer_path:
             result["viewer_url"] = f"/api/v2/viewer/{Path(viewer_path).name}"
@@ -885,6 +951,15 @@ async def analyze_v2_api(request: Request):
                     "interaction_ratio": mem.get("ratios", {}).get("interaction", 0),
                 }
 
+        # Recommendation pipeline foundation — deterministic layer only.
+        # Adds `issues`, `recommendation_candidates`, and a structured
+        # warning object alongside the legacy string list. NO RAG/LLM.
+        rec_payload = _build_recommendation_block(
+            design_check=dc_result,
+            raw_warnings=warnings,
+            stage="v2_analyze",
+        )
+
         response = {
             "job_id": job_id,
             "status": "success",
@@ -906,9 +981,13 @@ async def analyze_v2_api(request: Request):
             "rsa": rsa_result,
             "seismic_method": seismic_method,
             "report_url": report_url,
-            # Partial-failure surface — frontend can show these without
-            # the whole call appearing to have failed.
-            "warnings": warnings,
+            # Structured warnings + legacy string mirror for frontend back-compat.
+            "warnings": rec_payload["warnings"],
+            "warning_messages": rec_payload["warning_messages"],
+            # Recommendation foundation (deterministic, no RAG/LLM yet).
+            "issues": rec_payload["issues"],
+            "recommendation_candidates": rec_payload["recommendation_candidates"],
+            "recommendation_summary": rec_payload["recommendation_summary"],
         }
 
         # Job DB 저장
