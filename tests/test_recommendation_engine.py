@@ -850,3 +850,117 @@ class TestUnclassifiedCategory:
         cats = category_counts(issues)
         assert cats.get(IssueCategory.UNCLASSIFIED) == 1
         assert cats.get(IssueCategory.STRENGTH) == 1
+
+
+# ============================================================
+# Candidate-ID discriminator for same-issue / same-action alternatives
+# ============================================================
+
+def _section_option_handler(targets: list[str]):
+    """Build a handler that emits one INCREASE_SECTION candidate per
+    target section. Each must carry a distinct candidate_id derived
+    from the proposed ``to`` value.
+    """
+    def _handler(issue):
+        out = []
+        for to_section in targets:
+            out.append(RetrofitCandidate(
+                candidate_id=make_candidate_id(
+                    issue_id=issue.issue_id,
+                    action_type=ActionType.INCREASE_SECTION,
+                    variant=to_section,
+                ),
+                issue_id=issue.issue_id,
+                action_type=ActionType.INCREASE_SECTION,
+                description=f"increase section → {to_section}",
+                member_id=issue.member_id,
+                proposed_change={
+                    "operation": ChangeOperation.REPLACE_SECTION,
+                    "from": issue.section,
+                    "to": to_section,
+                    "requires_user_selection": False,
+                    "reason": "strength_exceeded",
+                },
+                target={"member_id": issue.member_id},
+            ))
+        return out
+    return _handler
+
+
+class TestMultiCandidateIdDiscriminator:
+    def test_multiple_section_options_have_distinct_ids(self):
+        """One handler emitting three INCREASE_SECTION options must yield
+        three distinct, deterministic candidate ids."""
+        iss = _strength_issue(member_id=7)
+        reg = RuleRegistry()
+        reg.register(
+            IssueType.STRENGTH_EXCEEDED,
+            _section_option_handler(["H-350x350", "H-400x400", "H-450x450"]),
+        )
+        cands = generate_candidates([iss], registry=reg)
+        ids = [c.candidate_id for c in cands]
+        # All three options present, all distinct.
+        assert len(ids) == 3
+        assert len(set(ids)) == 3
+        # Each id encodes the section dimension via the ``variant`` slug
+        # (e.g. "H-350x350" → "350x350" is preserved). Slugified variants
+        # contain the digit substring directly.
+        for dim in ("350x350", "400x400", "450x450"):
+            assert any(dim in cid for cid in ids), f"missing variant {dim} in ids: {ids}"
+
+    def test_multi_candidate_ids_are_reproducible(self):
+        """Running generation twice yields bit-identical candidate ids."""
+        iss = _strength_issue(member_id=7)
+        reg = RuleRegistry()
+        reg.register(
+            IssueType.STRENGTH_EXCEEDED,
+            _section_option_handler(["H-350x350", "H-400x400", "H-450x450"]),
+        )
+        ids_a = [c.candidate_id for c in generate_candidates([iss], registry=reg)]
+        ids_b = [c.candidate_id for c in generate_candidates([iss], registry=reg)]
+        assert ids_a == ids_b
+
+    def test_ranking_tie_break_with_distinct_ids_is_deterministic(self):
+        """When two candidates score identically, candidate_id breaks the
+        tie. With distinct variant-derived ids this must be deterministic.
+        """
+        iss = _strength_issue(member_id=7)
+        reg = RuleRegistry()
+        # All three have identical action_type → identical action
+        # baselines → identical scores. The tie-break must come from
+        # ``candidate_id`` (alphabetical), not from list order.
+        reg.register(
+            IssueType.STRENGTH_EXCEEDED,
+            _section_option_handler(["H-450x450", "H-350x350", "H-400x400"]),
+        )
+        cands_run1 = generate_candidates([iss], registry=reg)
+        cands_run2 = generate_candidates([iss], registry=reg)
+        ranked_run1 = [c.candidate_id for c in rank_candidates(cands_run1, [iss])]
+        # Reversing the input list before ranking must not change the
+        # final order — that's the whole point of the deterministic
+        # tie-break.
+        ranked_reversed = [c.candidate_id for c in rank_candidates(
+            list(reversed(cands_run2)), [iss],
+        )]
+        assert ranked_run1 == ranked_reversed
+        # And the order is alphabetical by candidate_id since totals match.
+        assert ranked_run1 == sorted(ranked_run1)
+
+    def test_same_issue_same_action_different_proposed_to_no_collision(self):
+        """The original architectural concern: candidates that only differ
+        by ``proposed_change.to`` must NOT collapse to the same id."""
+        iss = _strength_issue(member_id=7)
+        reg = RuleRegistry()
+        reg.register(
+            IssueType.STRENGTH_EXCEEDED,
+            _section_option_handler(["H-350x350", "H-400x400"]),
+        )
+        cands = generate_candidates([iss], registry=reg)
+        # Same issue, same action_type:
+        assert cands[0].issue_id == cands[1].issue_id
+        assert cands[0].action_type == cands[1].action_type
+        # Different proposed `to`:
+        assert (cands[0].proposed_change["to"]
+                != cands[1].proposed_change["to"])
+        # Different candidate ids — the collision the patch fixes.
+        assert cands[0].candidate_id != cands[1].candidate_id

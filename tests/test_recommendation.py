@@ -196,6 +196,68 @@ class TestDeterministicIds:
         import re
         assert re.match(r"^[a-z0-9_\-]+$", cid)
 
+    def test_candidate_id_variant_discriminates_alternatives(self):
+        """Same (issue_id, action_type) but different ``variant`` must
+        produce distinct, deterministic ids."""
+        iid = "iss_strength_exceeded_m7_dl"
+        a = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H-350x350",
+        )
+        b = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H-400x400",
+        )
+        c = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H-450x450",
+        )
+        # All three must be distinct …
+        assert a != b != c
+        assert a != c
+        # … and each variant must be reproducible bit-for-bit.
+        assert a == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H-350x350",
+        )
+        # Variants are slug-encoded so URL safety still holds.
+        import re
+        for cid in (a, b, c):
+            assert re.match(r"^[a-z0-9_\-]+$", cid)
+
+    def test_candidate_id_without_variant_is_backward_compatible(self):
+        """Calling ``make_candidate_id`` without the new ``variant`` arg
+        must return exactly the legacy id shape."""
+        iid = "iss_strength_exceeded_m7_1_2dl_1_0ll"
+        legacy = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+        )
+        # Expected legacy shape — pin it so future refactors don't
+        # silently change ids of stored candidates.
+        assert legacy == f"cand_{iid}_increase_section"
+        # Passing ``variant=None`` (explicitly) is equivalent.
+        assert legacy == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant=None,
+        )
+
+    def test_candidate_id_variant_empty_string_falls_back_to_legacy(self):
+        """Empty/whitespace variant must NOT change the legacy id —
+        otherwise an upstream bug filling ``variant=""`` would change
+        every stored candidate id silently."""
+        iid = "iss_x"
+        legacy = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+        )
+        assert legacy == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="",
+        )
+        assert legacy == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="   ",
+        )
+
 
 # ============================================================
 # Issue extraction

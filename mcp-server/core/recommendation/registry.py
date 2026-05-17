@@ -11,14 +11,25 @@ selected. Goals:
       without touching the dispatch code.
     * Surface the registry contents for tests / debugging.
 
-A handler is just::
+A handler returns one of::
 
-    Callable[[StructuralIssue], Optional[RetrofitCandidate]]
+    None | RetrofitCandidate | Iterable[RetrofitCandidate]
 
-Returning ``None`` is a signal "I cannot produce a typed candidate for
-this issue — fall back to engineer-review". The default registry is
-populated lazily by :mod:`core.recommendation.candidate_generator` to
-avoid a circular import.
+* ``None`` — handler opts out for this issue; the dispatcher falls
+  back to an engineer-review candidate.
+* ``RetrofitCandidate`` — single typed candidate (legacy / simplest
+  case). Backward-compatible with first-cut handlers.
+* ``Iterable[RetrofitCandidate]`` — multiple competing alternatives
+  for the same issue (e.g. several INCREASE_SECTION sizings). The
+  scoring layer ranks them against each other; each alternative must
+  carry a distinct ``candidate_id`` (use
+  :func:`core.recommendation.ids.make_candidate_id` with a ``variant``
+  discriminator).
+
+:func:`normalize_handler_result` coerces all three shapes into a list
+so dispatcher code stays terse. The default registry is populated
+lazily by :mod:`core.recommendation.candidate_generator` to avoid a
+circular import.
 """
 from __future__ import annotations
 

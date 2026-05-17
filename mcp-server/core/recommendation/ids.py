@@ -99,12 +99,58 @@ def make_issue_id(
     return "_".join(s for s in segs if s)
 
 
-def make_candidate_id(*, issue_id: str, action_type: str) -> str:
-    """Build a deterministic ``cand_…`` id derived from the issue id."""
+def make_candidate_id(
+    *,
+    issue_id: str,
+    action_type: str,
+    variant: Optional[str] = None,
+) -> str:
+    """Build a deterministic ``cand_…`` id derived from the issue id.
+
+    Once a single handler can produce multiple alternatives for one
+    ``(issue_id, action_type)`` pair (e.g. three INCREASE_SECTION
+    options for the same member), ``issue_id`` + ``action_type`` is no
+    longer unique. ``variant`` is the **deterministic discriminator**
+    that distinguishes them — typically the proposed target value
+    (``"H-400x400"``) or any other identifying piece of the proposed
+    change. Callers must pass a stable string; this layer never uses
+    UUID/random data.
+
+    Parameters
+    ----------
+    issue_id : str
+        Owning issue's ``iss_…`` id.
+    action_type : str
+        One of :class:`ActionType`. Drives the suffix.
+    variant : str | None
+        Optional deterministic discriminator. ``None`` is treated as
+        absent — so the same call without a variant produces the same
+        id as before (backward-compatible). If two candidates differ
+        only in their proposed change, they MUST be created with
+        different ``variant`` values so the ids do not collide.
+
+    Returns
+    -------
+    str
+        ``cand_<issue_id>_<action>[_<variant>]`` — ASCII safe, lowercase,
+        URL-safe.
+    """
     base = slugify(issue_id, max_len=64) or "noissue"
     act = slugify(action_type) or "action"
-    candidate = f"cand_{base}_{act}"
+    var = slugify(variant) if variant else ""
+
+    if var:
+        candidate = f"cand_{base}_{act}_{var}"
+    else:
+        candidate = f"cand_{base}_{act}"
+
     # Guard against absurdly long ids (very long combo names etc.).
     if len(candidate) > 96:
-        candidate = f"cand_{_digest([issue_id, action_type])}_{act}"
+        digest_parts = [issue_id, action_type]
+        if variant:
+            digest_parts.append(str(variant))
+        if var:
+            candidate = f"cand_{_digest(digest_parts)}_{act}_{var}"
+        else:
+            candidate = f"cand_{_digest(digest_parts)}_{act}"
     return candidate
