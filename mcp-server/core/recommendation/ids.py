@@ -116,6 +116,26 @@ def make_candidate_id(
     change. Callers must pass a stable string; this layer never uses
     UUID/random data.
 
+    Edge cases — see also the dedicated tests in
+    :mod:`tests.test_recommendation`:
+
+        * ``variant`` is ``None`` / ``""`` / whitespace-only
+            Treated as "no variant" — returns the legacy id shape
+            (``cand_<issue>_<action>``). This preserves IDs for
+            candidates created before the discriminator existed.
+
+        * ``variant`` slugifies to an empty string (e.g. ``"!!!"``)
+            Cannot silently collapse onto the legacy id — that would
+            tie a punctuation-only variant to a no-variant candidate.
+            We append ``var_<digest>`` where the digest is computed
+            from the raw variant.
+
+        * Two raw variants that produce the same slug (e.g.
+          ``"H-400x400"`` vs ``"H 400x400"``)
+            The readable slug is followed by a short digest of the
+            raw variant, so distinct raw inputs always yield distinct
+            ids while keeping the readable fragment intact.
+
     Parameters
     ----------
     issue_id : str
@@ -123,34 +143,47 @@ def make_candidate_id(
     action_type : str
         One of :class:`ActionType`. Drives the suffix.
     variant : str | None
-        Optional deterministic discriminator. ``None`` is treated as
-        absent — so the same call without a variant produces the same
-        id as before (backward-compatible). If two candidates differ
-        only in their proposed change, they MUST be created with
-        different ``variant`` values so the ids do not collide.
+        Optional deterministic discriminator. ``None`` /
+        empty / whitespace-only treats as absent (legacy id). Any
+        other value forces a discriminator suffix.
 
     Returns
     -------
     str
-        ``cand_<issue_id>_<action>[_<variant>]`` — ASCII safe, lowercase,
-        URL-safe.
+        ASCII-only, lowercase, URL-safe id.
     """
     base = slugify(issue_id, max_len=64) or "noissue"
     act = slugify(action_type) or "action"
-    var = slugify(variant) if variant else ""
 
-    if var:
-        candidate = f"cand_{base}_{act}_{var}"
-    else:
+    # Distinguish "no variant supplied" from "variant supplied but
+    # contains no slug-friendly characters". The former must produce
+    # the legacy id (backward-compat); the latter must produce a
+    # distinct, deterministic id.
+    raw_variant = variant.strip() if isinstance(variant, str) else ""
+
+    if not raw_variant:
         candidate = f"cand_{base}_{act}"
+        if len(candidate) > 96:
+            candidate = f"cand_{_digest([issue_id, action_type])}_{act}"
+        return candidate
 
-    # Guard against absurdly long ids (very long combo names etc.).
+    slug = slugify(raw_variant)
+    # Digest the *raw* variant so two raw inputs that happen to share
+    # a slug still get distinct ids. Truncated to keep the suffix tidy.
+    variant_digest = _digest([raw_variant])
+
+    if slug:
+        suffix = f"{slug}_{variant_digest}"
+    else:
+        # Slug-empty case (e.g. variant="!!!"). The digest carries the
+        # full discriminating signal; we use a fixed marker prefix so
+        # the shape stays recognizable in logs.
+        suffix = f"var_{variant_digest}"
+
+    candidate = f"cand_{base}_{act}_{suffix}"
     if len(candidate) > 96:
-        digest_parts = [issue_id, action_type]
-        if variant:
-            digest_parts.append(str(variant))
-        if var:
-            candidate = f"cand_{_digest(digest_parts)}_{act}_{var}"
-        else:
-            candidate = f"cand_{_digest(digest_parts)}_{act}"
+        # Long issue_id case — collapse the base into a digest but keep
+        # the variant suffix readable so the discriminator remains
+        # inspectable in logs / URLs.
+        candidate = f"cand_{_digest([issue_id, action_type])}_{act}_{suffix}"
     return candidate

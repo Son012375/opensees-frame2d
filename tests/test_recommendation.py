@@ -258,6 +258,79 @@ class TestDeterministicIds:
             variant="   ",
         )
 
+    def test_candidate_id_variant_slug_empty_does_not_collapse_to_legacy(self):
+        """A non-empty raw variant that slugifies to ``""`` (e.g. ``"!!!"``)
+        must NOT silently produce the legacy id. Otherwise a punctuation-
+        only variant from a future generator would be mistaken for a
+        no-variant candidate."""
+        iid = "iss_x"
+        legacy = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+        )
+        punct = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="!!!",
+        )
+        assert punct != legacy
+        # Reproducible across calls.
+        assert punct == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="!!!",
+        )
+
+    def test_candidate_id_two_punctuation_only_variants_are_distinct(self):
+        """``"!!!"`` and ``"@@@"`` both slugify to ``""`` but must still
+        produce distinct, deterministic ids."""
+        iid = "iss_x"
+        a = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="!!!",
+        )
+        b = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="@@@",
+        )
+        assert a != b
+        # Each remains reproducible.
+        assert a == make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="!!!",
+        )
+
+    def test_candidate_id_slug_colliding_variants_still_distinct(self):
+        """Two raw variants whose slugify outputs happen to match
+        (``"H-400x400"`` vs ``"H 400x400"``) must still get distinct
+        ids — the raw-variant digest breaks the tie."""
+        iid = "iss_x"
+        dash = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H-400x400",
+        )
+        space = make_candidate_id(
+            issue_id=iid, action_type=ActionType.INCREASE_SECTION,
+            variant="H 400x400",
+        )
+        # Same readable slug fragment …
+        assert "h_400x400" in dash
+        assert "h_400x400" in space
+        # … but the ids themselves differ because of the digest.
+        assert dash != space
+
+    def test_candidate_id_normal_variant_remains_readable(self):
+        """Normal readable variants keep the slug visible in the id so
+        humans (and log scrapers) can still tell the alternatives apart
+        at a glance."""
+        cid = make_candidate_id(
+            issue_id="iss_x",
+            action_type=ActionType.INCREASE_SECTION,
+            variant="H-400x400",
+        )
+        # The readable slug must be present somewhere in the id.
+        assert "h_400x400" in cid
+        # And the id must still be URL-safe.
+        import re
+        assert re.match(r"^[a-z0-9_\-]+$", cid)
+
 
 # ============================================================
 # Issue extraction
