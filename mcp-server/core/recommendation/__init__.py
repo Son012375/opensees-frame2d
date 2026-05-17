@@ -55,13 +55,17 @@ from .pipeline import (
 from .registry import (
     RuleEntry,
     RuleHandler,
+    RuleHandlerResult,
     RuleRegistry,
     default_registry,
     get_rule_for_issue,
     list_registered_handlers,
+    normalize_handler_result,
     register_rule,
 )
 from .scoring import (
+    SCORE_METHOD,
+    SCORE_VERIFIED,
     ScoreBreakdown,
     WEIGHTS as SCORING_WEIGHTS,
     rank_candidates,
@@ -115,12 +119,16 @@ __all__ = [
     # Rule registry
     "RuleEntry",
     "RuleHandler",
+    "RuleHandlerResult",
     "RuleRegistry",
     "default_registry",
     "get_rule_for_issue",
     "list_registered_handlers",
+    "normalize_handler_result",
     "register_rule",
     # Scoring / ranking
+    "SCORE_METHOD",
+    "SCORE_VERIFIED",
     "ScoreBreakdown",
     "SCORING_WEIGHTS",
     "rank_candidates",

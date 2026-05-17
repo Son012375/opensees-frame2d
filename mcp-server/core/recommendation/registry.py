@@ -23,13 +23,43 @@ avoid a circular import.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional, Union
 
 from .schemas import RetrofitCandidate, StructuralIssue
 
 
-# Handler signature: (issue) -> Optional[RetrofitCandidate]
-RuleHandler = Callable[[StructuralIssue], Optional[RetrofitCandidate]]
+# Handler signature: (issue) -> one of
+#   * None                             — handler opts out for this issue
+#   * RetrofitCandidate                — single-candidate handler (legacy)
+#   * Iterable[RetrofitCandidate]      — multi-candidate handler
+#
+# ``generate_candidates`` is responsible for normalizing the return value
+# into a list. Multi-candidate handlers let one issue produce competing
+# alternatives that the scoring layer then ranks against each other.
+RuleHandlerResult = Union[
+    None,
+    RetrofitCandidate,
+    Iterable[RetrofitCandidate],
+]
+RuleHandler = Callable[[StructuralIssue], RuleHandlerResult]
+
+
+def normalize_handler_result(result: RuleHandlerResult) -> list[RetrofitCandidate]:
+    """Coerce a handler return value into a list.
+
+    Used by the dispatcher so individual handlers can stay terse:
+    return a single candidate, a list, a generator, or None.
+    """
+    if result is None:
+        return []
+    if isinstance(result, RetrofitCandidate):
+        return [result]
+    # Defensive: tolerate any iterable but skip non-RetrofitCandidate items.
+    out: list[RetrofitCandidate] = []
+    for item in result:
+        if isinstance(item, RetrofitCandidate):
+            out.append(item)
+    return out
 
 
 @dataclass

@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 from .ids import make_candidate_id
-from .registry import default_registry
+from .registry import RuleRegistry, default_registry, normalize_handler_result
 from .schemas import (
     ActionType,
     ChangeOperation,
@@ -238,6 +238,8 @@ def _engineer_review_candidate(issue: StructuralIssue, reason: str) -> RetrofitC
 
 def generate_candidates(
     issues: Iterable[StructuralIssue],
+    *,
+    registry: Optional[RuleRegistry] = None,
 ) -> list[RetrofitCandidate]:
     """Map each issue to one or more :class:`RetrofitCandidate`.
 
@@ -251,9 +253,19 @@ def generate_candidates(
         * ANALYSIS_WARNING with severity=warning/info → no candidate
         * Any issue blocked by :func:`_should_block_auto_candidate`
           → ``REQUIRES_ENGINEER_REVIEW`` (with the reason as metadata)
+
+    Handlers may now return either a single :class:`RetrofitCandidate`,
+    an iterable of them, or ``None``. This lets one issue produce
+    multiple competing alternatives that ranking compares against each
+    other.
+
+    Pass ``registry=...`` to dispatch against a custom registry; the
+    default (``default_registry()``) is used otherwise. Custom registries
+    do NOT mutate the global default — tests and runtime extensions
+    should prefer this over monkey-patching.
     """
     candidates: list[RetrofitCandidate] = []
-    registry = default_registry()
+    reg = registry if registry is not None else default_registry()
 
     for issue in issues:
         t = issue.issue_type
@@ -268,11 +280,11 @@ def generate_candidates(
             candidates.append(_engineer_review_candidate(issue, block_reason))
             continue
 
-        entry = registry.get(t)
+        entry = reg.get(t)
         if entry is not None:
-            cand = entry.handler(issue)
-            if cand is not None:
-                candidates.append(cand)
+            produced = normalize_handler_result(entry.handler(issue))
+            if produced:
+                candidates.extend(produced)
                 continue
             # Handler explicitly opted out — fall through to review.
             candidates.append(_engineer_review_candidate(

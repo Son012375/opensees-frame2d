@@ -44,6 +44,23 @@ from .taxonomy import (
 
 
 # ---------------------------------------------------------------------------
+# Scoring identity — bumped whenever the heuristic weights or axes change.
+# ---------------------------------------------------------------------------
+
+# Versioned method id so downstream consumers (UI, future LLM narration,
+# stored job records) can tell which scoring formula produced a score.
+# Bump this any time WEIGHTS / axes / formulas change in a way that
+# could re-order candidates.
+SCORE_METHOD = "heuristic_v1"
+
+# These scores are NOT verified by re-analysis. The deterministic layer
+# only ranks heuristically; final ordering must come from re-analyzing
+# the proposed model change. Surfaced both per-candidate and in the
+# summary so the UI / caller can disclose this clearly.
+SCORE_VERIFIED = False
+
+
+# ---------------------------------------------------------------------------
 # Score axis weights — fixed for determinism.
 # ---------------------------------------------------------------------------
 
@@ -114,6 +131,10 @@ class ScoreBreakdown:
     Round-tripped via ``to_dict`` and attached to
     ``RetrofitCandidate.metadata["score"]`` so the API surface stays
     additive.
+
+    ``method`` / ``verified`` make it explicit that this score is a
+    deterministic heuristic — NOT a verified engineering result. Final
+    ranking must come from re-analyzing the proposed change.
     """
     safety_gain: float = 0.0
     code_compliance: float = 0.0
@@ -122,6 +143,9 @@ class ScoreBreakdown:
     side_effect_risk: float = 0.0
     total: float = 0.0
     rationale: dict[str, str] = field(default_factory=dict)
+    method: str = SCORE_METHOD
+    verified: bool = SCORE_VERIFIED
+    status: str = "unverified_heuristic"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -235,6 +259,9 @@ def score_candidate(
             "safety_gain": safety_reason,
             "action_baseline": candidate.action_type,
         },
+        method=SCORE_METHOD,
+        verified=SCORE_VERIFIED,
+        status="unverified_heuristic",
     )
 
 
@@ -248,10 +275,15 @@ def rank_candidates(
 ) -> list[RetrofitCandidate]:
     """Score every candidate, attach the score, and return them sorted.
 
-    Sort key (stable):
-        1) ``-total`` (high first)
-        2) issue priority (low number first)
-        3) ``candidate_id`` (alphabetical tie-breaker)
+    Sort key (stable), **priority-dominant**:
+        1) issue priority — lower number first (CRITICAL ▶ HIGH ▶ … ▶ LOW)
+        2) ``-total`` — higher score first within the same priority
+        3) ``candidate_id`` — alphabetical tie-breaker
+
+    Priority dominates so a heuristic ``total`` boost from a cheap
+    action baseline can never push a lower-priority candidate above a
+    critical/high-priority one. The heuristic scoring is unverified
+    until re-analysis runs, so the ordering must err on the safe side.
 
     The score is attached as ``candidate.metadata["score"]`` so existing
     consumers stay compatible. Candidates are **mutated in place** —
@@ -262,7 +294,7 @@ def rank_candidates(
         for iss in issues:
             issue_by_id[iss.issue_id] = iss
 
-    annotated: list[tuple[float, int, str, RetrofitCandidate]] = []
+    annotated: list[tuple[int, float, str, RetrofitCandidate]] = []
     for cand in candidates:
         parent = issue_by_id.get(cand.issue_id)
         score = score_candidate(cand, parent)
@@ -270,6 +302,11 @@ def rank_candidates(
         if not isinstance(cand.metadata, dict):
             cand.metadata = {}
         cand.metadata["score"] = score.to_dict()
+        # Top-level honesty markers — easier for UI / log scrapers than
+        # reading them out of the nested ``score`` dict.
+        cand.metadata["score_method"] = SCORE_METHOD
+        cand.metadata["score_verified"] = SCORE_VERIFIED
+        cand.metadata["score_status"] = "unverified_heuristic"
         if parent is not None:
             cand.metadata["issue_classification"] = classify_issue(parent).to_dict()
 
@@ -277,7 +314,7 @@ def rank_candidates(
             classify_issue(parent).priority if parent is not None
             else 3  # PRIORITY_LOW for orphan candidates
         )
-        annotated.append((-score.total, priority, cand.candidate_id, cand))
+        annotated.append((priority, -score.total, cand.candidate_id, cand))
 
     annotated.sort(key=lambda x: (x[0], x[1], x[2]))
     return [c for _, _, _, c in annotated]

@@ -32,6 +32,7 @@ class IssueCategory:
     SERVICEABILITY = "serviceability"   # drift / deflection / vibration
     GLOBAL_STABILITY = "global_stability"  # P-Δ, base reactions, overall
     DATA_QUALITY = "data_quality"       # missing DC, analysis warnings
+    UNCLASSIFIED = "unclassified"       # issue_type we don't recognize
 
 
 # Priority ordering — lower is more urgent.
@@ -52,6 +53,11 @@ class IssueClassification:
 
 # Type → category mapping. Kept as a module-level dict so callers can
 # introspect/extend without monkey-patching a function.
+#
+# Only the two issue types that genuinely describe data/observability
+# problems (``missing_design_check``, ``analysis_warning``) map to
+# DATA_QUALITY. Any other unknown issue_type lands in UNCLASSIFIED so
+# the UI doesn't mislead the engineer into thinking it's a data issue.
 _TYPE_TO_CATEGORY: dict[str, str] = {
     IssueType.STRENGTH_EXCEEDED: IssueCategory.STRENGTH,
     IssueType.SHEAR_EXCEEDED: IssueCategory.STRENGTH,
@@ -62,8 +68,16 @@ _TYPE_TO_CATEGORY: dict[str, str] = {
 
 
 def classify_issue(issue: StructuralIssue) -> IssueClassification:
-    """Return (category, priority) derived from issue type + severity + D/C."""
-    category = _TYPE_TO_CATEGORY.get(issue.issue_type, IssueCategory.DATA_QUALITY)
+    """Return (category, priority) derived from issue type + severity + D/C.
+
+    Unknown issue_types classify as :data:`IssueCategory.UNCLASSIFIED` —
+    they are not data-quality problems and must not be silently bucketed
+    as such. Downstream code generates an engineer-review candidate for
+    them, which is the correct behavior.
+    """
+    category = _TYPE_TO_CATEGORY.get(
+        issue.issue_type, IssueCategory.UNCLASSIFIED,
+    )
     priority = _priority_for(issue, category)
     return IssueClassification(category=category, priority=priority)
 
@@ -97,11 +111,17 @@ def _priority_for(issue: StructuralIssue, category: str) -> int:
     if category == IssueCategory.GLOBAL_STABILITY:
         return PRIORITY_HIGH if sev == Severity.ERROR else PRIORITY_MEDIUM
 
-    # DATA_QUALITY
+    if category == IssueCategory.DATA_QUALITY:
+        if sev == Severity.ERROR:
+            return PRIORITY_HIGH
+        if issue.issue_type == IssueType.MISSING_DESIGN_CHECK:
+            return PRIORITY_LOW
+        return PRIORITY_MEDIUM
+
+    # UNCLASSIFIED — be conservative; surface as MEDIUM so the engineer
+    # sees it but doesn't get drowned out by real strength/drift NGs.
     if sev == Severity.ERROR:
         return PRIORITY_HIGH
-    if issue.issue_type == IssueType.MISSING_DESIGN_CHECK:
-        return PRIORITY_LOW
     return PRIORITY_MEDIUM
 
 

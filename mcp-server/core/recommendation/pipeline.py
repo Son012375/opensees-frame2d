@@ -26,7 +26,8 @@ from .schemas import (
 )
 from .issue_extractor import extract_issues
 from .candidate_generator import generate_candidates
-from .scoring import rank_candidates
+from .registry import RuleRegistry
+from .scoring import SCORE_METHOD, SCORE_VERIFIED, rank_candidates
 from .taxonomy import category_counts, priority_counts
 
 
@@ -180,6 +181,7 @@ def build_recommendation_payload(
     mode: str = MODE_ANALYZE,
     include_missing_design_check: Optional[bool] = None,
     rank: bool = True,
+    registry: Optional[RuleRegistry] = None,
 ) -> dict[str, Any]:
     """Build the additive recommendation block for the API response.
 
@@ -224,6 +226,16 @@ def build_recommendation_payload(
     include_missing_design_check : bool | None
         Explicit override for the parse-only behaviour. ``None`` (default)
         derives the flag from ``mode``.
+    rank : bool
+        Whether to rank candidates by the deterministic scoring layer.
+        Defaults to True. The ranking is **priority-dominant** so a
+        cheap-action heuristic boost cannot promote a candidate above a
+        higher-priority safety finding.
+    registry : RuleRegistry | None
+        Custom rule registry to use for candidate generation. Defaults
+        to the module-level default registry (which keeps the existing
+        behavior). Pass an isolated :class:`RuleRegistry` from tests or
+        runtime extension code to avoid mutating the global state.
     """
     if include_missing_design_check is None:
         include_missing_design_check = (mode != MODE_PARSE_ONLY)
@@ -241,12 +253,13 @@ def build_recommendation_payload(
     )
     normalized.extend(extra_warnings)
 
-    candidates = generate_candidates(issue_result.issues)
+    candidates = generate_candidates(issue_result.issues, registry=registry)
 
     # Deterministic scoring + ranking. Mutates candidate.metadata in
     # place so the JSON payload exposes the per-axis score. Skipping
     # (rank=False) is supported for tests that pin candidate order.
-    if rank and candidates:
+    ranked = bool(rank and candidates)
+    if ranked:
         candidates = rank_candidates(candidates, issue_result.issues)
 
     payload = warnings_to_payload(normalized)
@@ -259,7 +272,14 @@ def build_recommendation_payload(
         "issues_by_category": category_counts(issue_result.issues),
         "issues_by_priority": priority_counts(issue_result.issues),
         "num_candidates": len(candidates),
-        "ranked": bool(rank and candidates),
+        "ranked": ranked,
+        # Honesty markers — the order above is a *heuristic* until a
+        # re-analysis loop verifies the proposed changes. Surface this
+        # at the summary level so UIs / log scrapers don't have to dig
+        # into individual candidate metadata to find it.
+        "ranking_method": SCORE_METHOD if ranked else None,
+        "ranking_verified": SCORE_VERIFIED if ranked else None,
+        "requires_reanalysis_for_final_ranking": True,
         "rag_enabled": False,
         "llm_enabled": False,
         "mode": mode,
