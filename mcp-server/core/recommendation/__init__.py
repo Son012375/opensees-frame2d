@@ -52,6 +52,32 @@ from .pipeline import (
     case_summaries_from_dict,
     member_checks_from_design_check,
 )
+from .registry import (
+    RuleEntry,
+    RuleHandler,
+    RuleRegistry,
+    default_registry,
+    get_rule_for_issue,
+    list_registered_handlers,
+    register_rule,
+)
+from .scoring import (
+    ScoreBreakdown,
+    WEIGHTS as SCORING_WEIGHTS,
+    rank_candidates,
+    score_candidate,
+)
+from .taxonomy import (
+    IssueCategory,
+    IssueClassification,
+    PRIORITY_CRITICAL,
+    PRIORITY_HIGH,
+    PRIORITY_LOW,
+    PRIORITY_MEDIUM,
+    category_counts,
+    classify_issue,
+    priority_counts,
+)
 
 __all__ = [
     "AnalysisEnvelope",
@@ -86,4 +112,27 @@ __all__ = [
     "envelope_from_dict",
     "case_summaries_from_dict",
     "member_checks_from_design_check",
+    # Rule registry
+    "RuleEntry",
+    "RuleHandler",
+    "RuleRegistry",
+    "default_registry",
+    "get_rule_for_issue",
+    "list_registered_handlers",
+    "register_rule",
+    # Scoring / ranking
+    "ScoreBreakdown",
+    "SCORING_WEIGHTS",
+    "rank_candidates",
+    "score_candidate",
+    # Taxonomy
+    "IssueCategory",
+    "IssueClassification",
+    "PRIORITY_CRITICAL",
+    "PRIORITY_HIGH",
+    "PRIORITY_LOW",
+    "PRIORITY_MEDIUM",
+    "category_counts",
+    "classify_issue",
+    "priority_counts",
 ]

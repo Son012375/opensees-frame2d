@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 from .ids import make_candidate_id
+from .registry import default_registry
 from .schemas import (
     ActionType,
     ChangeOperation,
@@ -240,9 +241,10 @@ def generate_candidates(
 ) -> list[RetrofitCandidate]:
     """Map each issue to one or more :class:`RetrofitCandidate`.
 
-    Rules (deterministic placeholders):
+    Dispatch is delegated to :mod:`core.recommendation.registry`. The
+    default handlers (registered below) preserve the original behavior:
+
         * STRENGTH_EXCEEDED / SHEAR_EXCEEDED → ``INCREASE_SECTION``
-          (``replace_section``)
         * DRIFT_EXCEEDED → ``ADD_LATERAL_RESISTANCE``
         * MISSING_DESIGN_CHECK → ``REQUIRES_ENGINEER_REVIEW``
         * ANALYSIS_WARNING with severity=error → ``REQUIRES_ENGINEER_REVIEW``
@@ -251,6 +253,7 @@ def generate_candidates(
           → ``REQUIRES_ENGINEER_REVIEW`` (with the reason as metadata)
     """
     candidates: list[RetrofitCandidate] = []
+    registry = default_registry()
 
     for issue in issues:
         t = issue.issue_type
@@ -265,18 +268,78 @@ def generate_candidates(
             candidates.append(_engineer_review_candidate(issue, block_reason))
             continue
 
-        if t in (IssueType.STRENGTH_EXCEEDED, IssueType.SHEAR_EXCEEDED):
-            candidates.append(_strength_candidate(issue))
-        elif t == IssueType.DRIFT_EXCEEDED:
-            candidates.append(_drift_candidate(issue))
-        elif t == IssueType.ANALYSIS_WARNING:
-            # Error-level warning that wasn't blocked: still review-only.
+        entry = registry.get(t)
+        if entry is not None:
+            cand = entry.handler(issue)
+            if cand is not None:
+                candidates.append(cand)
+                continue
+            # Handler explicitly opted out — fall through to review.
             candidates.append(_engineer_review_candidate(
-                issue, "해석 경고가 error 등급 — 결과 신뢰성 재검토 필요",
+                issue, f"등록된 규칙이 후보를 생성하지 않음: {t}",
             ))
-        else:
-            candidates.append(_engineer_review_candidate(
-                issue, f"미분류 이슈 유형: {t}",
-            ))
+            continue
+
+        # No registered rule for this issue_type — fall back to review.
+        candidates.append(_engineer_review_candidate(
+            issue, f"미분류 이슈 유형: {t}",
+        ))
 
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# Default rule registrations (module-load time)
+# ---------------------------------------------------------------------------
+
+def _handle_strength(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
+    """Dispatch wrapper around :func:`_strength_candidate`."""
+    return _strength_candidate(issue)
+
+
+def _handle_drift(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
+    return _drift_candidate(issue)
+
+
+def _handle_missing_design_check(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
+    # ``_should_block_auto_candidate`` already routes this to review,
+    # so this handler is only reached for safety. Mirror that decision.
+    return _engineer_review_candidate(
+        issue, "설계검토 결과 부재 — 강도/변위 판정 불가",
+    )
+
+
+def _handle_analysis_warning(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
+    if issue.severity != Severity.ERROR:
+        return None  # filtered out before dispatch, but be defensive
+    return _engineer_review_candidate(
+        issue, "해석 경고가 error 등급 — 결과 신뢰성 재검토 필요",
+    )
+
+
+# Register defaults exactly once at import time.
+def _register_default_rules() -> None:
+    reg = default_registry()
+    reg.register(
+        IssueType.STRENGTH_EXCEEDED, _handle_strength,
+        label="strength → increase_section",
+    )
+    reg.register(
+        IssueType.SHEAR_EXCEEDED, _handle_strength,
+        label="shear → increase_section",
+    )
+    reg.register(
+        IssueType.DRIFT_EXCEEDED, _handle_drift,
+        label="drift → add_lateral_resistance",
+    )
+    reg.register(
+        IssueType.MISSING_DESIGN_CHECK, _handle_missing_design_check,
+        label="missing_design_check → engineer_review",
+    )
+    reg.register(
+        IssueType.ANALYSIS_WARNING, _handle_analysis_warning,
+        label="analysis_warning → engineer_review (error only)",
+    )
+
+
+_register_default_rules()

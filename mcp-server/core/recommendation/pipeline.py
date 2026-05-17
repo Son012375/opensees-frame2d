@@ -26,6 +26,8 @@ from .schemas import (
 )
 from .issue_extractor import extract_issues
 from .candidate_generator import generate_candidates
+from .scoring import rank_candidates
+from .taxonomy import category_counts, priority_counts
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +179,7 @@ def build_recommendation_payload(
     stage: str = "analysis",
     mode: str = MODE_ANALYZE,
     include_missing_design_check: Optional[bool] = None,
+    rank: bool = True,
 ) -> dict[str, Any]:
     """Build the additive recommendation block for the API response.
 
@@ -240,6 +243,12 @@ def build_recommendation_payload(
 
     candidates = generate_candidates(issue_result.issues)
 
+    # Deterministic scoring + ranking. Mutates candidate.metadata in
+    # place so the JSON payload exposes the per-axis score. Skipping
+    # (rank=False) is supported for tests that pin candidate order.
+    if rank and candidates:
+        candidates = rank_candidates(candidates, issue_result.issues)
+
     payload = warnings_to_payload(normalized)
     payload["issues"] = [i.to_dict() for i in issue_result.issues]
     payload["recommendation_candidates"] = [c.to_dict() for c in candidates]
@@ -247,7 +256,10 @@ def build_recommendation_payload(
         "num_issues": issue_result.summary.get("total", 0),
         "issues_by_type": issue_result.summary.get("by_type", {}),
         "issues_by_severity": issue_result.summary.get("by_severity", {}),
+        "issues_by_category": category_counts(issue_result.issues),
+        "issues_by_priority": priority_counts(issue_result.issues),
         "num_candidates": len(candidates),
+        "ranked": bool(rank and candidates),
         "rag_enabled": False,
         "llm_enabled": False,
         "mode": mode,
