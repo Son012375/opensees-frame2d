@@ -1827,7 +1827,12 @@ async function runAnalysisFromIFCWizard() {
 // the error after showing alert + status — that keeps fire-and-forget
 // callers from producing unhandled-rejection noise. The recommendations
 // Apply flow opts into rethrow so it can auto-rollback _v2Model.
-async function runAnalysisV2({ rethrow = false } = {}) {
+//
+// Pass { skipUndo: true } when the caller has ALREADY captured the
+// pre-change undo point (e.g. applyRecDiff snapshots BEFORE swapping
+// _v2Model). Without this, the analysis-time pushUndo() would save the
+// post-Apply model and Ctrl+Z could not return to the pre-Apply state.
+async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
     if (!window._v2Model) {
         if (rethrow) throw new Error('V2 모델이 없습니다.');
         alert('V2 모델이 없습니다.');
@@ -1835,7 +1840,7 @@ async function runAnalysisV2({ rethrow = false } = {}) {
     }
 
     // 해석 전 undo 포인트 저장 (Ctrl+Z로 해석 전 상태 복원 가능)
-    if (typeof pushUndo === 'function') pushUndo();
+    if (!skipUndo && typeof pushUndo === 'function') pushUndo();
 
     setStatus('V2 해석 중 (KDS Load Gen + Analysis + Design Check)...', 'running');
 
@@ -3701,19 +3706,35 @@ function _formatCandidateChange(cand) {
 }
 
 function _candidateBadges(cand, evaluation) {
+    // Badges stack independently:
+    //   - applicability badge:  applicable | manual review
+    //   - evaluation badge:     verified  | unverified | rejected
+    // So a verified-and-applicable candidate now shows BOTH "applicable"
+    // and "verified" (previously the if/else swallowed the applicable
+    // badge once the candidate was evaluated).
     const pc = cand.proposed_change || {};
+    const isVerified = evaluation && evaluation.status === 'evaluated';
+    const isRejected = evaluation && (
+        evaluation.status === 'rejected_new_ng'
+        || evaluation.status === 'rejected_analysis_failed'
+    );
     const badges = [];
-    if (evaluation && evaluation.status === 'evaluated') {
-        badges.push('<span class="rec-badge verified">verified</span>');
-    } else if (evaluation && (evaluation.status === 'rejected_new_ng' || evaluation.status === 'rejected_analysis_failed')) {
-        badges.push('<span class="rec-badge rejected">rejected</span>');
-    } else if (pc.applicable === false) {
+
+    // Applicability badge — always meaningful, independent of evaluation.
+    if (pc.applicable === false) {
         badges.push('<span class="rec-badge abstract">manual review</span>');
     } else if (pc.applicable === true) {
         badges.push('<span class="rec-badge applicable">applicable</span>');
-        // Phase 2 — flag applicable cards that have NOT been verified by
-        // the evaluator yet. The hint is informational only; the
-        // Preview/Apply button is still enabled.
+    }
+
+    // Evaluation badge.
+    if (isVerified) {
+        badges.push('<span class="rec-badge verified">verified</span>');
+    } else if (isRejected) {
+        badges.push('<span class="rec-badge rejected">rejected</span>');
+    } else if (pc.applicable === true) {
+        // Applicable but no evaluation yet — Preview/Apply is still
+        // enabled, the hint is informational only.
         badges.push('<span class="rec-badge unverified" title="Evaluate 권장 — verified score 없이 적용됨">unverified</span>');
     }
     return badges.join(' ');
@@ -4033,13 +4054,19 @@ async function applyRecDiff() {
     st.applyInFlight = true;
     _setRecModalApplyState('applying');
 
-    // Rollback snapshot.
+    // Rollback snapshot (for our auto-rollback on reanalysis failure).
     try {
         st.lastModelSnapshot = structuredClone(window._v2Model);
     } catch (_) {
         // structuredClone is in all modern browsers; fall back to JSON.
         st.lastModelSnapshot = JSON.parse(JSON.stringify(window._v2Model));
     }
+    // Push the PRE-Apply model onto the editor's undo stack BEFORE we
+    // swap _v2Model. If we let runAnalysisV2() push undo on its own, it
+    // would save the post-Apply state and Ctrl+Z could not return to
+    // the pre-recommendation model. Pass skipUndo:true below so the
+    // analysis function doesn't double-save the post-Apply model.
+    if (typeof pushUndo === 'function') pushUndo();
     window._v2Model = data.updated_model;
 
     _showRecToast(
@@ -4049,7 +4076,9 @@ async function applyRecDiff() {
 
     try {
         // Precondition: runAnalysisV2({rethrow:true}) rejects on failure.
-        await runAnalysisV2({ rethrow: true });
+        // skipUndo:true because we already pushed the pre-Apply undo
+        // point above.
+        await runAnalysisV2({ rethrow: true, skipUndo: true });
         st.lastModelSnapshot = null;     // success — drop the snapshot
         _showRecToast('Reanalysis complete.', 'success');
     } catch (e) {
