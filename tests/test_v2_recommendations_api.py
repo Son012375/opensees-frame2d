@@ -339,3 +339,205 @@ class TestEvaluateLifecycle:
                 ranked_ids = final["ranked_order"]
                 assert CANDIDATE_A["candidate_id"] in ranked_ids
                 assert CANDIDATE_ABSTRACT["candidate_id"] not in ranked_ids
+
+
+# ---------------------------------------------------------------------------
+# Preview-apply endpoint (Phase 2)
+# ---------------------------------------------------------------------------
+
+def _real_model() -> dict:
+    """One column at story 1 — the smallest model that ``apply_candidate``
+    can actually mutate. Element id=1 carries section ``H-300x300`` so
+    ``CANDIDATE_A`` (replace_section from H-300x300 → H-310x310, targeting
+    element_id=1) succeeds."""
+    return {
+        "version": "2.0",
+        "nodes": [
+            {"id": 1, "x": 0, "y": 0, "z": 0,
+             "story": 0, "support": "fixed", "mass": 0.0},
+            {"id": 2, "x": 0, "y": 0, "z": 3500,
+             "story": 1, "support": None, "mass": 0.0},
+        ],
+        "elements": [
+            {"id": 1, "node_i": 1, "node_j": 2,
+             "elem_type": "column", "section": "H-300x300",
+             "material": "SS275",
+             "release_i": None, "release_j": None, "beta_angle": 0.0},
+        ],
+        "story_elevations": [0, 3500],
+        "story_usages": {1: "office"},
+    }
+
+
+def _seed_with_real_model(*candidates: dict) -> None:
+    """Seed analysis_context_cache with a model that has real elements
+    plus the supplied candidate dicts (already in to_dict-ish shape)."""
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[ANALYSIS_ID] = {
+            "model_json": _real_model(),
+            "load_cases": {}, "load_combinations": {},
+            "building_model": None, "seismic_report": None,
+            "design_check": {"overall_status": "OK"},
+            "candidates_by_id": {c["candidate_id"]: c for c in candidates},
+            "expires_at": time.time() + 600,
+        }
+
+
+class TestPreviewApplyEndpoint:
+    def test_preview_apply_returns_diff_and_updated_model(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["candidate_id"] == CANDIDATE_A["candidate_id"]
+        assert data["applicable"] is True
+
+        diff = data["diff"]
+        assert diff["candidate_id"] == CANDIDATE_A["candidate_id"]
+        assert diff["operation"] == "replace_section"
+        assert diff["changed_member_count"] >= 1
+        assert len(diff["changed_members"]) == diff["changed_member_count"]
+        row = diff["changed_members"][0]
+        # All UI-required keys present.
+        for key in ("element_id", "member_id", "member_label",
+                    "member_type", "section_from", "section_to",
+                    "story", "reason"):
+            assert key in row, f"missing diff key: {key}"
+        assert row["section_from"] == "H-300x300"
+        assert row["section_to"] == "H-310x310"
+        assert row["member_label"]  # non-empty
+
+        # updated_model carries the new section so the frontend can
+        # swap window._v2Model without further work.
+        assert isinstance(data["updated_model"], dict)
+        new_elems = data["updated_model"]["elements"]
+        assert any(e["id"] == 1 and e["section"] == "H-310x310"
+                   for e in new_elems)
+
+    def test_preview_apply_does_not_mutate_cached_model(self):
+        """Two preview-apply calls in a row must both succeed and return
+        identical diffs — the cached model_json must NOT drift toward
+        the proposed section."""
+        _seed_with_real_model(CANDIDATE_A)
+        import copy
+        with _ANALYSIS_CONTEXT_LOCK:
+            snapshot = copy.deepcopy(
+                analysis_context_cache[ANALYSIS_ID]["model_json"]
+            )
+
+        with TestClient(app) as client:
+            r1 = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+            assert r1.status_code == 200
+            with _ANALYSIS_CONTEXT_LOCK:
+                assert (
+                    analysis_context_cache[ANALYSIS_ID]["model_json"]
+                    == snapshot
+                ), "cached model_json was mutated by the first call"
+
+            r2 = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+            assert r2.status_code == 200
+            assert r1.json()["diff"] == r2.json()["diff"]
+
+    def test_preview_apply_missing_analysis_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"candidate_id": "x"},
+            )
+            assert resp.status_code == 400
+            assert "analysis_id" in resp.text
+
+    def test_preview_apply_missing_candidate_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": "x"},
+            )
+            assert resp.status_code == 400
+            assert "candidate_id" in resp.text
+
+    def test_preview_apply_unknown_analysis_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": "ghost",
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+            assert resp.status_code == 400
+            assert "not found" in resp.text
+
+    def test_preview_apply_expired_analysis_id_returns_410_and_evicts(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[ANALYSIS_ID]["expires_at"] = (
+                time.time() - 1
+            )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 410, resp.text
+        assert "expired" in resp.text
+        with _ANALYSIS_CONTEXT_LOCK:
+            assert ANALYSIS_ID not in analysis_context_cache
+
+    def test_preview_apply_unknown_candidate_id_returns_404(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": "cand_does_not_exist"},
+            )
+        assert resp.status_code == 404
+        assert "not found" in resp.text
+
+    def test_preview_apply_abstract_candidate_returns_422(self):
+        _seed_with_real_model(CANDIDATE_ABSTRACT)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_ABSTRACT["candidate_id"]},
+            )
+        assert resp.status_code == 422, resp.text
+        assert "not applicable" in resp.text
+        # The 422 mentions the operation so the UI can label the failure.
+        assert "add_lateral_resistance" in resp.text
+
+    def test_preview_apply_inapplicable_error_returns_422(self):
+        """A candidate that's flagged applicable=True but turns out to
+        be a no-op (section already equals proposed_change.to) must
+        surface the InapplicableCandidateError as a 422."""
+        noop_candidate = {
+            **CANDIDATE_A,
+            "candidate_id": "cand_test_noop",
+            "proposed_change": {
+                **CANDIDATE_A["proposed_change"],
+                "to": "H-300x300",   # same as the element's current section
+            },
+        }
+        _seed_with_real_model(noop_candidate)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": "cand_test_noop"},
+            )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"].startswith("apply failed:")

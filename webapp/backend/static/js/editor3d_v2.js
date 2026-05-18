@@ -1822,8 +1822,17 @@ async function runAnalysisFromIFCWizard() {
 }
 
 // ─── V2 Analysis (Node-Element Pipeline) ─────────────────────────────────
-async function runAnalysisV2() {
-    if (!window._v2Model) { alert('V2 모델이 없습니다.'); return; }
+// Pass { rethrow: true } to make the returned Promise REJECT on failure.
+// The default behavior (used by existing user-triggered flows) swallows
+// the error after showing alert + status — that keeps fire-and-forget
+// callers from producing unhandled-rejection noise. The recommendations
+// Apply flow opts into rethrow so it can auto-rollback _v2Model.
+async function runAnalysisV2({ rethrow = false } = {}) {
+    if (!window._v2Model) {
+        if (rethrow) throw new Error('V2 모델이 없습니다.');
+        alert('V2 모델이 없습니다.');
+        return;
+    }
 
     // 해석 전 undo 포인트 저장 (Ctrl+Z로 해석 전 상태 복원 가능)
     if (typeof pushUndo === 'function') pushUndo();
@@ -1907,8 +1916,9 @@ async function runAnalysisV2() {
         setStatus('V2 해석 완료 (KDS + Design Check)', 'success');
 
     } catch (e) {
-        alert('V2 해석 오류: ' + e.message);
         setStatus('V2 해석 실패', 'error');
+        if (rethrow) throw e;       // caller owns user-facing feedback
+        alert('V2 해석 오류: ' + e.message);
     }
 }
 
@@ -3639,6 +3649,12 @@ window._recState = {
     rejected: {},            // candidate_id → rejected evaluation dict
     ranked: [],              // candidate_ids in verified-rank order
     verifiedSummary: null,
+    // Phase 2 — diff preview / apply / rollback state
+    selectedCandidateId: null,
+    previewLoading: false,
+    applyInFlight: false,
+    _pendingApply: null,     // last preview-apply response, pinned for Apply
+    lastModelSnapshot: null, // structuredClone(_v2Model) taken before Apply
 };
 
 function _severityClass(sev) {
@@ -3695,6 +3711,10 @@ function _candidateBadges(cand, evaluation) {
         badges.push('<span class="rec-badge abstract">manual review</span>');
     } else if (pc.applicable === true) {
         badges.push('<span class="rec-badge applicable">applicable</span>');
+        // Phase 2 — flag applicable cards that have NOT been verified by
+        // the evaluator yet. The hint is informational only; the
+        // Preview/Apply button is still enabled.
+        badges.push('<span class="rec-badge unverified" title="Evaluate 권장 — verified score 없이 적용됨">unverified</span>');
     }
     return badges.join(' ');
 }
@@ -3746,6 +3766,14 @@ function renderRecommendationsPanel(result) {
     window._recState.rejected = {};
     window._recState.ranked = [];
     window._recState.verifiedSummary = null;
+    // Phase 2 — the new analysis is the new ground truth; drop any
+    // pending preview/apply state and the rollback snapshot from a
+    // previous Apply (whether successful or not).
+    window._recState.selectedCandidateId = null;
+    window._recState._pendingApply = null;
+    window._recState.lastModelSnapshot = null;
+    window._recState.previewLoading = false;
+    window._recState.applyInFlight = false;
 
     _renderIssuesList();
     _renderCandidatesList();
@@ -3804,12 +3832,32 @@ function _renderCandidatesList() {
     list.innerHTML = ordered.map(cand => {
         const ev = window._recState.evaluations[cand.candidate_id]
                  || window._recState.rejected[cand.candidate_id];
+        const isVerified = ev && ev.status === 'evaluated';
+        const isRejected = ev && (ev.status === 'rejected_new_ng'
+                                  || ev.status === 'rejected_analysis_failed');
+        const isApplicable = cand.proposed_change?.applicable === true;
+        // Phase 2 — show Preview/Apply on both verified and (applicable + not-yet-evaluated)
+        // cards. Hidden on rejected/abstract per UX rules.
+        const canPreview = isVerified || (isApplicable && !ev);
+
         const klass = [
             'rec-card',
-            ev && ev.status === 'evaluated' ? 'verified' :
-            (ev && (ev.status === 'rejected_new_ng' || ev.status === 'rejected_analysis_failed')) ? 'rejected' :
-            cand.proposed_change?.applicable === false ? 'abstract' : 'applicable',
+            isVerified ? 'verified'
+              : isRejected ? 'rejected'
+              : cand.proposed_change?.applicable === false ? 'abstract'
+              : 'applicable',
         ].join(' ');
+
+        const actionsHtml = canPreview
+            ? `<div class="rec-card-actions">
+                 <button type="button" class="rec-card-btn"
+                         data-rec-action="preview-apply"
+                         data-rec-candidate-id="${_escapeHtml(cand.candidate_id)}">
+                   Preview / Apply
+                 </button>
+               </div>`
+            : '';
+
         return `
             <div class="${klass}" data-cand-id="${_escapeHtml(cand.candidate_id)}">
                 <div class="rec-card-header">
@@ -3819,6 +3867,7 @@ function _renderCandidatesList() {
                 <div class="rec-card-body">${_formatCandidateChange(cand)}</div>
                 <div class="rec-card-meta">${_escapeHtml(cand.description || '')}</div>
                 ${_renderCandidateScore(ev)}
+                ${actionsHtml}
             </div>
         `;
     }).join('');
@@ -3916,6 +3965,255 @@ async function runRecommendationEvaluation() {
         st.evalState = 'failed';
     }
 }
+
+// ─── Phase 2 — Diff Preview Modal + Apply + Auto-rollback ────────────────
+
+async function openRecDiffModal(candidateId) {
+    const st = window._recState;
+    if (!st.analysisId) {
+        alert('No analysis_id — re-run analysis.');
+        return;
+    }
+    if (st.previewLoading || st.applyInFlight) return;
+
+    st.previewLoading = true;
+    st.selectedCandidateId = candidateId;
+    _showRecModal(true);
+    _renderRecDiffLoading();
+    _setRecModalApplyState('disabled');
+
+    try {
+        const resp = await fetch('/api/v2/recommendations/preview-apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                analysis_id: st.analysisId,
+                candidate_id: candidateId,
+            }),
+        });
+        if (!resp.ok) {
+            // Read body exactly once, then try to extract `detail`.
+            const raw = await resp.text();
+            let detail = raw;
+            try { detail = JSON.parse(raw).detail || raw; } catch (_) { /* keep raw */ }
+            _renderRecDiffError(detail, resp.status);
+            return;
+        }
+        const data = await resp.json();
+        st._pendingApply = data;
+        _renderRecDiffPreview(data);
+        const hasChanges = (data?.diff?.changed_member_count || 0) > 0;
+        _setRecModalApplyState(hasChanges ? 'idle' : 'disabled');
+    } catch (e) {
+        _renderRecDiffError(String(e?.message || e), 0);
+    } finally {
+        st.previewLoading = false;
+    }
+}
+
+// `force:true` lets the apply path close the modal even while
+// applyInFlight is set — Cancel/backdrop/× still respect the guard.
+function closeRecDiffModal({ force = false } = {}) {
+    if (window._recState.applyInFlight && !force) return;
+    _showRecModal(false);
+    window._recState.selectedCandidateId = null;
+    window._recState._pendingApply = null;
+}
+
+async function applyRecDiff() {
+    const st = window._recState;
+    const data = st._pendingApply;
+    if (!data || !data.updated_model) return;
+    if (st.applyInFlight) return;
+
+    // Close BEFORE flipping applyInFlight so we don't trip our own guard.
+    // (force:true is defense-in-depth in case future code reorders this.)
+    closeRecDiffModal({ force: true });
+
+    st.applyInFlight = true;
+    _setRecModalApplyState('applying');
+
+    // Rollback snapshot.
+    try {
+        st.lastModelSnapshot = structuredClone(window._v2Model);
+    } catch (_) {
+        // structuredClone is in all modern browsers; fall back to JSON.
+        st.lastModelSnapshot = JSON.parse(JSON.stringify(window._v2Model));
+    }
+    window._v2Model = data.updated_model;
+
+    _showRecToast(
+        `Applied "${data.candidate_id}". Re-running analysis…`,
+        'info',
+    );
+
+    try {
+        // Precondition: runAnalysisV2({rethrow:true}) rejects on failure.
+        await runAnalysisV2({ rethrow: true });
+        st.lastModelSnapshot = null;     // success — drop the snapshot
+        _showRecToast('Reanalysis complete.', 'success');
+    } catch (e) {
+        if (st.lastModelSnapshot) {
+            window._v2Model = st.lastModelSnapshot;
+            st.lastModelSnapshot = null;
+        }
+        _refreshAfterRollback();
+        _showRecToast(
+            `Reanalysis failed — change rolled back: ${e?.message || e}`,
+            'error',
+        );
+    } finally {
+        st.applyInFlight = false;
+        _setRecModalApplyState('idle');
+    }
+}
+
+function _refreshAfterRollback() {
+    // Clear any in-flight loading overlay so the user sees the restored
+    // model rather than the half-applied state.
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) overlay.style.display = 'none';
+    if (typeof setStatus === 'function') {
+        setStatus('Apply rolled back — previous model restored.', 'error');
+    }
+    // We deliberately do NOT re-render the Recs panel from stale
+    // candidates — those came from the analysis we just abandoned. They
+    // remain on screen until the user manually re-runs analysis, which
+    // matches existing UX after any analysis error.
+}
+
+// ─── Modal / toast render helpers ─────────────────────────────────────────
+
+function _showRecModal(open) {
+    const m = document.getElementById('rec-diff-modal');
+    if (m) m.style.display = open ? 'flex' : 'none';
+}
+
+function _renderRecDiffLoading() {
+    const summary = document.getElementById('rec-diff-summary');
+    const tbl = document.getElementById('rec-diff-table-wrap');
+    const err = document.getElementById('rec-diff-error');
+    if (summary) summary.textContent = 'Loading preview…';
+    if (tbl) tbl.innerHTML = '';
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+}
+
+function _renderRecDiffPreview(data) {
+    const summary = document.getElementById('rec-diff-summary');
+    const tbl = document.getElementById('rec-diff-table-wrap');
+    const err = document.getElementById('rec-diff-error');
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+
+    const diff = data?.diff || {};
+    const rows = diff.changed_members || [];
+
+    if (summary) {
+        const op = _escapeHtml(diff.operation || '?');
+        const n = diff.changed_member_count || 0;
+        const reason = _escapeHtml(diff.reason || '');
+        summary.innerHTML =
+            `<b>${op}</b> · ${n} member${n === 1 ? '' : 's'}`
+            + (reason ? ` · reason: ${reason}` : '');
+    }
+
+    if (!tbl) return;
+    if (rows.length === 0) {
+        tbl.innerHTML = '<div style="font-size:11px;color:var(--text-secondary,#888);">No members would change.</div>';
+        return;
+    }
+    const body = rows.map(r => `
+        <tr>
+            <td>${_escapeHtml(r.member_label || '')}</td>
+            <td>${r.story != null ? _escapeHtml(String(r.story)) : '-'}</td>
+            <td>${_escapeHtml(r.member_type || '')}</td>
+            <td>${_escapeHtml(r.section_from || '')}
+                <span class="rec-diff-arrow">→</span>
+                ${_escapeHtml(r.section_to || '')}</td>
+            <td>${_escapeHtml(r.reason || '')}</td>
+        </tr>
+    `).join('');
+    tbl.innerHTML = `
+        <table class="rec-diff-table">
+            <thead><tr>
+                <th>Member</th><th>Story</th><th>Type</th>
+                <th>Section</th><th>Reason</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+        </table>
+    `;
+}
+
+function _renderRecDiffError(detail, status) {
+    const summary = document.getElementById('rec-diff-summary');
+    const tbl = document.getElementById('rec-diff-table-wrap');
+    const err = document.getElementById('rec-diff-error');
+    if (summary) summary.textContent = '';
+    if (tbl) tbl.innerHTML = '';
+    if (err) {
+        const prefix = status ? `HTTP ${status}: ` : '';
+        err.textContent = prefix + (detail || 'preview failed');
+        err.style.display = '';
+    }
+    _setRecModalApplyState('disabled');
+}
+
+function _setRecModalApplyState(state) {
+    const btn = document.getElementById('rec-diff-apply');
+    if (!btn) return;
+    if (state === 'applying') {
+        btn.disabled = true;
+        btn.textContent = 'Applying…';
+    } else if (state === 'disabled') {
+        btn.disabled = true;
+        btn.textContent = 'Apply to editor';
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Apply to editor';
+    }
+}
+
+function _showRecToast(msg, kind) {
+    let container = document.getElementById('rec-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'rec-toast-container';
+        document.body.appendChild(container);
+    }
+    const t = document.createElement('div');
+    t.className = 'rec-toast' + (kind ? ' rec-toast-' + kind : '');
+    t.textContent = msg;
+    container.appendChild(t);
+    setTimeout(() => { t.remove(); }, 4000);
+}
+
+// ─── Delegated click handler for Preview/Apply + modal close ──────────────
+//
+// One listener at document level handles every data-rec-action click.
+// We deliberately avoid inline onclick with interpolated candidate_id
+// because _escapeHtml() does not make a value safe inside a JS string
+// literal context — even though candidate_id is deterministic today.
+document.addEventListener('click', (e) => {
+    const previewBtn = e.target.closest('[data-rec-action="preview-apply"]');
+    if (previewBtn) {
+        openRecDiffModal(previewBtn.dataset.recCandidateId);
+        return;
+    }
+    if (e.target.closest('[data-rec-action="apply-confirm"]')) {
+        applyRecDiff();
+        return;
+    }
+    if (e.target.closest('[data-rec-action="modal-close"]')) {
+        closeRecDiffModal();
+        return;
+    }
+});
+
+// Escape key closes the diff modal (respects applyInFlight guard).
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const m = document.getElementById('rec-diff-modal');
+    if (m && m.style.display !== 'none') closeRecDiffModal();
+});
 
 // ─── Result Tab Switching ─────────────────────────────────────────────────
 function switchResultTab(tabName) {

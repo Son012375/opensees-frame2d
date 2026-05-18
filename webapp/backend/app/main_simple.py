@@ -1420,6 +1420,98 @@ async def get_recommendations_evaluate(eval_job_id: str):
         }
 
 
+@app.post("/api/v2/recommendations/preview-apply")
+async def post_recommendations_preview_apply(request: Request):
+    """Materialize a candidate against the cached analysis model.
+
+    Re-runs apply_candidate_to_model on the cached ``model_json`` and
+    returns the diff plus the resulting model. The frontend uses the
+    returned ``updated_model`` to swap ``window._v2Model`` before
+    triggering reanalysis. apply_candidate_to_model deepcopies its
+    input, so repeated calls are safe — the cached entry stays pristine.
+
+    Request:
+        {"analysis_id": "...", "candidate_id": "..."}
+
+    Response:
+        {"candidate_id", "applicable", "diff": {...}, "updated_model": {...}}
+    """
+    body = await request.json()
+    analysis_id = body.get("analysis_id")
+    candidate_id = body.get("candidate_id")
+
+    if not analysis_id:
+        raise HTTPException(status_code=400, detail="analysis_id is required")
+    if not candidate_id:
+        raise HTTPException(status_code=400, detail="candidate_id is required")
+
+    # Distinguish "never existed" (400) from "expired and evicted" (410),
+    # mirroring the /evaluate endpoint exactly.
+    with _ANALYSIS_CONTEXT_LOCK:
+        ever_existed = analysis_id in analysis_context_cache
+    ctx = _get_analysis_context(analysis_id)
+    if ctx is None:
+        if ever_existed:
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    f"analysis context for '{analysis_id}' has expired "
+                    "(30-minute TTL). Re-run /api/v2/analyze first."
+                ),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"analysis context for '{analysis_id}' not found. It "
+                "may have never been created or the server was restarted. "
+                "Re-run /api/v2/analyze first."
+            ),
+        )
+
+    cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
+    if cand_dict is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"candidate '{candidate_id}' not found in analysis context",
+        )
+
+    proposed = cand_dict.get("proposed_change") or {}
+    if not proposed.get("applicable", False):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"candidate '{candidate_id}' is not applicable "
+                f"(operation='{proposed.get('operation', '?')}', "
+                "reason='abstract candidate — manual review required')"
+            ),
+        )
+
+    from core.recommendation import apply_candidate_to_model
+    from core.recommendation.apply_candidate import InapplicableCandidateError
+
+    cand = _rehydrate_candidate(cand_dict)
+    try:
+        new_model, diff = apply_candidate_to_model(ctx["model_json"], cand)
+    except InapplicableCandidateError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"apply failed: {e}",
+        )
+
+    return {
+        "candidate_id": candidate_id,
+        "applicable": True,
+        "diff": {
+            "candidate_id": diff.candidate_id,
+            "operation": diff.operation,
+            "reason": diff.reason,
+            "changed_member_count": diff.changed_member_count,
+            "changed_members": diff.changed_members,
+        },
+        "updated_model": new_model,
+    }
+
+
 @app.get("/api/v2/viewer/{filename}")
 async def serve_v2_viewer(filename: str):
     """V2 HTML 뷰어/리포트 서빙"""

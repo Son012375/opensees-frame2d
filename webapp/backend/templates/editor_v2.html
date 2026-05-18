@@ -1114,7 +1114,36 @@
         </div>
     </div>
 
-    <script src="/static/js/editor3d_v2.js?v=4"></script>
+    <!-- Recommendation diff preview modal (Phase 2) -->
+    <div id="rec-diff-modal" class="rec-modal" style="display:none;">
+        <div class="rec-modal-backdrop" data-rec-action="modal-close"></div>
+        <div class="rec-modal-panel">
+            <div class="rec-modal-header">
+                <span id="rec-diff-title">Preview change</span>
+                <button type="button" class="rec-modal-close"
+                        data-rec-action="modal-close"
+                        aria-label="Close">×</button>
+            </div>
+            <div class="rec-modal-body">
+                <div id="rec-diff-summary"></div>
+                <div id="rec-diff-table-wrap"></div>
+                <div id="rec-diff-error" style="display:none;"></div>
+            </div>
+            <div class="rec-modal-footer">
+                <button type="button" id="rec-diff-cancel"
+                        class="btn btn-secondary"
+                        data-rec-action="modal-close">Cancel</button>
+                <button type="button" id="rec-diff-apply"
+                        class="btn btn-primary"
+                        data-rec-action="apply-confirm">Apply to editor</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating toast container for Apply/rollback feedback (Phase 2) -->
+    <div id="rec-toast-container"></div>
+
+    <script src="/static/js/editor3d_v2.js?v=5"></script>
     <script src="/static/js/v2_edit.js?v=4"></script>
     <script src="/static/js/v2_tools.js?v=2"></script>
 </body>
