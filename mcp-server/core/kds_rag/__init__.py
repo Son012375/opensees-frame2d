@@ -28,7 +28,12 @@ from .schemas import (
     KDSRetrievalResult,
     CitationValidationResult,
 )
-from .retriever import KDSRetriever, InMemoryKDSRetriever
+from .retriever import (
+    KDSRetriever,
+    InMemoryKDSRetriever,
+    NoopKDSRetriever,
+    NOOP_WARNING,
+)
 from .citation_validator import (
     MAX_QUOTE_LEN,
     validate_code_reference,
@@ -40,7 +45,9 @@ from .pipeline import (
     enrich_code_refs_with_kds,
     enrich_recommendation_payload_with_kds,
     chunk_to_code_reference,
+    make_kds_query,
 )
+from .factory import get_default_kds_retriever
 
 __all__ = [
     "KDSChunk",
@@ -49,6 +56,8 @@ __all__ = [
     "CitationValidationResult",
     "KDSRetriever",
     "InMemoryKDSRetriever",
+    "NoopKDSRetriever",
+    "NOOP_WARNING",
     "MAX_QUOTE_LEN",
     "validate_code_reference",
     "validate_code_references",
@@ -57,4 +66,6 @@ __all__ = [
     "enrich_code_refs_with_kds",
     "enrich_recommendation_payload_with_kds",
     "chunk_to_code_reference",
+    "make_kds_query",
+    "get_default_kds_retriever",
 ]

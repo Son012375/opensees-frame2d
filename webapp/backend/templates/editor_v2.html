@@ -1140,6 +1140,26 @@
         </div>
     </div>
 
+    <!-- Recommendation explanation modal (Phase 3A) -->
+    <div id="rec-explain-modal" class="rec-modal" style="display:none;">
+        <div class="rec-modal-backdrop" data-rec-action="explain-modal-close"></div>
+        <div class="rec-modal-panel rec-explain-panel">
+            <div class="rec-modal-header">
+                <span id="rec-explain-title">추천 근거 설명</span>
+                <button type="button" class="rec-modal-close"
+                        data-rec-action="explain-modal-close"
+                        aria-label="Close">×</button>
+            </div>
+            <div class="rec-modal-body">
+                <div id="rec-explain-body"></div>
+            </div>
+            <div class="rec-modal-footer">
+                <button type="button" class="btn btn-secondary"
+                        data-rec-action="explain-modal-close">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Floating toast container for Apply/rollback feedback (Phase 2) -->
     <div id="rec-toast-container"></div>
 

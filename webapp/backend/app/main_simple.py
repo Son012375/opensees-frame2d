@@ -1512,6 +1512,135 @@ async def post_recommendations_preview_apply(request: Request):
     }
 
 
+@app.post("/api/v2/recommendations/explain")
+async def post_recommendations_explain(request: Request):
+    """Produce a Korean engineer-brief explanation for a candidate.
+
+    The explanation is *advisory*: the deterministic pipeline (candidate
+    generation + reanalysis-verified scoring) stays the source of truth.
+    This endpoint never mutates the cached model_json — it deep-copies
+    before deriving any diff. KDS evidence (when a real retriever is
+    configured) is appended verbatim from validated chunks; the
+    deterministic explainer never invents clause numbers.
+
+    Request:
+        {
+            "analysis_id": "...",
+            "candidate_id": "...",
+            "evaluation": <optional CandidateEvaluation.to_dict()>,
+            "diff": <optional ChangeDiff.to_dict()>,
+            "language": "ko",
+            "style": "engineer_brief"
+        }
+
+    Response:
+        {
+            "candidate_id": "...",
+            "explanation": {summary, issue_interpretation, ...},
+            "kds_evidence": [{doc_id, title, clause, quote, relevance, score}],
+            "confidence": "low|medium|high",
+            "source": {deterministic, rag_used, llm_used, score_method},
+            "warnings": [...]
+        }
+
+    Status codes:
+        200  — explanation returned (even if KDS-RAG is unavailable)
+        400  — missing/invalid analysis_id or candidate_id, or unknown analysis
+        404  — candidate_id not found in the analysis context
+        410  — analysis context expired (TTL)
+    """
+    body = await request.json()
+    analysis_id = body.get("analysis_id")
+    candidate_id = body.get("candidate_id")
+    evaluation_payload = body.get("evaluation")
+    diff_payload = body.get("diff")
+    language = body.get("language") or "ko"
+    style = body.get("style") or "engineer_brief"
+
+    if not analysis_id:
+        raise HTTPException(status_code=400, detail="analysis_id is required")
+    if not candidate_id:
+        raise HTTPException(status_code=400, detail="candidate_id is required")
+
+    # Same 400/410 split as /evaluate and /preview-apply: peek-then-get so
+    # we can tell "never existed" apart from "expired and evicted".
+    with _ANALYSIS_CONTEXT_LOCK:
+        ever_existed = analysis_id in analysis_context_cache
+    ctx = _get_analysis_context(analysis_id)
+    if ctx is None:
+        if ever_existed:
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    f"analysis context for '{analysis_id}' has expired "
+                    "(30-minute TTL). Re-run /api/v2/analyze first."
+                ),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"analysis context for '{analysis_id}' not found. It may "
+                "have never been created or the server was restarted. "
+                "Re-run /api/v2/analyze first."
+            ),
+        )
+
+    cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
+    if cand_dict is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"candidate '{candidate_id}' not found in analysis context",
+        )
+
+    candidate = _rehydrate_candidate(cand_dict)
+
+    # Derive diff lazily when caller didn't supply one and the candidate
+    # is auto-applicable. ``derive_diff_if_applicable`` deep-copies before
+    # applying, so the cached model_json is never touched.
+    diff_obj = diff_payload
+    derive_warnings: list[str] = []
+    if diff_obj is None:
+        from core.recommendation import derive_diff_if_applicable
+        diff_obj, derive_warnings = derive_diff_if_applicable(
+            candidate, ctx.get("model_json"),
+        )
+
+    from core.kds_rag import get_default_kds_retriever
+    from core.recommendation import explain_candidate
+
+    retriever = get_default_kds_retriever()
+
+    # analysis_summary helps the explainer compose contextual prose. We
+    # keep it intentionally small to avoid leaking the full cached entry.
+    design_check = ctx.get("design_check") or {}
+    summary = (design_check.get("summary") or {}) if isinstance(
+        design_check, dict
+    ) else {}
+    analysis_summary = {
+        "max_interaction_ratio": summary.get("max_interaction_ratio"),
+        "max_drift_ratio": summary.get("max_drift_ratio"),
+        "ng_members": summary.get("ng_members"),
+        "ng_stories": summary.get("ng_stories"),
+    }
+
+    result = explain_candidate(
+        candidate,
+        diff=diff_obj,
+        evaluation=evaluation_payload,
+        analysis_summary=analysis_summary,
+        retriever=retriever,
+        language=language,
+        style=style,
+    )
+
+    # Surface diff-derivation warnings on the API response as well.
+    for w in derive_warnings:
+        if w not in result.warnings:
+            result.warnings.append(w)
+
+    return result.to_dict()
+
+
 @app.get("/api/v2/viewer/{filename}")
 async def serve_v2_viewer(filename: str):
     """V2 HTML 뷰어/리포트 서빙"""

@@ -152,6 +152,7 @@ class InMemoryKDSRetriever(KDSRetriever):
         # Sort by score desc, then by insertion order (stable tie-break).
         scored.sort(key=lambda t: (-t[0], t[1]))
         picked = [c for _, _, c in scored[:top_k]]
+        scores = {c.chunk_id: round(float(s), 6) for s, _, c in scored[:top_k]}
 
         warnings: list[str] = []
         if not picked:
@@ -172,4 +173,34 @@ class InMemoryKDSRetriever(KDSRetriever):
             query=query,
             chunks=picked,
             warnings=warnings,
+            scores=scores,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Noop retriever — the explicit "no KDS index configured" backend
+# ---------------------------------------------------------------------------
+
+NOOP_WARNING = "kds_rag_unavailable: no KDS retriever/index configured"
+
+
+class NoopKDSRetriever(KDSRetriever):
+    """The honest-fallback retriever for environments without a KDS index.
+
+    Always returns an empty result PLUS an explicit warning so the
+    /explain endpoint can surface "deterministic-only, no KDS evidence"
+    without inventing data. Callers must never see a silent empty:
+    if there is no index, say so.
+    """
+
+    def retrieve(
+        self,
+        query: KDSRetrievalQuery,
+        top_k: int = 5,
+    ) -> KDSRetrievalResult:
+        return KDSRetrievalResult(
+            query=query,
+            chunks=[],
+            warnings=[NOOP_WARNING],
+            scores={},
         )

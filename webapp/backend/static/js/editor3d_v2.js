@@ -3869,15 +3869,22 @@ function _renderCandidatesList() {
               : 'applicable',
         ].join(' ');
 
-        const actionsHtml = canPreview
-            ? `<div class="rec-card-actions">
-                 <button type="button" class="rec-card-btn"
-                         data-rec-action="preview-apply"
-                         data-rec-candidate-id="${_escapeHtml(cand.candidate_id)}">
-                   Preview / Apply
-                 </button>
-               </div>`
+        // Phase 3A — Explain button is shown on every card (applicable,
+        // verified, rejected, abstract). Preview/Apply still respects the
+        // applicable-or-verified gate from Phase 2.
+        const previewBtnHtml = canPreview
+            ? `<button type="button" class="rec-card-btn"
+                       data-rec-action="preview-apply"
+                       data-rec-candidate-id="${_escapeHtml(cand.candidate_id)}">
+                 Preview / Apply
+               </button>`
             : '';
+        const explainBtnHtml = `<button type="button" class="rec-card-btn rec-card-btn-secondary"
+                       data-rec-action="explain"
+                       data-rec-candidate-id="${_escapeHtml(cand.candidate_id)}">
+                 Explain
+               </button>`;
+        const actionsHtml = `<div class="rec-card-actions">${previewBtnHtml}${explainBtnHtml}</div>`;
 
         return `
             <div class="${klass}" data-cand-id="${_escapeHtml(cand.candidate_id)}">
@@ -4235,14 +4242,179 @@ document.addEventListener('click', (e) => {
         closeRecDiffModal();
         return;
     }
+    const explainBtn = e.target.closest('[data-rec-action="explain"]');
+    if (explainBtn) {
+        openRecExplainModal(explainBtn.dataset.recCandidateId);
+        return;
+    }
+    if (e.target.closest('[data-rec-action="explain-modal-close"]')) {
+        closeRecExplainModal();
+        return;
+    }
 });
 
-// Escape key closes the diff modal (respects applyInFlight guard).
+// Escape key closes whichever rec modal is currently open. Diff modal
+// closure still respects the applyInFlight guard; explain modal is
+// advisory and always closeable.
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    const m = document.getElementById('rec-diff-modal');
-    if (m && m.style.display !== 'none') closeRecDiffModal();
+    const diff = document.getElementById('rec-diff-modal');
+    if (diff && diff.style.display !== 'none') { closeRecDiffModal(); return; }
+    const explain = document.getElementById('rec-explain-modal');
+    if (explain && explain.style.display !== 'none') { closeRecExplainModal(); return; }
 });
+
+// ─── Phase 3A — Recommendation explanation modal ─────────────────────────
+
+const _EXPLAIN_SECTIONS = [
+    ['summary', '요약'],
+    ['issue_interpretation', '이슈 해석'],
+    ['recommended_change', '권장 변경'],
+    ['expected_structural_effect', '예상 구조 효과'],
+    ['verified_result', '검증 결과'],
+    ['tradeoffs', '트레이드오프'],
+    ['limitations', '한계 및 미확보 근거'],
+    ['next_user_decision', '다음 의사결정'],
+];
+
+function _showRecExplainModal(open) {
+    const m = document.getElementById('rec-explain-modal');
+    if (!m) return;
+    m.style.display = open ? 'flex' : 'none';
+}
+
+function _renderRecExplainLoading() {
+    const body = document.getElementById('rec-explain-body');
+    if (body) body.innerHTML = '<div class="rec-explain-loading">설명을 불러오는 중...</div>';
+}
+
+function _renderRecExplainError(msg, status) {
+    const body = document.getElementById('rec-explain-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="rec-explain-error">
+        <strong>설명을 불러오지 못했습니다.</strong>
+        <div class="rec-explain-error-detail">[${_escapeHtml(String(status || ''))}] ${_escapeHtml(String(msg || ''))}</div>
+      </div>`;
+}
+
+function _renderRecExplainResult(data) {
+    const body = document.getElementById('rec-explain-body');
+    if (!body) return;
+    const exp = data.explanation || {};
+    const ev = Array.isArray(data.kds_evidence) ? data.kds_evidence : [];
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    const src = data.source || {};
+    const conf = data.confidence || 'low';
+
+    const sectionsHtml = _EXPLAIN_SECTIONS.map(([key, label]) => {
+        const v = exp[key] || '';
+        if (!v) return '';
+        return `<section class="rec-explain-section">
+                  <h4>${_escapeHtml(label)}</h4>
+                  <p>${_escapeHtml(v)}</p>
+                </section>`;
+    }).join('');
+
+    const evidenceHtml = ev.length
+        ? `<section class="rec-explain-section">
+             <h4>KDS 근거</h4>
+             <ul class="rec-evidence-list">
+               ${ev.map(e => `
+                 <li class="rec-evidence-card">
+                   <div class="rec-evidence-head">
+                     <span class="rec-evidence-doc">${_escapeHtml(e.doc_id || '')}</span>
+                     ${e.clause ? `<span class="rec-evidence-clause">${_escapeHtml(e.clause)}</span>` : ''}
+                     <span class="rec-evidence-score">score ${_escapeHtml(Number(e.score || 0).toFixed(2))}</span>
+                   </div>
+                   ${e.title ? `<div class="rec-evidence-title">${_escapeHtml(e.title)}</div>` : ''}
+                   ${e.quote ? `<blockquote class="rec-evidence-quote">${_escapeHtml(e.quote)}</blockquote>` : ''}
+                   ${e.relevance ? `<div class="rec-evidence-rel">${_escapeHtml(e.relevance)}</div>` : ''}
+                 </li>`).join('')}
+             </ul>
+           </section>`
+        : `<section class="rec-explain-section">
+             <h4>KDS 근거</h4>
+             <p class="rec-explain-muted">KDS 인용이 확보되지 않았습니다 (RAG 인덱스 미설정 또는 무매칭).</p>
+           </section>`;
+
+    const warningsHtml = warnings.length
+        ? `<section class="rec-explain-section">
+             <h4>주의</h4>
+             <ul class="rec-explain-warning-list">
+               ${warnings.map(w => `<li>${_escapeHtml(w)}</li>`).join('')}
+             </ul>
+           </section>`
+        : '';
+
+    const ragBadge = src.rag_used
+        ? '<span class="rec-explain-badge rec-explain-badge-ok">RAG 사용</span>'
+        : '<span class="rec-explain-badge rec-explain-badge-warn">RAG 미사용</span>';
+    const llmBadge = src.llm_used
+        ? '<span class="rec-explain-badge rec-explain-badge-ok">LLM 사용</span>'
+        : '<span class="rec-explain-badge">결정론적</span>';
+    const methodBadge = src.score_method
+        ? `<span class="rec-explain-badge">${_escapeHtml(src.score_method)}</span>`
+        : '';
+    const confBadge = `<span class="rec-explain-badge rec-explain-confidence-${_escapeHtml(conf)}">신뢰도 ${_escapeHtml(conf)}</span>`;
+
+    body.innerHTML = `
+      <div class="rec-explain-meta">
+        ${confBadge}${ragBadge}${llmBadge}${methodBadge}
+      </div>
+      ${sectionsHtml}
+      ${evidenceHtml}
+      ${warningsHtml}
+    `;
+}
+
+async function openRecExplainModal(candidateId) {
+    const st = window._recState;
+    if (!st || !st.analysisId) {
+        alert('No analysis_id — re-run analysis.');
+        return;
+    }
+    _showRecExplainModal(true);
+    _renderRecExplainLoading();
+
+    const evaluation = (st.evaluations && st.evaluations[candidateId])
+        || (st.rejected && st.rejected[candidateId])
+        || null;
+    const pending = st._pendingApply;
+    const diff = (pending && pending.candidate_id === candidateId)
+        ? pending.diff
+        : undefined;
+
+    try {
+        const resp = await fetch('/api/v2/recommendations/explain', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                analysis_id: st.analysisId,
+                candidate_id: candidateId,
+                evaluation: evaluation || undefined,
+                diff: diff,
+                language: 'ko',
+                style: 'engineer_brief',
+            }),
+        });
+        if (!resp.ok) {
+            const raw = await resp.text();
+            let detail = raw;
+            try { detail = JSON.parse(raw).detail || raw; } catch (_) { /* keep raw */ }
+            _renderRecExplainError(detail, resp.status);
+            return;
+        }
+        const data = await resp.json();
+        _renderRecExplainResult(data);
+    } catch (e) {
+        _renderRecExplainError(String(e?.message || e), 0);
+    }
+}
+
+function closeRecExplainModal() {
+    _showRecExplainModal(false);
+}
 
 // ─── Result Tab Switching ─────────────────────────────────────────────────
 function switchResultTab(tabName) {

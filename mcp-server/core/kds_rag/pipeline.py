@@ -105,6 +105,116 @@ def _query_for_ref(
     )
 
 
+# ---------------------------------------------------------------------------
+# Context-driven query builder (used by the explain endpoint)
+# ---------------------------------------------------------------------------
+
+# Deterministic keyword maps. The explainer hits these *before* the LLM /
+# RAG so query text is never empty even when code_refs are missing.
+# Keep lists short — Voyage rerank scores collapse with noisy queries.
+ISSUE_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "strength_exceeded": ["부재 강도", "조합응력 비", "interaction ratio"],
+    "shear_exceeded": ["전단강도", "전단 검토", "shear strength"],
+    "drift_exceeded": ["층간변위", "허용 층간변위비", "drift limit", "사용성"],
+    "missing_design_check": ["설계 검토", "부재 검정"],
+    "analysis_warning": ["해석 경고", "수치 안정성"],
+    "compression_capacity": ["압축강도", "좌굴", "유효좌굴길이"],
+    "tension_capacity": ["인장강도"],
+}
+
+ACTION_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "increase_section": ["단면 증대", "단면 강성", "내력 증가"],
+    "replace_section": ["단면 변경", "부재 단면"],
+    "replace_sections_by_story": ["층별 기둥 단면", "층 강성"],
+    "change_material": ["강재 등급", "재료 강도"],
+    "add_member": ["부재 추가"],
+    "add_lateral_resistance": ["횡저항 시스템", "가새", "전단벽", "모멘트골조"],
+    "change_support": ["지지 조건"],
+    "requires_engineer_review": ["엔지니어 검토"],
+    "manual_review": ["수동 검토"],
+}
+
+ISSUE_TYPE_TO_LIMIT_STATE: dict[str, str] = {
+    "strength_exceeded": "strength",
+    "shear_exceeded": "shear_strength",
+    "drift_exceeded": "drift_limit",
+    "compression_capacity": "compression_strength",
+    "tension_capacity": "tension_strength",
+}
+
+ISSUE_TYPE_TO_TOPIC: dict[str, str] = {
+    "strength_exceeded": "member_strength",
+    "shear_exceeded": "member_shear",
+    "drift_exceeded": "story_drift",
+    "compression_capacity": "member_compression",
+}
+
+
+def make_kds_query(context: dict) -> KDSRetrievalQuery:
+    """Build a KDSRetrievalQuery from an explainer context dict.
+
+    The explainer context (see ``core.recommendation.explainer.build_explanation_context``)
+    is a plain dict, not a typed CodeReference / Issue / Candidate, so
+    this is the deterministic mapping layer that turns it into a useful
+    search query. It never raises and always returns a query, even when
+    the context is sparse — the resulting ``query_text`` falls back to
+    the action_type or "kds search" rather than an empty string so the
+    upstream retriever can still produce a deterministic (possibly empty)
+    result instead of failing.
+    """
+    issue_type = context.get("issue_type")
+    action_type = context.get("action_type")
+    target = context.get("target") or {}
+    proposed = context.get("proposed_change") or {}
+
+    keywords: list[str] = []
+    keywords.extend(ISSUE_TYPE_KEYWORDS.get(issue_type or "", []))
+    keywords.extend(ACTION_TYPE_KEYWORDS.get(action_type or "", []))
+
+    member_type = target.get("member_type")
+    if member_type:
+        keywords.append(str(member_type))
+
+    section_from = proposed.get("from") or {}
+    section_to = proposed.get("to") or {}
+    for sec in (section_from, section_to):
+        if isinstance(sec, dict):
+            sec_id = sec.get("section") or sec.get("section_id")
+            if sec_id:
+                keywords.append(str(sec_id))
+
+    # Stable de-dup that preserves order.
+    seen: set[str] = set()
+    dedup: list[str] = []
+    for k in keywords:
+        s = str(k).strip()
+        if s and s not in seen:
+            seen.add(s)
+            dedup.append(s)
+
+    query_text = " ".join(dedup) or (action_type or "kds search")
+
+    discriminator = "|".join([
+        context.get("candidate_id", ""),
+        context.get("issue_id", ""),
+        issue_type or "",
+        action_type or "",
+        query_text,
+    ])
+    qid = f"explain_q_{_short_digest([discriminator])}"
+
+    return KDSRetrievalQuery(
+        query_id=qid,
+        query_text=query_text,
+        topic=ISSUE_TYPE_TO_TOPIC.get(issue_type or ""),
+        material=target.get("material"),
+        limit_state=ISSUE_TYPE_TO_LIMIT_STATE.get(issue_type or ""),
+        standard_id=None,
+        issue_id=context.get("issue_id"),
+        candidate_id=context.get("candidate_id"),
+    )
+
+
 def build_kds_queries_for_issue(issue: "StructuralIssue") -> list[KDSRetrievalQuery]:
     """One query per CodeReference attached to the issue."""
     out: list[KDSRetrievalQuery] = []

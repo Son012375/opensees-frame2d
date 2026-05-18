@@ -58,6 +58,18 @@ from .evaluator import (
     STATUS_REJECTED_FAILED,
     STATUS_REJECTED_NEW_NG,
 )
+from .explainer import (
+    KdsEvidence,
+    RecommendationExplanation,
+    build_explanation_context,
+    deterministic_explanation,
+    explain_candidate,
+    derive_diff_if_applicable,
+)
+from .llm_explainer import (
+    BaseExplanationLLMProvider,
+    NoopExplanationLLMProvider,
+)
 from .section_catalog import (
     SectionEntry,
     SectionMeta,
@@ -199,4 +211,13 @@ __all__ = [
     "STATUS_SKIPPED_INAPPLICABLE",
     "STATUS_REJECTED_FAILED",
     "STATUS_REJECTED_NEW_NG",
+    # Explainer
+    "KdsEvidence",
+    "RecommendationExplanation",
+    "build_explanation_context",
+    "deterministic_explanation",
+    "explain_candidate",
+    "derive_diff_if_applicable",
+    "BaseExplanationLLMProvider",
+    "NoopExplanationLLMProvider",
 ]

@@ -541,3 +541,182 @@ class TestPreviewApplyEndpoint:
             )
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"].startswith("apply failed:")
+
+
+class TestExplainEndpoint:
+    """``/api/v2/recommendations/explain`` — Phase 3A.
+
+    The endpoint must succeed even when no KDS retriever is configured
+    (the Noop default is the supported fallback) and must never mutate
+    the cached model_json.
+    """
+
+    def test_explain_happy_path_applicable_candidate_without_evaluation(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["candidate_id"] == CANDIDATE_A["candidate_id"]
+        # 8 required explanation sections
+        for k in ("summary", "issue_interpretation", "recommended_change",
+                  "expected_structural_effect", "verified_result",
+                  "tradeoffs", "limitations", "next_user_decision"):
+            assert k in data["explanation"]
+            assert isinstance(data["explanation"][k], str)
+            assert data["explanation"][k].strip()
+        # Without a configured retriever, rag_used=False and a warning says so.
+        assert data["source"]["rag_used"] is False
+        assert data["source"]["llm_used"] is False
+        joined = " | ".join(data["warnings"])
+        assert "kds_rag_unavailable" in joined or "kds_evidence_missing" in joined
+
+    def test_explain_with_supplied_evaluation_marks_verified(self):
+        _seed_with_real_model(CANDIDATE_A)
+        verified_eval = {
+            "candidate_id": CANDIDATE_A["candidate_id"],
+            "status": STATUS_EVALUATED,
+            "metrics": {"max_interaction_ratio": 0.85,
+                        "max_drift_ratio": 0.005,
+                        "ng_member_count": 0,
+                        "ng_drift_count": 0,
+                        "weight_proxy": 5e5,
+                        "changed_member_count": 1,
+                        "analysis_succeeded": True},
+            "improvement": {"dcr_delta": -0.55, "drift_delta": 0.0,
+                            "ng_member_delta": -1, "ng_drift_delta": 0},
+            "score": {"safety_gain": 1.0, "code_compliance": 1.0,
+                      "relative_cost": 0.99, "disruption": 0.5,
+                      "side_effect_risk": 1.0, "total": 0.85,
+                      "method": VERIFIED_SCORE_METHOD,
+                      "verified": True, "status": "verified"},
+            "error": None,
+        }
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"],
+                      "evaluation": verified_eval},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["source"]["score_method"] == VERIFIED_SCORE_METHOD
+        assert "재해석" in data["explanation"]["verified_result"]
+
+    def test_explain_missing_analysis_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"candidate_id": "x"},
+            )
+        assert resp.status_code == 400
+        assert "analysis_id" in resp.text
+
+    def test_explain_missing_candidate_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": "x"},
+            )
+        assert resp.status_code == 400
+        assert "candidate_id" in resp.text
+
+    def test_explain_unknown_analysis_id_returns_400(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": "ghost",
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 400
+        assert "not found" in resp.text
+
+    def test_explain_expired_analysis_id_returns_410(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[ANALYSIS_ID]["expires_at"] = (
+                time.time() - 1
+            )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 410, resp.text
+        assert "expired" in resp.text
+
+    def test_explain_unknown_candidate_id_returns_404(self):
+        _seed_with_real_model(CANDIDATE_A)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": "cand_does_not_exist"},
+            )
+        assert resp.status_code == 404
+        assert "not found" in resp.text
+
+    def test_explain_abstract_candidate_returns_200_with_warning(self):
+        """Unlike /preview-apply (which 422s), /explain succeeds for an
+        abstract candidate and emits a manual-review warning."""
+        _seed_with_real_model(CANDIDATE_ABSTRACT)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_ABSTRACT["candidate_id"]},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        joined = " | ".join(data["warnings"])
+        assert "abstract_candidate" in joined
+        # The next-step instruction must steer toward manual review.
+        nxt = data["explanation"]["next_user_decision"]
+        assert "엔지니어" in nxt or "수동" in nxt
+
+    def test_explain_does_not_mutate_cached_model(self):
+        import copy
+        _seed_with_real_model(CANDIDATE_A)
+        with _ANALYSIS_CONTEXT_LOCK:
+            snapshot = copy.deepcopy(
+                analysis_context_cache[ANALYSIS_ID]["model_json"]
+            )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 200
+        with _ANALYSIS_CONTEXT_LOCK:
+            assert (
+                analysis_context_cache[ANALYSIS_ID]["model_json"]
+                == snapshot
+            ), "cached model_json was mutated by /explain"
+
+    def test_explain_response_has_no_invented_kds_clause(self):
+        """Regression: deterministic fallback must NOT print a fabricated
+        KDS clause id when no retriever is configured."""
+        import re as _re
+        _seed_with_real_model(CANDIDATE_A)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        clause_re = _re.compile(r"KDS\s+\d{2}\s+\d{2}\s+\d{2}")
+        for k, v in data["explanation"].items():
+            assert not clause_re.search(v), (
+                f"section {k!r} contains an invented KDS clause: {v!r}"
+            )
+        # And no evidence was returned, since the Noop retriever is the default.
+        assert data["kds_evidence"] == []

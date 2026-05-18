@@ -102,10 +102,17 @@ class KDSRetrievalResult:
     A failing retrieval is represented by ``chunks=[]`` + a ``warnings``
     entry — never by raising. Callers can therefore treat retrieval as
     best-effort and continue.
+
+    ``scores`` is an optional ``chunk_id -> relevance score`` map. Backends
+    that compute scores (dense cosine, BM25, rerank) populate it; backends
+    that don't simply leave it empty and callers fall back to rank-based
+    scoring. Adding it as a default field keeps existing constructors
+    binary-compatible.
     """
     query: KDSRetrievalQuery
     chunks: list[KDSChunk] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    scores: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_empty(self) -> bool:
@@ -116,6 +123,7 @@ class KDSRetrievalResult:
             "query": self.query.to_dict(),
             "chunks": [c.to_dict() for c in self.chunks],
             "warnings": list(self.warnings),
+            "scores": dict(self.scores),
         }
 
 
