@@ -173,6 +173,26 @@ def _purge_expired_analysis_contexts() -> None:
             analysis_context_cache.pop(k, None)
 
 
+def _get_analysis_context(analysis_id: str) -> Optional[dict]:
+    """TTL-aware read for ``analysis_context_cache``.
+
+    Returns the cached context if present and unexpired, otherwise
+    evicts the (expired) entry and returns ``None``. Both the POST
+    endpoint and the background worker call this single helper so the
+    TTL is enforced on every read — not only when /api/v2/analyze
+    happens to run and triggers the bulk purge.
+    """
+    now = time.time()
+    with _ANALYSIS_CONTEXT_LOCK:
+        ctx = analysis_context_cache.get(analysis_id)
+        if ctx is None:
+            return None
+        if ctx.get("expires_at", 0) < now:
+            analysis_context_cache.pop(analysis_id, None)
+            return None
+        return ctx
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Page Routes
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1187,8 +1207,7 @@ def _run_evaluation_job(eval_job_id: str) -> None:
         candidate_ids = list(job["candidate_ids_requested"])
 
     try:
-        with _ANALYSIS_CONTEXT_LOCK:
-            ctx = analysis_context_cache.get(analysis_id)
+        ctx = _get_analysis_context(analysis_id)
 
         if ctx is None:
             with _EVAL_JOBS_LOCK:
@@ -1314,14 +1333,30 @@ async def post_recommendations_evaluate(request: Request):
             detail="candidate_ids must be a non-empty list of strings",
         )
 
+    # Distinguish "never existed" (400 Bad Request) from "expired / evicted"
+    # (410 Gone) so a client can tell the user which way to recover. The
+    # peek-then-get sequence is intentional: we want to know whether the
+    # entry was present at all (regardless of TTL) before we treat the
+    # miss as a not-found vs gone.
     with _ANALYSIS_CONTEXT_LOCK:
-        ctx = analysis_context_cache.get(analysis_id)
+        ever_existed = analysis_id in analysis_context_cache
+    ctx = _get_analysis_context(analysis_id)
     if ctx is None:
+        if ever_existed:
+            # _get_analysis_context just evicted it because it was past
+            # its expires_at — surface that as 410 Gone.
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    f"analysis context for '{analysis_id}' has expired "
+                    "(30-minute TTL). Re-run /api/v2/analyze first."
+                ),
+            )
         raise HTTPException(
             status_code=400,
             detail=(
-                f"analysis context for '{analysis_id}' not found — it may "
-                "have expired (30-minute TTL) or the server was restarted. "
+                f"analysis context for '{analysis_id}' not found. It "
+                "may have never been created or the server was restarted. "
                 "Re-run /api/v2/analyze first."
             ),
         )

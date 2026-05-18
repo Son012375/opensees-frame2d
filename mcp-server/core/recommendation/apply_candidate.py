@@ -251,6 +251,9 @@ def apply_candidate_to_model(
     elements = new_model.setdefault("elements", [])
     nodes_by_id = {n["id"]: n for n in new_model.get("nodes", [])
                    if isinstance(n, dict) and "id" in n}
+    # Build the element_id → member_id index ONCE per apply so
+    # replace_sections_by_story stays O(N), not O(N²).
+    member_id_by_element_id = _build_member_id_index(elements)
 
     reason = candidate.proposed_change.get("reason", "")
     diff = ChangeDiff(
@@ -262,10 +265,12 @@ def apply_candidate_to_model(
     if op == ChangeOperation.REPLACE_SECTION:
         _apply_replace_section(
             candidate, elements, nodes_by_id, diff,
+            member_id_by_element_id,
         )
     elif op == ChangeOperation.REPLACE_SECTIONS_BY_STORY:
         _apply_replace_sections_by_story(
             candidate, elements, nodes_by_id, diff,
+            member_id_by_element_id,
         )
     else:
         raise InapplicableCandidateError(
@@ -290,10 +295,16 @@ def apply_candidates_batch(
 ) -> list[tuple[dict, ChangeDiff]]:
     """Apply each candidate independently against the *original* model.
 
-    Each candidate gets its own fresh deep copy; failures are propagated
-    via raised exceptions inside the result list (callers can convert
-    them into ``rejected`` entries). We return successes only; the
-    evaluator handles inapplicable candidates separately.
+    Each candidate gets its own fresh deep copy. **The first
+    ``InapplicableCandidateError`` aborts the batch and is re-raised**
+    — successes accumulated up to that point are NOT returned. This
+    matches Phase 1's actual usage: the evaluator calls
+    :func:`apply_candidate_to_model` one-by-one and wraps its own
+    try/except, so resilience lives there, not here. If a future
+    caller needs partial-success / per-item error reporting (e.g. a
+    Phase 2 diff-preview batch), don't change this function — add a
+    sibling like ``try_apply_candidates`` that catches and returns
+    ``list[Result[diff, error]]``.
     """
     out: list[tuple[dict, ChangeDiff]] = []
     for cand in candidates:
@@ -305,6 +316,33 @@ def apply_candidates_batch(
 # Operation implementations
 # ---------------------------------------------------------------------------
 
+def _build_member_id_index(elements: list[dict]) -> dict[int, int]:
+    """Map ``element_id → member_id`` using ``analyze_from_model``'s
+    sort-position rule (1-based enumerate over elements sorted by
+    ``id``). Computing this once per apply() avoids O(N²) walks when
+    a story-wide candidate hits many elements.
+    """
+    sorted_elems = sorted(
+        elements, key=lambda e: (e.get("id") is None, e.get("id", 0))
+    )
+    return {
+        e.get("id"): idx
+        for idx, e in enumerate(sorted_elems, start=1)
+        if e.get("id") is not None
+    }
+
+
+def _member_label(elem: dict, story: Optional[int]) -> str:
+    """UI-friendly stable label for diff display: e.g.
+    ``"column @ story 2 (element 7)"``. Not for programmatic use —
+    Phase 2 UI shows this as the human-readable hook."""
+    etype = elem.get("elem_type") or "member"
+    eid = elem.get("id")
+    if story is None:
+        return f"{etype} (element {eid})"
+    return f"{etype} @ story {story} (element {eid})"
+
+
 def _record_change(
     diff: ChangeDiff,
     elem: dict,
@@ -312,9 +350,15 @@ def _record_change(
     member_type: str,
     story: Optional[int],
     reason: str,
+    member_id: Optional[int] = None,
 ) -> None:
     diff.changed_members.append({
         "element_id": elem.get("id"),
+        # 1-based sort-position member_id matches the index
+        # ``analyze_from_model`` assigns, so Phase 2 UI can refer to
+        # "member N" the same way the analyzer/design-check do.
+        "member_id": member_id,
+        "member_label": _member_label(elem, story),
         "member_type": elem.get("elem_type"),
         "section_from": elem.get("section"),
         "section_to": new_section,
@@ -330,6 +374,7 @@ def _apply_replace_section(
     elements: list[dict],
     nodes_by_id: dict[int, dict],
     diff: ChangeDiff,
+    member_id_by_element_id: dict[int, int],
 ) -> None:
     target = candidate.target or {}
     elem = _resolve_target_element(elements, target, candidate.candidate_id)
@@ -353,6 +398,7 @@ def _apply_replace_section(
         member_type=target.get("member_type", elem.get("elem_type", "")),
         story=story,
         reason=candidate.proposed_change.get("reason", "replace_section"),
+        member_id=member_id_by_element_id.get(elem.get("id")),
     )
 
 
@@ -361,6 +407,7 @@ def _apply_replace_sections_by_story(
     elements: list[dict],
     nodes_by_id: dict[int, dict],
     diff: ChangeDiff,
+    member_id_by_element_id: dict[int, int],
 ) -> None:
     target = candidate.target or {}
     story = target.get("story")
@@ -422,4 +469,5 @@ def _apply_replace_sections_by_story(
             member_type=ladder_member_type,
             story=story_int,
             reason=reason,
+            member_id=member_id_by_element_id.get(elem.get("id")),
         )

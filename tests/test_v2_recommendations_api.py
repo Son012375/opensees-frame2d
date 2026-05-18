@@ -220,12 +220,36 @@ class TestEvaluateEndpoints:
             assert "analysis_id" in resp.text
 
     def test_unknown_analysis_id_returns_400(self):
+        """An analysis_id that was never created is a client mistake
+        (400 Bad Request), distinct from one that existed but expired."""
         with TestClient(app) as client:
             resp = client.post("/api/v2/recommendations/evaluate",
                                json={"analysis_id": "ghost",
                                      "candidate_ids": ["x"]})
             assert resp.status_code == 400
-            assert "not found" in resp.text or "expired" in resp.text
+            assert "not found" in resp.text
+
+    def test_expired_analysis_context_returns_410_and_evicts(self):
+        """An entry whose ``expires_at`` is in the past must be treated
+        as gone (HTTP 410), evicted from the cache on the read attempt,
+        and never seen by the worker."""
+        _seed_analysis_context()
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[ANALYSIS_ID]["expires_at"] = (
+                time.time() - 1
+            )
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/evaluate",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_ids": [CANDIDATE_A["candidate_id"]]},
+            )
+        assert resp.status_code == 410, resp.text
+        assert "expired" in resp.text
+        with _ANALYSIS_CONTEXT_LOCK:
+            assert ANALYSIS_ID not in analysis_context_cache, (
+                "expired context should be evicted on the failed read"
+            )
 
     def test_unknown_eval_job_id_returns_404(self):
         with TestClient(app) as client:

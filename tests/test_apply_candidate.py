@@ -243,6 +243,94 @@ class TestReplaceSectionsByStoryScope:
         s2 = d2.changed_members[0]["section_to"]
         assert s1 != s2, "step1 and step2 must pick different sections"
 
+    def test_story_wide_diff_rows_carry_member_id_and_label(self):
+        """Each story-wide diff row must include a 1-based ``member_id``
+        (the same index ``analyze_from_model`` would assign) and a
+        human-readable ``member_label`` for Phase 2 UI. The four story-1
+        columns are elements 1..4, which by sort-position also become
+        member_id 1..4."""
+        model = _build_simple_model()
+        cands = generate_candidates([_strength_issue_for_element(1, 1)])
+        story_cand = next(
+            c for c in cands
+            if c.proposed_change["operation"]
+            == ChangeOperation.REPLACE_SECTIONS_BY_STORY
+        )
+        _, diff = apply_candidate_to_model(model, story_cand)
+
+        rows = diff.changed_members
+        # Every row carries the new fields.
+        for row in rows:
+            assert "member_id" in row and row["member_id"] is not None
+            assert "member_label" in row and row["member_label"]
+            assert "column" in row["member_label"]
+            assert "story 1" in row["member_label"]
+
+        # member_id values match element_id 1..4 (the sort positions in
+        # this fixture are identity).
+        by_eid = {r["element_id"]: r["member_id"] for r in rows}
+        assert by_eid == {1: 1, 2: 2, 3: 3, 4: 4}, by_eid
+        # All member_ids distinct.
+        member_ids = [r["member_id"] for r in rows]
+        assert len(set(member_ids)) == len(member_ids)
+
+
+class TestDiffMemberIdentifiers:
+    def test_replace_section_diff_row_has_member_id_and_label(self):
+        """Single-member upgrade must also carry the new identifiers
+        — Phase 2 UI relies on them for the diff-modal display."""
+        model = _build_simple_model()
+        cands = generate_candidates([_strength_issue_for_element(1, 1)])
+        member_cand = next(
+            c for c in cands
+            if c.proposed_change["operation"] == ChangeOperation.REPLACE_SECTION
+        )
+        _, diff = apply_candidate_to_model(model, member_cand)
+        assert diff.changed_member_count == 1
+        row = diff.changed_members[0]
+        assert row["element_id"] == 1
+        # In this fixture element ids are dense 1..N so member_id == element_id.
+        assert row["member_id"] == 1
+        assert row["member_label"]
+        assert "element 1" in row["member_label"]
+        assert "story 1" in row["member_label"]
+
+    def test_member_id_matches_sort_position_when_element_ids_have_gaps(self):
+        """If element ids are sparse / out of order, ``member_id`` must
+        still be the 1-based sort-position so it matches the value
+        ``analyze_from_model`` would assign (frame_3d.py enumerate over
+        elements sorted by id)."""
+        model = _build_simple_model()
+        # Remap element ids so they are intentionally non-contiguous and
+        # out of insertion order: 100, 50, 200, 75, 5, 6, 7, 8, 9, 10, 11, 12.
+        new_ids = [100, 50, 200, 75, 5, 6, 7, 8, 9, 10, 11, 12]
+        for elem, new_id in zip(model["elements"], new_ids):
+            elem["id"] = new_id
+
+        # Pick the element whose new id is 50 — by sort order
+        # (5,6,7,8,9,10,11,12,50,75,100,200) it sits at index 8 (1-based 9).
+        cand = RetrofitCandidate(
+            candidate_id="cand_sparse",
+            issue_id="iss_sparse",
+            action_type=ActionType.INCREASE_SECTION,
+            description="t",
+            requires_reanalysis=True,
+            confidence=Confidence.MEDIUM,
+            target={"element_id": 50},
+            proposed_change={
+                "operation": ChangeOperation.REPLACE_SECTION,
+                "from": "H-300x300", "to": "H-350x350",
+                "requires_user_selection": False,
+                "applicable": True, "reason": "strength_exceeded",
+            },
+        )
+        _, diff = apply_candidate_to_model(model, cand)
+        row = diff.changed_members[0]
+        assert row["element_id"] == 50
+        assert row["member_id"] == 9, (
+            f"sort-position of element 50 should be 9, got {row['member_id']}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Inapplicable / refusal paths
