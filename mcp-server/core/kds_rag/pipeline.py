@@ -175,13 +175,23 @@ def make_kds_query(context: dict) -> KDSRetrievalQuery:
     if member_type:
         keywords.append(str(member_type))
 
-    section_from = proposed.get("from") or {}
-    section_to = proposed.get("to") or {}
+    # proposed_change.from/to may be either:
+    #   * a dict (legacy/structured shape): {"section": "H-300x300", ...}
+    #   * a plain string (current candidate shape):  "H-300x150"
+    #   * None (abstract candidate)
+    # All three must contribute their section id to the search keywords
+    # so the Voyage index sees the actual member size in the query —
+    # otherwise dense retrieval loses a strong signal for replace_section
+    # candidates.
+    section_from = proposed.get("from")
+    section_to = proposed.get("to")
     for sec in (section_from, section_to):
         if isinstance(sec, dict):
             sec_id = sec.get("section") or sec.get("section_id")
             if sec_id:
                 keywords.append(str(sec_id))
+        elif isinstance(sec, str) and sec.strip():
+            keywords.append(sec.strip())
 
     # Stable de-dup that preserves order.
     seen: set[str] = set()

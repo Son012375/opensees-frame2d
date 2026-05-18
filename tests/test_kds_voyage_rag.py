@@ -110,6 +110,64 @@ class TestMakeKdsQuery:
         assert isinstance(q, KDSRetrievalQuery)
         assert q.query_text
 
+    def test_string_section_from_to_makes_it_into_query(self):
+        """Phase 2 candidates carry proposed_change.from/to as plain
+        section-name strings (e.g. "H-300x150"). The query builder must
+        include those so dense retrieval has the actual member size as a
+        search signal — otherwise replace_section queries lose their
+        strongest discriminator."""
+        ctx = {
+            "candidate_id": "c4",
+            "issue_id": "iss_strength_exceeded_x",
+            "issue_type": "strength_exceeded",
+            "action_type": "replace_section",
+            "target": {"member_type": "column"},
+            "proposed_change": {
+                "operation": "replace_section",
+                "from": "H-300x150",
+                "to": "H-300x300",
+                "applicable": True,
+            },
+        }
+        q = make_kds_query(ctx)
+        assert "H-300x150" in q.query_text
+        assert "H-300x300" in q.query_text
+
+    def test_dict_section_shape_still_supported(self):
+        """Legacy/structured candidate shape uses dict for from/to."""
+        ctx = {
+            "candidate_id": "c5",
+            "issue_id": "iss_strength_exceeded_x",
+            "action_type": "replace_section",
+            "target": {},
+            "proposed_change": {
+                "from": {"section": "H-400x200", "material": "SS275"},
+                "to": {"section_id": "H-400x400"},
+            },
+        }
+        q = make_kds_query(ctx)
+        assert "H-400x200" in q.query_text
+        assert "H-400x400" in q.query_text
+
+    def test_none_section_does_not_crash(self):
+        """Abstract candidates may carry from=None/to=None."""
+        ctx = {
+            "candidate_id": "c6",
+            "issue_id": "iss_drift_exceeded_x",
+            "action_type": "add_lateral_resistance",
+            "target": {},
+            "proposed_change": {
+                "from": None,
+                "to": None,
+                "applicable": False,
+            },
+        }
+        q = make_kds_query(ctx)
+        # No section keywords, but the action mapping still fills the
+        # query text — so this must not raise and must yield non-empty.
+        assert isinstance(q, KDSRetrievalQuery)
+        assert q.query_text
+
 
 # ---------------------------------------------------------------------------
 # Noop retriever + factory
