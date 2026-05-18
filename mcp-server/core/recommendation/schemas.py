@@ -57,8 +57,11 @@ class ChangeOperation:
     """``proposed_change.operation`` values.
 
     Stable string keys so future re-analysis loops can dispatch on them.
+    The executor in ``apply_candidate`` whitelists which operations are
+    automatically applicable; the rest stay as abstract candidates.
     """
     REPLACE_SECTION = "replace_section"
+    REPLACE_SECTIONS_BY_STORY = "replace_sections_by_story"
     CHANGE_MATERIAL = "change_material"
     ADD_LATERAL_RESISTANCE = "add_lateral_resistance"
     ADD_MEMBER = "add_member"

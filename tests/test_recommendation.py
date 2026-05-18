@@ -571,25 +571,76 @@ def _full_strength_issue(**overrides):
 
 
 class TestCandidateGenerator:
-    def test_strength_exceeded_yields_replace_section_with_proposed_change(self):
-        issue = _full_strength_issue()
+    def test_strength_exceeded_emits_three_typed_candidates(self):
+        """For an H-300x300 column, the deterministic generator should
+        emit (1) a member 1-step upgrade, (2) a 2-step upgrade, and
+        (3) a story-wide 1-step upgrade. The first two carry a concrete
+        ``to`` section; the story-wide one defers ``to`` to the
+        executor (per-element ladder walk) and is still applicable."""
+        issue = _full_strength_issue(story=2)
         cands = generate_candidates([issue])
-        assert len(cands) == 1
-        c = cands[0]
-        assert c.action_type == ActionType.INCREASE_SECTION
-        assert c.member_id == 7
-        assert c.requires_reanalysis is True
-        # proposed_change contract
-        assert c.proposed_change["operation"] == ChangeOperation.REPLACE_SECTION
-        assert c.proposed_change["from"] == "H-300x300"
-        assert c.proposed_change["to"] is None
-        assert c.proposed_change["requires_user_selection"] is True
-        # target
-        assert c.target == {
-            "member_id": 7, "element_id": None, "member_type": "column"
+        assert len(cands) == 3, [c.proposed_change for c in cands]
+
+        ops = [c.proposed_change["operation"] for c in cands]
+        assert ops == [
+            ChangeOperation.REPLACE_SECTION,
+            ChangeOperation.REPLACE_SECTION,
+            ChangeOperation.REPLACE_SECTIONS_BY_STORY,
+        ]
+
+        # All three must be auto-applicable, never demanding user
+        # selection in the proposal layer — they ARE the proposals.
+        for c in cands:
+            assert c.action_type == ActionType.INCREASE_SECTION
+            assert c.member_id == 7
+            assert c.requires_reanalysis is True
+            assert c.proposed_change["applicable"] is True
+            assert c.proposed_change["requires_user_selection"] is False
+            assert c.code_refs == []  # RAG not wired
+
+        # Member upgrades carry a concrete target section.
+        first, second, story_wide = cands
+        assert first.proposed_change["from"] == "H-300x300"
+        assert first.proposed_change["to"] is not None
+        assert first.proposed_change["to"] != "H-300x300"
+        assert second.proposed_change["to"] is not None
+        assert second.proposed_change["to"] != first.proposed_change["to"]
+        # Story-wide candidate doesn't pre-pick `to` — executor walks
+        # each member's own family ladder.
+        assert story_wide.proposed_change["to"] is None
+        assert story_wide.proposed_change["upgrade_step"] == 1
+        assert story_wide.target == {
+            "scope": "story", "story": 2, "member_type": "column",
         }
-        # No RAG yet — code_refs empty
-        assert c.code_refs == []
+
+        # Member-level targets are unambiguous.
+        for member_level in (first, second):
+            assert member_level.target == {
+                "scope": "member", "member_id": 7, "element_id": None,
+                "member_type": "column", "story": 2,
+            }
+
+    def test_strength_candidate_ids_are_distinct_per_variant(self):
+        """Each candidate of the same (issue, action) must get a
+        distinct id — the ladder variant discriminator drives that."""
+        issue = _full_strength_issue(story=2)
+        cands = generate_candidates([issue])
+        ids = [c.candidate_id for c in cands]
+        assert len(set(ids)) == len(ids), ids
+        # Re-running yields the same ids (determinism).
+        ids2 = [c.candidate_id for c in generate_candidates([issue])]
+        assert ids == ids2
+
+    def test_strength_top_of_ladder_only_offers_story_wide(self):
+        """H-400x400 is the top of the square-H column ladder, so no
+        member-level upgrade exists — the story-wide one still does."""
+        issue = _full_strength_issue(section="H-400x400", story=3,
+                                    evidence={"type": "column", "section": "H-400x400"})
+        cands = generate_candidates([issue])
+        ops = [c.proposed_change["operation"] for c in cands]
+        # Only the story-wide upgrade remains — member 1/2-step are dropped.
+        assert ChangeOperation.REPLACE_SECTION not in ops
+        assert ChangeOperation.REPLACE_SECTIONS_BY_STORY in ops
 
     def test_candidate_id_is_deterministic_for_same_issue(self):
         issue = _full_strength_issue(
@@ -618,7 +669,12 @@ class TestCandidateGenerator:
         c = generate_candidates([issue])[0]
         assert c.action_type == ActionType.REQUIRES_ENGINEER_REVIEW
 
-    def test_drift_exceeded_yields_add_lateral_resistance(self):
+    def test_drift_exceeded_yields_column_upgrades_plus_abstract(self):
+        """drift_exceeded should emit three candidates:
+            (1) story column 1-step upgrade  (applicable, deterministic)
+            (2) story column 2-step upgrade  (applicable, deterministic)
+            (3) add_lateral_resistance       (abstract, applicable=False)
+        """
         issue = StructuralIssue(
             issue_id="iss_drift_exceeded_s3_x",
             issue_type=IssueType.DRIFT_EXCEEDED,
@@ -629,11 +685,46 @@ class TestCandidateGenerator:
             story=3,
             evidence={"story": 3, "direction": "X"},
         )
-        c = generate_candidates([issue])[0]
-        assert c.action_type == ActionType.ADD_LATERAL_RESISTANCE
-        assert c.proposed_change["operation"] == ChangeOperation.ADD_LATERAL_RESISTANCE
-        assert c.requires_reanalysis is True
-        assert c.target == {"scope": "story", "story": 3, "direction": "X"}
+        cands = generate_candidates([issue])
+        assert len(cands) == 3, [c.proposed_change for c in cands]
+
+        c1, c2, abstract = cands
+
+        # First two: deterministic story column upgrades.
+        for cand, step in ((c1, 1), (c2, 2)):
+            assert cand.action_type == ActionType.INCREASE_SECTION
+            assert cand.proposed_change["operation"] == (
+                ChangeOperation.REPLACE_SECTIONS_BY_STORY
+            )
+            assert cand.proposed_change["applicable"] is True
+            assert cand.proposed_change["upgrade_step"] == step
+            assert cand.target == {
+                "scope": "story", "story": 3, "member_type": "column",
+                "direction": "X",
+            }
+
+        # Third: abstract, NOT auto-applicable.
+        assert abstract.action_type == ActionType.ADD_LATERAL_RESISTANCE
+        assert abstract.proposed_change["operation"] == (
+            ChangeOperation.ADD_LATERAL_RESISTANCE
+        )
+        assert abstract.proposed_change["applicable"] is False
+        assert abstract.proposed_change["requires_user_selection"] is True
+        assert abstract.metadata.get("abstract") is True
+
+    def test_drift_candidate_ids_are_distinct(self):
+        issue = StructuralIssue(
+            issue_id="iss_drift_exceeded_s3_x",
+            issue_type=IssueType.DRIFT_EXCEEDED,
+            severity=Severity.ERROR,
+            source=IssueSource.DESIGN_CHECK,
+            description="…",
+            demand_capacity_ratio=1.20,
+            story=3,
+            evidence={"story": 3, "direction": "X"},
+        )
+        ids = [c.candidate_id for c in generate_candidates([issue])]
+        assert len(set(ids)) == len(ids), ids
 
     def test_drift_exceeded_without_story_falls_back_to_review(self):
         issue = StructuralIssue(
@@ -796,12 +887,15 @@ class TestBuildRecommendationPayload:
         assert sissue["member_type"] == "column"
         assert sissue["section"] == "H-300x300"
 
-        # Candidate carries proposed_change
+        # Candidate carries proposed_change with a real target section.
+        # The first INCREASE_SECTION candidate is the 1-step member upgrade.
         sc = next(c for c in payload["recommendation_candidates"]
-                  if c["action_type"] == ActionType.INCREASE_SECTION)
-        assert sc["proposed_change"]["operation"] == "replace_section"
+                  if c["action_type"] == ActionType.INCREASE_SECTION
+                  and c["proposed_change"]["operation"] == "replace_section")
         assert sc["proposed_change"]["from"] == "H-300x300"
-        assert sc["proposed_change"]["to"] is None
+        assert sc["proposed_change"]["to"] is not None
+        assert sc["proposed_change"]["to"] != "H-300x300"
+        assert sc["proposed_change"]["applicable"] is True
         assert sc["requires_reanalysis"] is True
 
         # Summary advertises RAG/LLM disabled + current mode

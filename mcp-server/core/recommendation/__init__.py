@@ -42,6 +42,33 @@ from .ids import make_issue_id, make_candidate_id, slugify
 from .context import MemberContext, MemberContextIndex, build_context_index
 from .issue_extractor import extract_issues
 from .candidate_generator import generate_candidates, _should_block_auto_candidate
+from .apply_candidate import (
+    apply_candidate_to_model,
+    apply_candidates_batch,
+    ChangeDiff,
+    InapplicableCandidateError,
+)
+from .evaluator import (
+    BaselineSummary,
+    CandidateEvaluation,
+    evaluate_candidate,
+    VERIFIED_SCORE_METHOD,
+    STATUS_EVALUATED,
+    STATUS_SKIPPED_INAPPLICABLE,
+    STATUS_REJECTED_FAILED,
+    STATUS_REJECTED_NEW_NG,
+)
+from .section_catalog import (
+    SectionEntry,
+    SectionMeta,
+    list_family_ladder,
+    next_sections,
+    parse_family,
+    get_section_metadata,
+    id_order_audit as section_id_order_audit,
+    source as section_catalog_source,
+    clear_cache as clear_section_catalog_cache,
+)
 from .pipeline import (
     MODE_ANALYZE,
     MODE_PARSE_ONLY,
@@ -69,7 +96,10 @@ from .scoring import (
     ScoreBreakdown,
     WEIGHTS as SCORING_WEIGHTS,
     rank_candidates,
+    rank_evaluated_candidates,
     score_candidate,
+    summarize_evaluations,
+    partition_evaluations,
 )
 from .taxonomy import (
     IssueCategory,
@@ -132,7 +162,10 @@ __all__ = [
     "ScoreBreakdown",
     "SCORING_WEIGHTS",
     "rank_candidates",
+    "rank_evaluated_candidates",
     "score_candidate",
+    "summarize_evaluations",
+    "partition_evaluations",
     # Taxonomy
     "IssueCategory",
     "IssueClassification",
@@ -143,4 +176,27 @@ __all__ = [
     "category_counts",
     "classify_issue",
     "priority_counts",
+    # Apply / section catalog
+    "apply_candidate_to_model",
+    "apply_candidates_batch",
+    "ChangeDiff",
+    "InapplicableCandidateError",
+    "SectionEntry",
+    "SectionMeta",
+    "list_family_ladder",
+    "next_sections",
+    "parse_family",
+    "get_section_metadata",
+    "section_id_order_audit",
+    "section_catalog_source",
+    "clear_section_catalog_cache",
+    # Evaluator
+    "BaselineSummary",
+    "CandidateEvaluation",
+    "evaluate_candidate",
+    "VERIFIED_SCORE_METHOD",
+    "STATUS_EVALUATED",
+    "STATUS_SKIPPED_INAPPLICABLE",
+    "STATUS_REJECTED_FAILED",
+    "STATUS_REJECTED_NEW_NG",
 ]

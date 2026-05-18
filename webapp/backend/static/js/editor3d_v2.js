@@ -2022,6 +2022,12 @@ function convertV2ResultToV1(v2Result) {
         load_cases_raw: v2Result.load_cases_raw || {},
         member_forces: v2Result.member_forces || {},
         member_info_raw: v2Result.member_info || [],
+        // Pass through the recommendation block + analysis_id so the
+        // Issues & Candidates tab can read them without re-fetching.
+        analysis_id: v2Result.analysis_id || v2Result.job_id,
+        issues: v2Result.issues || [],
+        recommendation_candidates: v2Result.recommendation_candidates || [],
+        recommendation_summary: v2Result.recommendation_summary || null,
     };
 }
 
@@ -3604,11 +3610,311 @@ function updateResultsPanel(result) {
         reportDiv.style.display = 'none';
     }
 
+    // Recommendations tab — populated from the V2 response that
+    // ``convertV2ResultToV1`` now passes through. Re-rendering here
+    // (rather than only on tab activation) lets the count chip update
+    // even when the user never visits the tab.
+    renderRecommendationsPanel(result);
+
     // 기본 탭: DC (해석 완료 시)
     switchResultTab('dc');
 
     // Auto-save
     if (typeof _autoSave === 'function') _autoSave();
+}
+
+// ─── Recommendations Tab (Phase 1 — display + Evaluate only) ──────────────
+//
+// State captured per /api/v2/analyze response so the Evaluate button
+// can talk to /api/v2/recommendations/evaluate without re-fetching.
+window._recState = {
+    analysisId: null,
+    issues: [],
+    candidates: [],          // raw candidate dicts from the API
+    candidatesById: {},      // candidate_id → candidate dict
+    summary: null,
+    evalJobId: null,
+    evalState: 'idle',       // 'idle' | 'queued' | 'running' | 'done' | 'failed'
+    evaluations: {},         // candidate_id → evaluation dict
+    rejected: {},            // candidate_id → rejected evaluation dict
+    ranked: [],              // candidate_ids in verified-rank order
+    verifiedSummary: null,
+};
+
+function _severityClass(sev) {
+    if (sev === 'error') return 'severity-error';
+    if (sev === 'warning') return 'severity-warning';
+    return 'severity-info';
+}
+
+function _formatIssueTitle(iss) {
+    const type = (iss.issue_type || '').replace(/_/g, ' ');
+    const mid = iss.member_id != null ? `member ${iss.member_id}` : null;
+    const story = iss.story != null ? `story ${iss.story}` : null;
+    const dcr = iss.demand_capacity_ratio;
+    const parts = [type];
+    if (mid) parts.push(mid);
+    if (story) parts.push(story);
+    if (typeof dcr === 'number' && isFinite(dcr)) {
+        parts.push(`D/C=${dcr.toFixed(2)}`);
+    }
+    return parts.join(' · ');
+}
+
+function _formatCandidateChange(cand) {
+    const pc = cand.proposed_change || {};
+    const op = pc.operation || '';
+    if (op === 'replace_section') {
+        return `${pc.from || '?'} <span class="rec-change-arrow">→</span> ${pc.to || '?'}`;
+    }
+    if (op === 'replace_sections_by_story') {
+        const story = cand.target?.story ?? '?';
+        const mt = cand.target?.member_type || '?';
+        const step = pc.upgrade_step || 1;
+        return `story ${story} · ${mt} · step ${step} (per-element ladder walk)`;
+    }
+    if (op === 'add_lateral_resistance') {
+        const story = cand.target?.story ?? '?';
+        const dir = cand.target?.direction || '';
+        return `story ${story} ${dir} — bracing / shear wall (manual review)`;
+    }
+    if (op === 'manual_review') {
+        return 'manual review';
+    }
+    return op;
+}
+
+function _candidateBadges(cand, evaluation) {
+    const pc = cand.proposed_change || {};
+    const badges = [];
+    if (evaluation && evaluation.status === 'evaluated') {
+        badges.push('<span class="rec-badge verified">verified</span>');
+    } else if (evaluation && (evaluation.status === 'rejected_new_ng' || evaluation.status === 'rejected_analysis_failed')) {
+        badges.push('<span class="rec-badge rejected">rejected</span>');
+    } else if (pc.applicable === false) {
+        badges.push('<span class="rec-badge abstract">manual review</span>');
+    } else if (pc.applicable === true) {
+        badges.push('<span class="rec-badge applicable">applicable</span>');
+    }
+    return badges.join(' ');
+}
+
+function _renderCandidateScore(evaluation) {
+    if (!evaluation) return '';
+    if (evaluation.status === 'evaluated') {
+        const sc = evaluation.score || {};
+        const imp = evaluation.improvement || {};
+        const m = evaluation.metrics || {};
+        const dDcr = (imp.dcr_delta != null) ? imp.dcr_delta.toFixed(3) : '-';
+        const dDrift = (imp.drift_delta != null) ? imp.drift_delta.toFixed(4) : '-';
+        const ngDelta = imp.ng_member_delta != null ? imp.ng_member_delta : '-';
+        return `<div class="rec-score">
+            score: <b>${(sc.total || 0).toFixed(2)}</b> (verified) ·
+            ΔD/C: ${dDcr} · Δdrift: ${dDrift} · ΔNG: ${ngDelta} ·
+            changed: ${m.changed_member_count || 0}
+        </div>`;
+    }
+    if (evaluation.status === 'rejected_new_ng') {
+        const newNg = (evaluation.improvement && evaluation.improvement.new_ng_members) || [];
+        return `<div class="rec-score" style="color:#c5221f;">
+            <b>rejected:</b> introduces new NG members ${JSON.stringify(newNg)}
+        </div>`;
+    }
+    if (evaluation.status === 'rejected_analysis_failed') {
+        return `<div class="rec-score" style="color:#c5221f;">
+            <b>rejected:</b> analysis failed (${(evaluation.error || '').split('\n')[0]})
+        </div>`;
+    }
+    return '';
+}
+
+function renderRecommendationsPanel(result) {
+    const issues = result.issues || [];
+    const cands = result.recommendation_candidates || [];
+    const summary = result.recommendation_summary || null;
+
+    window._recState.analysisId = result.analysis_id || result.job_id || null;
+    window._recState.issues = issues;
+    window._recState.candidates = cands;
+    window._recState.candidatesById = {};
+    cands.forEach(c => { window._recState.candidatesById[c.candidate_id] = c; });
+    window._recState.summary = summary;
+    // Reset any verified state — every fresh analysis starts unranked.
+    window._recState.evalJobId = null;
+    window._recState.evalState = 'idle';
+    window._recState.evaluations = {};
+    window._recState.rejected = {};
+    window._recState.ranked = [];
+    window._recState.verifiedSummary = null;
+
+    _renderIssuesList();
+    _renderCandidatesList();
+
+    const evalWrap = document.getElementById('rec-eval-wrap');
+    if (evalWrap) {
+        const anyApplicable = cands.some(c => c.proposed_change && c.proposed_change.applicable === true);
+        evalWrap.style.display = anyApplicable ? '' : 'none';
+    }
+}
+
+function _renderIssuesList() {
+    const list = document.getElementById('rec-issues-list');
+    const countEl = document.getElementById('rec-issues-count');
+    const issues = window._recState.issues || [];
+    if (countEl) countEl.textContent = String(issues.length);
+    if (!list) return;
+    if (issues.length === 0) {
+        list.innerHTML = '<div style="font-size:11px; color:var(--text-secondary,#888);">No issues detected.</div>';
+        return;
+    }
+    list.innerHTML = issues.map(iss => `
+        <div class="rec-issue ${_severityClass(iss.severity)}">
+            <div class="rec-issue-title">${_escapeHtml(_formatIssueTitle(iss))}</div>
+            <div class="rec-issue-meta">${_escapeHtml(iss.description || '')}</div>
+        </div>
+    `).join('');
+}
+
+function _renderCandidatesList() {
+    const list = document.getElementById('rec-candidates-list');
+    const countEl = document.getElementById('rec-candidates-count');
+    if (!list) return;
+
+    // Display order: ranked verified first (if any), then remaining
+    // applicable candidates, then abstract/rejected last. Within each
+    // bucket we preserve the order coming from the backend (which
+    // already deterministically sorts by priority).
+    const cands = window._recState.candidates || [];
+    const ranked = window._recState.ranked || [];
+    const verified = new Set(ranked);
+    const verifiedFirst = ranked.map(id => window._recState.candidatesById[id]).filter(Boolean);
+
+    const others = cands.filter(c => !verified.has(c.candidate_id));
+    const applicable = others.filter(c => c.proposed_change?.applicable === true);
+    const abstract = others.filter(c => c.proposed_change?.applicable === false);
+
+    const ordered = [...verifiedFirst, ...applicable, ...abstract];
+
+    if (countEl) countEl.textContent = String(ordered.length);
+    if (ordered.length === 0) {
+        list.innerHTML = '<div style="font-size:11px; color:var(--text-secondary,#888);">No candidates.</div>';
+        return;
+    }
+
+    list.innerHTML = ordered.map(cand => {
+        const ev = window._recState.evaluations[cand.candidate_id]
+                 || window._recState.rejected[cand.candidate_id];
+        const klass = [
+            'rec-card',
+            ev && ev.status === 'evaluated' ? 'verified' :
+            (ev && (ev.status === 'rejected_new_ng' || ev.status === 'rejected_analysis_failed')) ? 'rejected' :
+            cand.proposed_change?.applicable === false ? 'abstract' : 'applicable',
+        ].join(' ');
+        return `
+            <div class="${klass}" data-cand-id="${_escapeHtml(cand.candidate_id)}">
+                <div class="rec-card-header">
+                    <span class="rec-card-title">${_escapeHtml(cand.action_type || '')}</span>
+                    ${_candidateBadges(cand, ev)}
+                </div>
+                <div class="rec-card-body">${_formatCandidateChange(cand)}</div>
+                <div class="rec-card-meta">${_escapeHtml(cand.description || '')}</div>
+                ${_renderCandidateScore(ev)}
+            </div>
+        `;
+    }).join('');
+}
+
+function _escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function runRecommendationEvaluation() {
+    const st = window._recState;
+    if (!st.analysisId) {
+        alert('Recommendations: missing analysis_id. Re-run analysis first.');
+        return;
+    }
+    const applicableIds = (st.candidates || [])
+        .filter(c => c.proposed_change && c.proposed_change.applicable === true)
+        .map(c => c.candidate_id);
+    if (applicableIds.length === 0) {
+        alert('No applicable candidates to evaluate.');
+        return;
+    }
+
+    const btn = document.getElementById('rec-eval-btn');
+    const progressEl = document.getElementById('rec-eval-progress');
+    if (btn) btn.disabled = true;
+    if (progressEl) {
+        progressEl.style.display = '';
+        progressEl.textContent = `Queueing ${applicableIds.length} candidate(s)...`;
+    }
+
+    try {
+        const resp = await fetch('/api/v2/recommendations/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                analysis_id: st.analysisId,
+                candidate_ids: applicableIds,
+            }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const start = await resp.json();
+        st.evalJobId = start.job_id;
+        st.evalState = 'queued';
+
+        // Poll every 500ms.
+        const deadline = Date.now() + 5 * 60 * 1000;   // 5-minute safety
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 500));
+            const pollResp = await fetch(`/api/v2/recommendations/evaluate/${st.evalJobId}`);
+            if (!pollResp.ok) throw new Error(await pollResp.text());
+            const data = await pollResp.json();
+            st.evalState = data.status;
+            const prog = data.progress || {};
+            if (progressEl) {
+                progressEl.textContent =
+                    `Evaluating: ${prog.completed || 0} / ${prog.total || applicableIds.length}`;
+            }
+            if (data.status === 'done') {
+                st.evaluations = {};
+                (data.evaluated_candidates || []).forEach(ev => {
+                    st.evaluations[ev.candidate_id] = ev;
+                });
+                st.rejected = {};
+                (data.rejected_candidates || []).forEach(ev => {
+                    st.rejected[ev.candidate_id] = ev;
+                });
+                st.ranked = data.ranked_order || [];
+                st.verifiedSummary = data.recommendation_summary || null;
+                _renderCandidatesList();
+                if (progressEl) {
+                    const s = st.verifiedSummary || {};
+                    progressEl.textContent = `Done — ${s.num_success || 0} verified, ` +
+                        `${s.num_rejected_new_ng || 0} rejected (new NG), ` +
+                        `${s.num_rejected_analysis_failed || 0} failed, ` +
+                        `${s.num_skipped_inapplicable || 0} skipped.`;
+                }
+                if (btn) btn.disabled = false;
+                return;
+            }
+            if (data.status === 'failed') {
+                throw new Error(data.error || 'evaluation job failed');
+            }
+        }
+        throw new Error('evaluation timed out');
+    } catch (e) {
+        if (progressEl) {
+            progressEl.textContent = `Evaluation failed: ${e.message || e}`;
+            progressEl.style.color = '#c5221f';
+        }
+        if (btn) btn.disabled = false;
+        st.evalState = 'failed';
+    }
 }
 
 // ─── Result Tab Switching ─────────────────────────────────────────────────

@@ -1,26 +1,37 @@
-"""Placeholder retrofit-candidate generator.
+"""Deterministic retrofit-candidate generator.
 
-This is *intentionally* minimal. Real recommendation logic lives in
-later layers:
+What this module produces for each :class:`StructuralIssue`:
 
-    * KDS-RAG retrieval → :class:`CodeReference` for each candidate
-    * LLM narration → ``description`` / ``tradeoffs`` polish
-    * Optimization / iteration → actual section sizing
+    * strength_exceeded / shear_exceeded → up to 3 candidates
+        1. member 1-step section upgrade  (replace_section)
+        2. member 2-step section upgrade  (replace_section)
+        3. story-wide 1-step upgrade for the same member_type
+                                          (replace_sections_by_story)
+    * drift_exceeded → up to 3 candidates
+        1. story column 1-step upgrade    (replace_sections_by_story)
+        2. story column 2-step upgrade    (replace_sections_by_story)
+        3. add_lateral_resistance         (abstract, applicable=false)
+    * missing_design_check / analysis_warning(error) → engineer review
 
-For now we only ensure that each :class:`StructuralIssue` produces at
-least one well-typed :class:`RetrofitCandidate` so that downstream
-components have a stable surface to bind to. The data model itself
-encodes "not a final design" via ``requires_reanalysis=True``.
+Each candidate carries a machine-readable ``proposed_change`` contract:
 
-Two key concepts encoded here:
+    {
+        "operation": ChangeOperation.<...>,
+        "from":      current section name (str) | None,
+        "to":        target section name (str)  | None,
+        "requires_user_selection": False (when ``to`` is fixed),
+        "applicable": True | False,    # False = abstract / review-only
+        "reason":    issue.issue_type,
+    }
 
-1. :func:`_should_block_auto_candidate` lists every condition under
-   which we refuse to emit a typed candidate and fall back to
-   ``REQUIRES_ENGINEER_REVIEW``.
-2. ``RetrofitCandidate.proposed_change`` is the *machine-readable*
-   contract a re-analysis loop will eventually act on. The placeholder
-   layer only fills ``operation`` / ``from`` / ``requires_user_selection``;
-   the actual ``to`` is left null because automatic sizing is out of scope.
+``applicable=False`` candidates are surfaced for context but the
+evaluator and ``apply_candidate`` executor will refuse to act on them
+— they exist to tell the user "this option exists but it's outside
+the deterministic loop's scope" (e.g. add bracing, add shear wall).
+
+If section_catalog can't suggest a real ``to`` (e.g. unknown family,
+top of ladder), the corresponding candidate is dropped. The handler
+never returns a no-op candidate.
 """
 from __future__ import annotations
 
@@ -37,6 +48,7 @@ from .schemas import (
     Severity,
     StructuralIssue,
 )
+from .section_catalog import next_sections
 
 
 # ---------------------------------------------------------------------------
@@ -46,8 +58,8 @@ from .schemas import (
 def _should_block_auto_candidate(issue: StructuralIssue) -> Optional[str]:
     """Return a human-readable reason to refuse auto-candidate, or None.
 
-    Centralizing these guards keeps the per-issue branches below short
-    and lets the test suite assert each rule individually.
+    Centralizes the guards that send an issue to engineer-review instead
+    of the typed candidate handlers.
     """
     t = issue.issue_type
 
@@ -65,8 +77,6 @@ def _should_block_auto_candidate(issue: StructuralIssue) -> Optional[str]:
             return "현재 section 정보 부족 — 자동 후보 생성 보류"
 
     if t == IssueType.DRIFT_EXCEEDED:
-        # Story is the minimum info needed to point at *which* level
-        # needs more lateral system. If we don't have it, defer.
         if issue.story is None and (
             not isinstance(issue.evidence, dict)
             or issue.evidence.get("story") is None
@@ -74,9 +84,6 @@ def _should_block_auto_candidate(issue: StructuralIssue) -> Optional[str]:
             return "drift 초과이지만 story 정보 없음 — lateral system 미상"
 
     if t == IssueType.ANALYSIS_WARNING:
-        # Only error-severity warnings ever yield a candidate; other
-        # severities should not block, but pure info is filtered out
-        # upstream in :func:`generate_candidates`.
         if issue.severity != Severity.ERROR:
             return None
 
@@ -84,122 +91,292 @@ def _should_block_auto_candidate(issue: StructuralIssue) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Builders for the typed candidate shapes
+# Field-extraction helpers
 # ---------------------------------------------------------------------------
 
-def _strength_candidate(issue: StructuralIssue) -> RetrofitCandidate:
-    """Default placeholder for strength_exceeded / shear_exceeded."""
-    ratio = issue.demand_capacity_ratio or 1.0
-    overstress_pct = max(0.0, (ratio - 1.0)) * 100.0
-    section = issue.section or ""
-    if not section and isinstance(issue.evidence, dict):
-        section = str(issue.evidence.get("section", "") or "")
+def _issue_section(issue: StructuralIssue) -> Optional[str]:
+    if issue.section:
+        return issue.section
+    if isinstance(issue.evidence, dict):
+        s = issue.evidence.get("section")
+        if s:
+            return str(s)
+    return None
 
-    description = (
-        f"부재 {issue.member_id} 단면 확대 후보 (현재 단면 '{section}' "
-        f"기준 D/C={ratio:.2f}, {overstress_pct:.1f}% 초과)."
+
+def _issue_member_type(issue: StructuralIssue) -> Optional[str]:
+    if issue.member_type:
+        return issue.member_type
+    if isinstance(issue.evidence, dict):
+        t = issue.evidence.get("type") or issue.evidence.get("member_type")
+        if t:
+            return str(t)
+    return None
+
+
+def _issue_story(issue: StructuralIssue) -> Optional[int]:
+    if issue.story is not None:
+        return issue.story
+    if isinstance(issue.evidence, dict):
+        s = issue.evidence.get("story")
+        if s is not None:
+            try:
+                return int(s)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Strength / shear candidates
+# ---------------------------------------------------------------------------
+
+def _strength_candidates(issue: StructuralIssue) -> list[RetrofitCandidate]:
+    """Up to 3 candidates for strength/shear overstress."""
+    section = _issue_section(issue) or ""
+    member_type = _issue_member_type(issue) or ""
+    story = _issue_story(issue)
+    ratio = issue.demand_capacity_ratio or 1.0
+    reason = (
+        "strength_exceeded" if issue.issue_type == IssueType.STRENGTH_EXCEEDED
+        else "shear_exceeded"
     )
-    target = {
+
+    nxt = next_sections(section, member_type, steps=2) if section else []
+    out: list[RetrofitCandidate] = []
+
+    base_target = {
+        "scope": "member",
         "member_id": issue.member_id,
         "element_id": issue.element_id,
-        "member_type": issue.member_type
-        or (issue.evidence.get("type") if isinstance(issue.evidence, dict) else None),
+        "member_type": member_type or None,
+        "story": story,
     }
-    proposed_change = {
-        "operation": ChangeOperation.REPLACE_SECTION,
-        "from": section or None,
-        "to": None,  # TODO(optimizer/rag): filled later by sizing logic
-        "requires_user_selection": True,
-        "reason": (
-            "strength_exceeded" if issue.issue_type == IssueType.STRENGTH_EXCEEDED
-            else "shear_exceeded"
-        ),
-    }
-    return RetrofitCandidate(
-        candidate_id=make_candidate_id(
-            issue_id=issue.issue_id, action_type=ActionType.INCREASE_SECTION,
-        ),
-        issue_id=issue.issue_id,
-        action_type=ActionType.INCREASE_SECTION,
-        description=description,
-        member_id=issue.member_id,
-        element_id=issue.element_id,
-        expected_effect=(
-            "단면 증가로 D/C 비를 1.0 이하로 낮추는 것이 목표. "
-            "정확한 신규 단면은 재해석으로 검증 필요."
-        ),
-        tradeoffs=(
-            "자중/비용 증가, 인접 부재 응력 재분배 가능. "
-            "공간/건축 계획 영향 검토 필요."
-        ),
-        requires_reanalysis=True,
-        confidence=Confidence.MEDIUM,
-        code_refs=[],  # TODO(rag): KDS 41 31 00 단면 분류 / AISC 360 H1
-        target=target,
-        proposed_change=proposed_change,
-        metadata={
-            "trigger": issue.issue_type,
-            "current_ratio": ratio,
-            "section": section,
-        },
-    )
+
+    # 1) Member 1-step / 2-step upgrade — individual candidates
+    for step_idx, entry in enumerate(nxt, start=1):
+        desc = (
+            f"부재 {issue.member_id} 단면 {entry.name} 로 교체 "
+            f"({step_idx}단계, 현재 {section} D/C={ratio:.2f})."
+        )
+        proposed_change = {
+            "operation": ChangeOperation.REPLACE_SECTION,
+            "from": section or None,
+            "to": entry.name,
+            "requires_user_selection": False,
+            "applicable": True,
+            "reason": reason,
+        }
+        out.append(RetrofitCandidate(
+            candidate_id=make_candidate_id(
+                issue_id=issue.issue_id,
+                action_type=ActionType.INCREASE_SECTION,
+                variant=entry.name,
+            ),
+            issue_id=issue.issue_id,
+            action_type=ActionType.INCREASE_SECTION,
+            description=desc,
+            member_id=issue.member_id,
+            element_id=issue.element_id,
+            expected_effect=(
+                f"단면 증가로 D/C 비를 1.0 이하로 낮추는 것이 목표 "
+                f"(검증은 재해석 필요)."
+            ),
+            tradeoffs="자중/비용 증가, 인접 부재 응력 재분배 가능.",
+            requires_reanalysis=True,
+            confidence=Confidence.MEDIUM,
+            code_refs=[],
+            target=dict(base_target),
+            proposed_change=proposed_change,
+            metadata={
+                "trigger": issue.issue_type,
+                "current_ratio": ratio,
+                "section_from": section,
+                "section_to": entry.name,
+                "upgrade_step": step_idx,
+            },
+        ))
+
+    # 3) Story-wide 1-step upgrade for the same member_type — only if
+    #    we actually know the story.
+    if story is not None and member_type:
+        story_target = {
+            "scope": "story",
+            "story": story,
+            "member_type": member_type,
+        }
+        proposed_change = {
+            "operation": ChangeOperation.REPLACE_SECTIONS_BY_STORY,
+            "from": section or None,
+            "to": None,   # executor walks each member's own family ladder
+            "requires_user_selection": False,
+            "applicable": True,
+            "reason": reason,
+            "upgrade_step": 1,
+        }
+        out.append(RetrofitCandidate(
+            candidate_id=make_candidate_id(
+                issue_id=issue.issue_id,
+                action_type=ActionType.INCREASE_SECTION,
+                variant=f"story{story}_step1",
+            ),
+            issue_id=issue.issue_id,
+            action_type=ActionType.INCREASE_SECTION,
+            description=(
+                f"{story}층 {member_type} 단면 일괄 1단계 증대 "
+                f"(부재 {issue.member_id} 보강만으로 부족할 때 검토)."
+            ),
+            member_id=issue.member_id,
+            element_id=issue.element_id,
+            expected_effect=(
+                "같은 층의 동일 타입 부재 강성 균일 증대. 단일 부재 "
+                "교체보다 응력 재분배가 부드러움."
+            ),
+            tradeoffs="변경 부재 수 증가, 자중/비용 증가.",
+            requires_reanalysis=True,
+            confidence=Confidence.MEDIUM,
+            code_refs=[],
+            target=story_target,
+            proposed_change=proposed_change,
+            metadata={
+                "trigger": issue.issue_type,
+                "current_ratio": ratio,
+                "story": story,
+                "member_type": member_type,
+                "upgrade_step": 1,
+            },
+        ))
+
+    return out
 
 
-def _drift_candidate(issue: StructuralIssue) -> RetrofitCandidate:
+# ---------------------------------------------------------------------------
+# Drift candidates
+# ---------------------------------------------------------------------------
+
+def _drift_candidates(issue: StructuralIssue) -> list[RetrofitCandidate]:
+    """Up to 3 candidates for drift overstress.
+
+    Plan: only column story upgrade (1단계/2단계) is verified-applicable
+    in Phase 1. ``add_lateral_resistance`` is kept as an abstract
+    candidate (applicable=False) so the user sees the option exists
+    but the evaluator does not attempt it.
+    """
     ratio = issue.demand_capacity_ratio or 1.0
-    story = issue.story
+    story = _issue_story(issue)
     direction = None
     if isinstance(issue.evidence, dict):
-        story = story or issue.evidence.get("story")
         direction = issue.evidence.get("direction")
 
-    description = (
-        f"{story}층 {direction or ''}방향 층간변위가 허용치를 "
-        f"{(ratio - 1.0) * 100:.1f}% 초과. "
-        "횡력 저항요소 추가/보강을 검토 필요."
-    )
-    target = {
+    out: list[RetrofitCandidate] = []
+
+    # 1) & 2) Story column 1-step / 2-step upgrade
+    if story is not None:
+        for step_idx in (1, 2):
+            story_target = {
+                "scope": "story",
+                "story": story,
+                "member_type": "column",
+                "direction": direction,
+            }
+            proposed_change = {
+                "operation": ChangeOperation.REPLACE_SECTIONS_BY_STORY,
+                "from": None,
+                "to": None,
+                "requires_user_selection": False,
+                "applicable": True,
+                "reason": "drift_exceeded",
+                "upgrade_step": step_idx,
+            }
+            out.append(RetrofitCandidate(
+                candidate_id=make_candidate_id(
+                    issue_id=issue.issue_id,
+                    action_type=ActionType.INCREASE_SECTION,
+                    variant=f"story{story}_column_step{step_idx}",
+                ),
+                issue_id=issue.issue_id,
+                action_type=ActionType.INCREASE_SECTION,
+                description=(
+                    f"{story}층 column 단면 일괄 {step_idx}단계 증대 "
+                    f"(layer 강성 증가로 층간변위 개선 시도, "
+                    f"현재 비={ratio:.2f})."
+                ),
+                expected_effect=(
+                    "층 강성 증대로 층간변위비 감소. 단, 강성 비대칭이 "
+                    "심해지면 비틀림 응답 악화 가능 — 재해석 필수."
+                ),
+                tradeoffs="자중/비용 증가, 기초 부담 증가.",
+                requires_reanalysis=True,
+                confidence=Confidence.MEDIUM,
+                code_refs=[],
+                target=story_target,
+                proposed_change=proposed_change,
+                metadata={
+                    "trigger": issue.issue_type,
+                    "current_ratio": ratio,
+                    "story": story,
+                    "direction": direction,
+                    "member_type": "column",
+                    "upgrade_step": step_idx,
+                },
+            ))
+
+    # 3) Abstract: add lateral-resistance system. Not auto-applicable.
+    abstract_target = {
         "scope": "story",
         "story": story,
         "direction": direction,
     }
-    proposed_change = {
+    abstract_change = {
         "operation": ChangeOperation.ADD_LATERAL_RESISTANCE,
         "from": None,
         "to": None,
         "requires_user_selection": True,
+        "applicable": False,
         "reason": "drift_exceeded",
     }
-    return RetrofitCandidate(
+    out.append(RetrofitCandidate(
         candidate_id=make_candidate_id(
-            issue_id=issue.issue_id, action_type=ActionType.ADD_LATERAL_RESISTANCE,
+            issue_id=issue.issue_id,
+            action_type=ActionType.ADD_LATERAL_RESISTANCE,
         ),
         issue_id=issue.issue_id,
         action_type=ActionType.ADD_LATERAL_RESISTANCE,
-        description=description,
+        description=(
+            f"{story}층 {direction or ''}방향에 가새/전단벽 등 횡력 저항요소 "
+            "추가 (정성적 후보 — 자동 적용 대상 아님)."
+        ),
         expected_effect=(
-            "가새/전단벽/모멘트프레임 강성 증가로 층간변위비를 "
-            "허용치 이내로 감소."
+            "가새/전단벽/모멘트프레임 강성 추가로 층간변위비 감소. "
+            "건축 계획/개구부 제약 검토 필요."
         ),
         tradeoffs=(
-            "건축 계획/개구부 제약 발생 가능. "
-            "기초 부담 증가, 다른 층의 강성 분포 영향 검토 필요."
+            "건축 평면 제약, 기초 부담 증가. 본 후보는 manual review."
         ),
         requires_reanalysis=True,
         confidence=Confidence.LOW,
-        code_refs=[],  # TODO(rag): KDS 41 17 00 §8 / KDS 41 12 00 풍하중
-        target=target,
-        proposed_change=proposed_change,
+        code_refs=[],
+        target=abstract_target,
+        proposed_change=abstract_change,
         metadata={
             "trigger": issue.issue_type,
             "story": story,
             "direction": direction,
             "current_ratio": ratio,
+            "abstract": True,
         },
-    )
+    ))
+
+    return out
 
 
-def _engineer_review_candidate(issue: StructuralIssue, reason: str) -> RetrofitCandidate:
+# ---------------------------------------------------------------------------
+# Engineer review (fallback)
+# ---------------------------------------------------------------------------
+
+def _engineer_review_candidate(
+    issue: StructuralIssue, reason: str,
+) -> RetrofitCandidate:
     target: dict[str, Any] = {}
     if issue.member_id is not None:
         target["member_id"] = issue.member_id
@@ -210,11 +387,13 @@ def _engineer_review_candidate(issue: StructuralIssue, reason: str) -> RetrofitC
         "from": issue.section,
         "to": None,
         "requires_user_selection": True,
+        "applicable": False,
         "reason": reason,
     }
     return RetrofitCandidate(
         candidate_id=make_candidate_id(
-            issue_id=issue.issue_id, action_type=ActionType.REQUIRES_ENGINEER_REVIEW,
+            issue_id=issue.issue_id,
+            action_type=ActionType.REQUIRES_ENGINEER_REVIEW,
         ),
         issue_id=issue.issue_id,
         action_type=ActionType.REQUIRES_ENGINEER_REVIEW,
@@ -241,28 +420,18 @@ def generate_candidates(
     *,
     registry: Optional[RuleRegistry] = None,
 ) -> list[RetrofitCandidate]:
-    """Map each issue to one or more :class:`RetrofitCandidate`.
+    """Map each issue to one or more candidates via the registry.
 
-    Dispatch is delegated to :mod:`core.recommendation.registry`. The
-    default handlers (registered below) preserve the original behavior:
+    Behaviour (default registry):
+        * STRENGTH_EXCEEDED / SHEAR_EXCEEDED → list of section upgrades
+          + story-wide upgrade (handler returns up to 3).
+        * DRIFT_EXCEEDED → story column 1단계/2단계 + abstract lateral
+          (handler returns up to 3).
+        * MISSING_DESIGN_CHECK / ANALYSIS_WARNING(error) → engineer review.
 
-        * STRENGTH_EXCEEDED / SHEAR_EXCEEDED → ``INCREASE_SECTION``
-        * DRIFT_EXCEEDED → ``ADD_LATERAL_RESISTANCE``
-        * MISSING_DESIGN_CHECK → ``REQUIRES_ENGINEER_REVIEW``
-        * ANALYSIS_WARNING with severity=error → ``REQUIRES_ENGINEER_REVIEW``
-        * ANALYSIS_WARNING with severity=warning/info → no candidate
-        * Any issue blocked by :func:`_should_block_auto_candidate`
-          → ``REQUIRES_ENGINEER_REVIEW`` (with the reason as metadata)
-
-    Handlers may now return either a single :class:`RetrofitCandidate`,
-    an iterable of them, or ``None``. This lets one issue produce
-    multiple competing alternatives that ranking compares against each
-    other.
-
-    Pass ``registry=...`` to dispatch against a custom registry; the
-    default (``default_registry()``) is used otherwise. Custom registries
-    do NOT mutate the global default — tests and runtime extensions
-    should prefer this over monkey-patching.
+    Handlers may return None / a single candidate / an iterable of them.
+    Empty handler output triggers an engineer-review fallback so the
+    pipeline always has *something* to surface per issue.
     """
     candidates: list[RetrofitCandidate] = []
     reg = registry if registry is not None else default_registry()
@@ -271,7 +440,7 @@ def generate_candidates(
         t = issue.issue_type
 
         # Info/warn-severity analysis warnings are surfaced as issues but
-        # are not actionable here. Skip before guard checks.
+        # are not actionable. Skip before guard checks.
         if t == IssueType.ANALYSIS_WARNING and issue.severity != Severity.ERROR:
             continue
 
@@ -286,7 +455,7 @@ def generate_candidates(
             if produced:
                 candidates.extend(produced)
                 continue
-            # Handler explicitly opted out — fall through to review.
+            # Handler explicitly opted out — fall back to review.
             candidates.append(_engineer_review_candidate(
                 issue, f"등록된 규칙이 후보를 생성하지 않음: {t}",
             ))
@@ -304,18 +473,21 @@ def generate_candidates(
 # Default rule registrations (module-load time)
 # ---------------------------------------------------------------------------
 
-def _handle_strength(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
-    """Dispatch wrapper around :func:`_strength_candidate`."""
-    return _strength_candidate(issue)
+def _handle_strength(issue: StructuralIssue) -> list[RetrofitCandidate]:
+    cands = _strength_candidates(issue)
+    if cands:
+        return cands
+    # Section ladder ran dry (top of the catalog) — degrade gracefully.
+    return [_engineer_review_candidate(
+        issue, "단면 ladder 최상단 — 자동 증대 후보 없음",
+    )]
 
 
-def _handle_drift(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
-    return _drift_candidate(issue)
+def _handle_drift(issue: StructuralIssue) -> list[RetrofitCandidate]:
+    return _drift_candidates(issue)
 
 
-def _handle_missing_design_check(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
-    # ``_should_block_auto_candidate`` already routes this to review,
-    # so this handler is only reached for safety. Mirror that decision.
+def _handle_missing_design_check(issue: StructuralIssue) -> RetrofitCandidate:
     return _engineer_review_candidate(
         issue, "설계검토 결과 부재 — 강도/변위 판정 불가",
     )
@@ -323,26 +495,25 @@ def _handle_missing_design_check(issue: StructuralIssue) -> Optional[RetrofitCan
 
 def _handle_analysis_warning(issue: StructuralIssue) -> Optional[RetrofitCandidate]:
     if issue.severity != Severity.ERROR:
-        return None  # filtered out before dispatch, but be defensive
+        return None
     return _engineer_review_candidate(
         issue, "해석 경고가 error 등급 — 결과 신뢰성 재검토 필요",
     )
 
 
-# Register defaults exactly once at import time.
 def _register_default_rules() -> None:
     reg = default_registry()
     reg.register(
         IssueType.STRENGTH_EXCEEDED, _handle_strength,
-        label="strength → increase_section",
+        label="strength → increase_section (member 1/2 step + story-wide)",
     )
     reg.register(
         IssueType.SHEAR_EXCEEDED, _handle_strength,
-        label="shear → increase_section",
+        label="shear → increase_section (member 1/2 step + story-wide)",
     )
     reg.register(
         IssueType.DRIFT_EXCEEDED, _handle_drift,
-        label="drift → add_lateral_resistance",
+        label="drift → story column upgrades + abstract lateral",
     )
     reg.register(
         IssueType.MISSING_DESIGN_CHECK, _handle_missing_design_check,

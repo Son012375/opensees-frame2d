@@ -925,6 +925,7 @@
                         <button class="rtab-btn active" data-rtab="results" onclick="switchResultTab('results')" style="flex:1;">Results</button>
                         <button class="rtab-btn" data-rtab="modal" onclick="switchResultTab('modal')" style="flex:1;">Modal</button>
                         <button class="rtab-btn" data-rtab="dc" onclick="switchResultTab('dc')" style="flex:1;">DC</button>
+                        <button class="rtab-btn" data-rtab="recommend" onclick="switchResultTab('recommend')" style="flex:1;">Recs</button>
                     </div>
 
                     <!-- TAB: Results -->
@@ -1030,6 +1031,33 @@
                         <div id="interp-summary" style="margin-top:8px;">
                             <span style="font-weight:600; font-size:11px;">Interpretation</span>
                             <p id="interp-text" class="interp-text"></p>
+                        </div>
+                    </div>
+
+                    <!-- TAB: Issues & Recommendation Candidates -->
+                    <div class="rtab-content" data-rtab="recommend" style="display:none;">
+                        <div id="rec-issues-section" style="margin-bottom:10px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Issues</span>
+                                <span id="rec-issues-count" style="font-size:10px; color:var(--text-secondary);">0</span>
+                            </div>
+                            <div id="rec-issues-list" class="rec-issues-list"></div>
+                        </div>
+
+                        <div id="rec-candidates-section">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Candidates</span>
+                                <span id="rec-candidates-count" style="font-size:10px; color:var(--text-secondary);">0</span>
+                            </div>
+                            <div id="rec-candidates-list" class="rec-candidates-list"></div>
+                        </div>
+
+                        <div id="rec-eval-wrap" style="margin-top:10px; display:none;">
+                            <button id="rec-eval-btn" onclick="runRecommendationEvaluation()"
+                                    class="btn btn-primary btn-block" style="width:100%; padding:6px;">
+                                Evaluate Candidates (Reanalysis)
+                            </button>
+                            <div id="rec-eval-progress" style="margin-top:6px; display:none; font-size:10px; color:var(--text-secondary); text-align:center;"></div>
                         </div>
                     </div>
 

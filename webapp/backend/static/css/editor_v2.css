@@ -1712,3 +1712,68 @@ hr {
     pointer-events: none;
     letter-spacing: 0.5px;
 }
+
+/* ───────────────────────────────────────────────────────────────────────
+ * Recommendations tab: Issues & Candidates
+ * Phase 1 — display only. Apply-to-editor lives in Phase 2.
+ * ─────────────────────────────────────────────────────────────────────── */
+.rec-issues-list { display:flex; flex-direction:column; gap:4px; }
+.rec-candidates-list { display:flex; flex-direction:column; gap:6px; }
+
+.rec-issue {
+    border-left: 3px solid var(--border-input, #ddd);
+    padding: 4px 6px;
+    background: var(--bg-input, #f6f6f6);
+    border-radius: 0 3px 3px 0;
+    font-size: 11px;
+}
+.rec-issue.severity-error { border-left-color: #ea4335; }
+.rec-issue.severity-warning { border-left-color: #fbbc04; }
+.rec-issue.severity-info { border-left-color: #5f6368; }
+.rec-issue .rec-issue-title { font-weight: 600; font-size: 11px; }
+.rec-issue .rec-issue-meta { font-size: 10px; color: var(--text-secondary, #888); margin-top: 1px; }
+
+.rec-card {
+    border: 1px solid var(--border-input, #ddd);
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: var(--bg-card, #fff);
+    font-size: 11px;
+    transition: border-color 0.15s;
+}
+.rec-card.applicable { border-left: 4px solid #34a853; }
+.rec-card.abstract { border-left: 4px solid #fbbc04; opacity: 0.85; }
+.rec-card.rejected { border-left: 4px solid #ea4335; opacity: 0.7; }
+.rec-card.verified { border-left: 4px solid #1a73e8; background: rgba(26, 115, 232, 0.04); }
+
+.rec-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    margin-bottom: 2px;
+}
+.rec-card-title { font-weight: 600; font-size: 11px; }
+.rec-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    background: var(--bg-input, #eee);
+    color: var(--text-secondary, #666);
+    white-space: nowrap;
+}
+.rec-badge.applicable { background: #e6f4ea; color: #1e8e3e; }
+.rec-badge.abstract   { background: #fef7e0; color: #b06000; }
+.rec-badge.verified   { background: #e8f0fe; color: #1a73e8; }
+.rec-badge.rejected   { background: #fce8e6; color: #c5221f; }
+
+.rec-card-body { color: var(--text-primary, #222); }
+.rec-card-meta { font-size: 10px; color: var(--text-secondary, #888); margin-top: 3px; }
+.rec-card .rec-change-arrow { font-weight: 600; color: #1a73e8; }
+.rec-card .rec-score {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--border-input, #ddd);
+    font-size: 10px;
+}
+.rec-card .rec-score b { color: #1a73e8; }

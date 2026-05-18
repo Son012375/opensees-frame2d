@@ -132,6 +132,46 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # the user must re-run the analysis. See README §"Known limitations".
 jobs_db: dict[str, dict] = {}
 
+# ── /api/v2/recommendations/evaluate state ──
+#
+# Two parallel dicts:
+#   * ``analysis_context_cache[job_id]`` — what /api/v2/analyze cached:
+#     model_json, load_cases/combos, building_model, seismic_report,
+#     baseline design_check, candidates_by_id, expires_at.
+#   * ``eval_jobs_db[eval_job_id]`` — async evaluate job state:
+#     status, progress, results, errors.
+#
+# OpenSees has process-global state, so reanalysis runs are serialized
+# through a single-worker thread pool (MAX_PARALLEL_EVALS = 1).
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+analysis_context_cache: dict[str, dict] = {}
+eval_jobs_db: dict[str, dict] = {}
+_ANALYSIS_CONTEXT_TTL_SEC = 30 * 60  # 30 minutes
+_ANALYSIS_CONTEXT_LOCK = threading.Lock()
+_EVAL_JOBS_LOCK = threading.Lock()
+
+MAX_PARALLEL_EVALS = 1
+_eval_executor = ThreadPoolExecutor(
+    max_workers=MAX_PARALLEL_EVALS,
+    thread_name_prefix="rec-eval",
+)
+
+
+def _purge_expired_analysis_contexts() -> None:
+    """Drop entries past their TTL. Called opportunistically on each
+    cache write — no background thread."""
+    now = time.time()
+    with _ANALYSIS_CONTEXT_LOCK:
+        expired = [
+            k for k, v in analysis_context_cache.items()
+            if v.get("expires_at", 0) < now
+        ]
+        for k in expired:
+            analysis_context_cache.pop(k, None)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Page Routes
@@ -849,6 +889,8 @@ async def analyze_v2_api(request: Request):
         # ── Step 3: 설계검토 ──
         dc_result = None
         interpretation = None
+        seismic_rpt = None  # default so analysis_context cache stays consistent
+                            # even when run_design_check raises early
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result.get("reports", {}).get("seismic")
@@ -1004,6 +1046,7 @@ async def analyze_v2_api(request: Request):
 
         response = {
             "job_id": job_id,
+            "analysis_id": job_id,  # alias used by /api/v2/recommendations/evaluate
             "status": "success",
             "pipeline": "v2_node_element",
             "building": model.summary(),
@@ -1031,6 +1074,25 @@ async def analyze_v2_api(request: Request):
             "recommendation_candidates": rec_payload["recommendation_candidates"],
             "recommendation_summary": rec_payload["recommendation_summary"],
         }
+
+        # Cache the context needed to reproduce this baseline when the
+        # frontend later calls /api/v2/recommendations/evaluate. Keyed by
+        # job_id so the client only has to send the candidate ids back.
+        _purge_expired_analysis_contexts()
+        candidates_by_id = {
+            c["candidate_id"]: c for c in rec_payload["recommendation_candidates"]
+        }
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[job_id] = {
+                "model_json": model.to_json(),
+                "load_cases": load_cases,
+                "load_combinations": load_combinations,
+                "building_model": building_model,
+                "seismic_report": seismic_rpt,
+                "design_check": dc_result,
+                "candidates_by_id": candidates_by_id,
+                "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
+            }
 
         # Job DB 저장
         jobs_db[job_id] = {
@@ -1079,6 +1141,248 @@ async def analyze_v2_api(request: Request):
     except Exception as e:
         logger.exception("V2 analyze failed (job_id=%s)", job_id)
         raise HTTPException(status_code=500, detail=f"V2 해석 오류: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Recommendation candidate evaluate (reanalyzed verified scoring)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _make_eval_job_record(analysis_id: str, candidate_ids: list[str]) -> dict:
+    return {
+        "job_id": None,                  # filled by caller
+        "analysis_id": analysis_id,
+        "status": "queued",              # queued | running | done | failed
+        "progress": {"completed": 0, "total": len(candidate_ids)},
+        "candidate_ids_requested": list(candidate_ids),
+        "evaluated_candidates": None,
+        "rejected_candidates": None,
+        "recommendation_summary": None,
+        "ranked_order": None,
+        "error": None,
+        "created_at": datetime.now().isoformat(),
+        "started_at": None,
+        "completed_at": None,
+    }
+
+
+def _run_evaluation_job(eval_job_id: str) -> None:
+    """Background worker: runs through one batch of candidates serially.
+
+    OpenSees has process-global state, so this executes on a single
+    worker thread (``MAX_PARALLEL_EVALS=1``). Errors for individual
+    candidates are captured as ``rejected_analysis_failed`` entries;
+    only an outright job-level failure flips the job status to
+    ``failed``.
+    """
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+
+    with _EVAL_JOBS_LOCK:
+        job = eval_jobs_db.get(eval_job_id)
+        if job is None:
+            return
+        job["status"] = "running"
+        job["started_at"] = datetime.now().isoformat()
+        analysis_id = job["analysis_id"]
+        candidate_ids = list(job["candidate_ids_requested"])
+
+    try:
+        with _ANALYSIS_CONTEXT_LOCK:
+            ctx = analysis_context_cache.get(analysis_id)
+
+        if ctx is None:
+            with _EVAL_JOBS_LOCK:
+                job["status"] = "failed"
+                job["error"] = (
+                    f"analysis context for '{analysis_id}' is gone "
+                    "(expired or server restarted) — re-run /api/v2/analyze"
+                )
+                job["completed_at"] = datetime.now().isoformat()
+            return
+
+        from core.recommendation import (
+            BaselineSummary,
+            RetrofitCandidate,
+            evaluate_candidate,
+            rank_evaluated_candidates,
+            summarize_evaluations,
+            partition_evaluations,
+        )
+
+        baseline = BaselineSummary.from_design_check(ctx.get("design_check"))
+        candidates_by_id = ctx.get("candidates_by_id", {})
+
+        evaluations = []
+        completed = 0
+        for cid in candidate_ids:
+            cand_dict = candidates_by_id.get(cid)
+            if cand_dict is None:
+                # Caller asked for an unknown id — fail this one but
+                # keep going.
+                from core.recommendation import (
+                    CandidateEvaluation,
+                    STATUS_SKIPPED_INAPPLICABLE,
+                )
+                evaluations.append(CandidateEvaluation(
+                    candidate_id=cid,
+                    status=STATUS_SKIPPED_INAPPLICABLE,
+                    error="unknown candidate_id — not present in /api/v2/analyze response",
+                ))
+            else:
+                cand = _rehydrate_candidate(cand_dict)
+                ev = evaluate_candidate(
+                    model_json=ctx["model_json"],
+                    load_cases=ctx["load_cases"],
+                    load_combinations=ctx.get("load_combinations") or {},
+                    candidate=cand,
+                    baseline=baseline,
+                    building_model=ctx.get("building_model"),
+                    seismic_report=ctx.get("seismic_report"),
+                )
+                evaluations.append(ev)
+
+            completed += 1
+            with _EVAL_JOBS_LOCK:
+                job["progress"] = {
+                    "completed": completed, "total": len(candidate_ids),
+                }
+
+        # Rank survivors + partition.
+        applicable, rejected = partition_evaluations(evaluations)
+        ranked = rank_evaluated_candidates(applicable)
+        summary = summarize_evaluations(evaluations)
+        summary["analysis_id"] = analysis_id
+
+        with _EVAL_JOBS_LOCK:
+            job["evaluated_candidates"] = [r.to_dict() for r in ranked]
+            job["rejected_candidates"] = [r.to_dict() for r in rejected]
+            job["recommendation_summary"] = summary
+            job["ranked_order"] = [r.candidate_id for r in ranked]
+            job["status"] = "done"
+            job["completed_at"] = datetime.now().isoformat()
+
+    except Exception as e:  # noqa: BLE001 — top-level safety net
+        logger.exception("evaluate job %s crashed", eval_job_id)
+        with _EVAL_JOBS_LOCK:
+            job["status"] = "failed"
+            job["error"] = f"{type(e).__name__}: {e}"
+            job["completed_at"] = datetime.now().isoformat()
+
+
+def _rehydrate_candidate(cand_dict: dict):
+    """Reconstruct a :class:`RetrofitCandidate` from its ``to_dict`` form."""
+    from core.recommendation import RetrofitCandidate
+
+    return RetrofitCandidate(
+        candidate_id=cand_dict["candidate_id"],
+        issue_id=cand_dict["issue_id"],
+        action_type=cand_dict["action_type"],
+        description=cand_dict.get("description", ""),
+        member_id=cand_dict.get("member_id"),
+        element_id=cand_dict.get("element_id"),
+        expected_effect=cand_dict.get("expected_effect", ""),
+        tradeoffs=cand_dict.get("tradeoffs", ""),
+        requires_reanalysis=cand_dict.get("requires_reanalysis", True),
+        confidence=cand_dict.get("confidence", "low"),
+        code_refs=[],   # RAG references not needed for execution
+        target=dict(cand_dict.get("target") or {}),
+        proposed_change=dict(cand_dict.get("proposed_change") or {}),
+        metadata=dict(cand_dict.get("metadata") or {}),
+    )
+
+
+@app.post("/api/v2/recommendations/evaluate")
+async def post_recommendations_evaluate(request: Request):
+    """Queue a batch reanalysis of candidates from a recent /api/v2/analyze run.
+
+    Request:
+        {"analysis_id": "...",  "candidate_ids": ["...", ...]}
+
+    Response (202-style payload):
+        {"job_id": "rec_eval_<uuid>", "status": "queued",
+         "num_total": int, "num_applicable_requested": int}
+    """
+    body = await request.json()
+    analysis_id = body.get("analysis_id")
+    candidate_ids = body.get("candidate_ids") or []
+
+    if not analysis_id:
+        raise HTTPException(status_code=400, detail="analysis_id is required")
+    if not isinstance(candidate_ids, list) or not candidate_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="candidate_ids must be a non-empty list of strings",
+        )
+
+    with _ANALYSIS_CONTEXT_LOCK:
+        ctx = analysis_context_cache.get(analysis_id)
+    if ctx is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"analysis context for '{analysis_id}' not found — it may "
+                "have expired (30-minute TTL) or the server was restarted. "
+                "Re-run /api/v2/analyze first."
+            ),
+        )
+
+    eval_job_id = f"rec_eval_{uuid.uuid4().hex[:12]}"
+    record = _make_eval_job_record(analysis_id, candidate_ids)
+    record["job_id"] = eval_job_id
+
+    # Count how many of the requested ids are actually applicable so the
+    # caller can show "evaluating 3 of 4" without round-tripping.
+    candidates_by_id = ctx.get("candidates_by_id", {})
+    num_applicable = sum(
+        1 for cid in candidate_ids
+        if (candidates_by_id.get(cid) or {})
+        .get("proposed_change", {})
+        .get("applicable", False)
+    )
+
+    with _EVAL_JOBS_LOCK:
+        eval_jobs_db[eval_job_id] = record
+
+    _eval_executor.submit(_run_evaluation_job, eval_job_id)
+
+    return {
+        "job_id": eval_job_id,
+        "status": "queued",
+        "num_total": len(candidate_ids),
+        "num_applicable_requested": num_applicable,
+        "analysis_id": analysis_id,
+    }
+
+
+@app.get("/api/v2/recommendations/evaluate/{eval_job_id}")
+async def get_recommendations_evaluate(eval_job_id: str):
+    """Poll the state of a batch evaluation job."""
+    with _EVAL_JOBS_LOCK:
+        job = eval_jobs_db.get(eval_job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"eval job '{eval_job_id}' not found — server may have "
+                    "restarted (eval state is in-memory only)."
+                ),
+            )
+        # Return a shallow copy so the caller can't accidentally mutate
+        # the live record by holding the dict reference.
+        return {
+            "job_id": job["job_id"],
+            "analysis_id": job["analysis_id"],
+            "status": job["status"],
+            "progress": dict(job.get("progress") or {}),
+            "evaluated_candidates": job.get("evaluated_candidates"),
+            "rejected_candidates": job.get("rejected_candidates"),
+            "recommendation_summary": job.get("recommendation_summary"),
+            "ranked_order": job.get("ranked_order"),
+            "error": job.get("error"),
+            "created_at": job.get("created_at"),
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"),
+        }
 
 
 @app.get("/api/v2/viewer/{filename}")

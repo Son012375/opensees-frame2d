@@ -318,3 +318,130 @@ def rank_candidates(
 
     annotated.sort(key=lambda x: (x[0], x[1], x[2]))
     return [c for _, _, _, c in annotated]
+
+
+# ---------------------------------------------------------------------------
+# Verified-evaluation ranking (uses results from evaluator.py)
+# ---------------------------------------------------------------------------
+
+def rank_evaluated_candidates(evaluations: Iterable) -> list:
+    """Order :class:`CandidateEvaluation` results by Phase-1 ranking rules.
+
+    Rules (in order):
+        1. analysis-failed candidates are excluded.
+        2. new-NG candidates are excluded (hard reject, NOT just penalty).
+        3. baseline critical issues solved → favored.
+        4. larger NG count reduction → favored.
+        5. larger max D/C, max drift reduction → favored.
+        6. smaller ``changed_member_count`` → favored.
+        7. smaller weight_proxy increase → favored.
+        8. ``candidate_id`` alphabetical tie-break.
+
+    The function returns ONLY the survivors (rules 1–2). Excluded
+    evaluations are still available to the caller as the input list;
+    pass them through ``partition_evaluations()`` if both buckets are
+    needed.
+    """
+    from .evaluator import (  # local import — avoids circular at module load
+        STATUS_EVALUATED,
+    )
+
+    survivors = [e for e in evaluations if e.status == STATUS_EVALUATED]
+
+    def _sort_key(ev) -> tuple:
+        improvement = ev.improvement or {}
+        metrics = ev.metrics or {}
+        ng_member_delta = float(improvement.get("ng_member_delta", 0.0))
+        ng_drift_delta = float(improvement.get("ng_drift_delta", 0.0))
+        # Solve rate: fewer remaining NG (members + drift) → smaller key
+        remaining_ng = (
+            float(metrics.get("ng_member_count", 0))
+            + float(metrics.get("ng_drift_count", 0))
+        )
+        # max-improvement: more negative D/C / drift delta → smaller key
+        dcr_delta = float(improvement.get("dcr_delta", 0.0))
+        drift_delta = float(improvement.get("drift_delta", 0.0))
+        # cost / disruption tie-breakers
+        changed = float(metrics.get("changed_member_count", 0))
+        weight = float(metrics.get("weight_proxy", 0.0))
+        return (
+            remaining_ng,
+            ng_member_delta,
+            ng_drift_delta,
+            dcr_delta,
+            drift_delta,
+            changed,
+            weight,
+            ev.candidate_id,
+        )
+
+    return sorted(survivors, key=_sort_key)
+
+
+def summarize_evaluations(evaluations: Iterable) -> dict:
+    """Aggregate counts + ranking metadata across a batch of evaluations.
+
+    Output mirrors the ``recommendation_summary`` shape from
+    :mod:`pipeline` but with verified-score markers. Designed for the
+    /evaluate API endpoint.
+    """
+    from .evaluator import (
+        STATUS_EVALUATED,
+        STATUS_REJECTED_FAILED,
+        STATUS_REJECTED_NEW_NG,
+        STATUS_SKIPPED_INAPPLICABLE,
+        VERIFIED_SCORE_METHOD,
+    )
+
+    counts = {
+        STATUS_EVALUATED: 0,
+        STATUS_REJECTED_FAILED: 0,
+        STATUS_REJECTED_NEW_NG: 0,
+        STATUS_SKIPPED_INAPPLICABLE: 0,
+    }
+    n_total = 0
+    for ev in evaluations:
+        n_total += 1
+        counts[ev.status] = counts.get(ev.status, 0) + 1
+
+    success_count = counts.get(STATUS_EVALUATED, 0)
+    return {
+        "score_method": VERIFIED_SCORE_METHOD if success_count > 0 else SCORE_METHOD,
+        "ranking_method": VERIFIED_SCORE_METHOD if success_count > 0 else None,
+        "ranking_verified": success_count > 0,
+        "num_total": n_total,
+        "num_evaluated": success_count,
+        "num_success": success_count,
+        "num_skipped_inapplicable": counts.get(STATUS_SKIPPED_INAPPLICABLE, 0),
+        "num_rejected_analysis_failed": counts.get(STATUS_REJECTED_FAILED, 0),
+        "num_rejected_new_ng": counts.get(STATUS_REJECTED_NEW_NG, 0),
+        "num_failed": (
+            counts.get(STATUS_REJECTED_FAILED, 0)
+            + counts.get(STATUS_REJECTED_NEW_NG, 0)
+        ),
+        "rag_enabled": False,
+        "llm_enabled": False,
+        "requires_reanalysis_for_final_ranking": False,
+        "note": (
+            "Verified ranking from re-analyzed candidates. "
+            "Candidates marked rejected_new_ng are excluded from ranking."
+        ),
+    }
+
+
+def partition_evaluations(evaluations: Iterable) -> tuple[list, list]:
+    """Split into ``(applicable_results, rejected_results)``.
+
+    ``applicable_results`` = status == "evaluated" (eligible for ranking).
+    ``rejected_results``   = anything else (skipped, failed, new_ng).
+    """
+    from .evaluator import STATUS_EVALUATED
+
+    applicable: list = []
+    rejected: list = []
+    for ev in evaluations:
+        if ev.status == STATUS_EVALUATED:
+            applicable.append(ev)
+        else:
+            rejected.append(ev)
+    return applicable, rejected
