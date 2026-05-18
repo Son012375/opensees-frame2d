@@ -203,20 +203,22 @@ def build_explanation_context(
 
     warnings: list[str] = []
     if eval_dict is None:
-        warnings.append("evaluation_missing: candidate not yet verified")
+        warnings.append("evaluation_missing: 재해석 검증이 아직 수행되지 않았습니다.")
     elif eval_dict.get("status") and eval_dict["status"] != STATUS_EVALUATED:
+        status_label = _EVAL_STATUS_LABEL.get(
+            eval_dict["status"], eval_dict["status"]
+        )
         warnings.append(
-            f"evaluation_status: candidate evaluation status="
-            f"{eval_dict['status']!r}"
+            f"evaluation_status: 후보 평가 상태가 정상 통과가 아닙니다 — {status_label}."
         )
     if diff_dict is None and applicable:
         warnings.append(
-            "diff_missing: structural change description was not provided"
+            "diff_missing: 구조 변경 내용(diff)이 제공되지 않았습니다."
         )
     if not applicable:
         warnings.append(
-            "abstract_candidate: this candidate is not auto-applicable "
-            "and requires manual engineer review"
+            "abstract_candidate: 이 후보는 자동 적용이 불가하며 "
+            "엔지니어의 수동 검토가 필요합니다."
         )
 
     score_method = "unknown"
@@ -262,10 +264,11 @@ def build_explanation_context(
     }
 
     # Helpful inferred fields for make_kds_query() — pull issue_type
-    # from the issue_id slug if it's encoded there ("strength_exceeded_..."),
-    # otherwise leave None so make_kds_query falls back to action_type.
+    # from the issue_id slug. The slug commonly carries an "iss_" prefix
+    # (issue_extractor's make_issue_id) so strip it before matching.
     issue_id = candidate.issue_id or ""
     issue_type = None
+    trimmed = issue_id[4:] if issue_id.startswith("iss_") else issue_id
     for known in (
         "drift_exceeded",
         "strength_exceeded",
@@ -275,7 +278,7 @@ def build_explanation_context(
         "compression_capacity",
         "tension_capacity",
     ):
-        if issue_id.startswith(known):
+        if trimmed.startswith(known):
             issue_type = known
             break
     context["issue_type"] = issue_type
@@ -298,6 +301,63 @@ _KO_SECTION_LABELS = {
     "limitations": "한계 및 미확보 근거",
     "next_user_decision": "사용자 의사결정",
 }
+
+
+# Korean labels for known issue types. Falls back to "미분류" when the
+# explainer cannot infer the type from the issue_id slug.
+_ISSUE_TYPE_LABELS_KO = {
+    "strength_exceeded": "강도 초과",
+    "shear_exceeded": "전단 초과",
+    "drift_exceeded": "층간변위 초과",
+    "missing_design_check": "설계 검토 누락",
+    "analysis_warning": "해석 경고",
+    "compression_capacity": "압축내력 부족",
+    "tension_capacity": "인장내력 부족",
+}
+
+# Korean labels for ``proposed_change.operation`` enum values.
+_OPERATION_LABELS_KO = {
+    "replace_section": "부재 단면 교체",
+    "replace_sections_by_story": "층 전체 단면 교체",
+    "change_material": "재료 변경",
+    "add_lateral_resistance": "횡저항 시스템 추가",
+    "add_member": "부재 추가",
+    "change_support": "지지조건 변경",
+    "manual_review": "수동 검토",
+}
+
+
+def _localize_operation(op: Optional[str]) -> str:
+    if not op:
+        return "—"
+    label = _OPERATION_LABELS_KO.get(op)
+    return f"{label} ({op})" if label else op
+
+
+def _short_candidate_label(cand_id: str) -> str:
+    """Return a short human-readable label for a candidate slug.
+
+    Phase 1 candidate ids are long deterministic slugs
+    (e.g. ``cand_iss_shear_exceeded_m10_..._d9c5d7dca8``). Showing the
+    full string in narrative text is noisy — we keep the trailing hash
+    so the user can still cross-reference it with the rec card.
+    """
+    if not cand_id:
+        return "이 후보"
+    s = str(cand_id)
+    if len(s) <= 28:
+        return s
+    return f"{s[:8]}…{s[-8:]}"
+
+
+def _format_list(items, *, sep: str = ", ", empty: str = "—") -> str:
+    """Join a list as a comma-separated string for display.
+
+    Avoids leaking Python's list repr (``['H-300x150']``) into prose.
+    """
+    if not items:
+        return empty
+    return sep.join(str(x) for x in items)
 
 
 _NEW_NG_KO = "재해석 결과 새 NG 발생"
@@ -324,6 +384,7 @@ def _engineer_brief_text(context: dict[str, Any],
                          evidence: list[KdsEvidence]) -> dict[str, str]:
     """Pure-Korean engineer-brief text. No LLM, no invented citations."""
     cand_id = context["candidate_id"]
+    cand_label = _short_candidate_label(cand_id)
     action = context.get("action_type") or "—"
     operation = context.get("operation") or "—"
     target = context.get("target") or {}
@@ -340,52 +401,82 @@ def _engineer_brief_text(context: dict[str, Any],
     # ── summary ────────────────────────────────────────────────────────────
     if not applicable:
         summary = (
-            f"후보 {cand_id}는 자동 적용 가능한 변경안이 아니라 "
+            "이 후보는 자동 적용 가능한 변경안이 아니라 "
             "엔지니어의 수동 검토가 필요한 추상 권고입니다."
         )
     elif status == STATUS_REJECTED_NEW_NG:
         summary = (
-            f"후보 {cand_id}는 재해석 결과 새 NG가 발생하여 적용이 거부되었습니다. "
+            "이 후보는 재해석 결과 새 NG가 발생하여 적용이 거부되었습니다. "
             "그대로 적용하지 마세요."
         )
     elif status == STATUS_REJECTED_FAILED:
         summary = (
-            f"후보 {cand_id}는 재해석 단계에서 실패했습니다. "
+            "이 후보는 재해석 단계에서 실패했습니다. "
             "원인 확인 후 재시도가 필요합니다."
         )
     elif verified:
+        method = score.get("method", VERIFIED_SCORE_METHOD)
         summary = (
-            f"후보 {cand_id}는 재해석 기반 검증(method={score.get('method', VERIFIED_SCORE_METHOD)})을 통과했습니다."
+            f"이 후보는 재해석 기반 검증을 통과했습니다 (방식 {method})."
         )
     else:
         summary = (
-            f"후보 {cand_id}는 결정론적 휴리스틱으로 도출되었으며 "
+            "이 후보는 결정론적 휴리스틱으로 도출되었으며 "
             "아직 재해석 검증이 수행되지 않았습니다."
         )
 
     # ── issue_interpretation ──────────────────────────────────────────────
-    issue_type = context.get("issue_type") or "unknown"
-    issue_interpretation = (
-        f"연결된 이슈 {context.get('issue_id', '—')} (유형: {issue_type})에 대한 대응 후보입니다. "
-        f"대상 부재 컨텍스트: scope={target.get('scope', '—')}, "
-        f"member_id={target.get('member_id', '—')}, story={target.get('story', '—')}."
+    issue_type = context.get("issue_type")
+    issue_type_label = _ISSUE_TYPE_LABELS_KO.get(issue_type or "", "미분류")
+    issue_type_part = (
+        f"{issue_type_label}" if issue_type is None
+        else f"{issue_type_label} ({issue_type})"
     )
 
+    _scope_label = {
+        "member": "단일 부재",
+        "story": "층 단위",
+        "system": "시스템 단위",
+    }
+    _member_type_label = {
+        "column": "기둥",
+        "beam": "보",
+        "beam_x": "X 방향 보",
+        "beam_y": "Y 방향 보",
+        "brace": "가새",
+    }
+    scope = target.get("scope")
+    member_type = target.get("member_type")
+    parts: list[str] = [f"이슈 유형: {issue_type_part}."]
+    ctx_bits: list[str] = []
+    if scope:
+        ctx_bits.append(f"범위 {_scope_label.get(scope, scope)}")
+    if member_type:
+        ctx_bits.append(f"부재 유형 {_member_type_label.get(member_type, member_type)}")
+    if target.get("member_id") is not None:
+        ctx_bits.append(f"부재 ID {target['member_id']}")
+    if target.get("story") is not None:
+        ctx_bits.append(f"{target['story']}층")
+    if ctx_bits:
+        parts.append("대상 부재 컨텍스트 — " + ", ".join(ctx_bits) + ".")
+    issue_interpretation = " ".join(parts)
+
     # ── recommended_change ────────────────────────────────────────────────
+    op_label = _localize_operation(operation)
     if diff:
-        ops = diff.get("sections_from") or []
-        new = diff.get("sections_to") or []
+        ops_str = _format_list(diff.get("sections_from") or [])
+        new_str = _format_list(diff.get("sections_to") or [])
         nchg = diff.get("changed_member_count", 0)
         stories = diff.get("stories") or []
-        story_part = f", 층={stories}" if stories else ""
+        story_part = f", 층={_format_list(stories)}" if stories else ""
         recommended_change = (
-            f"operation={operation}, 변경 부재 수={nchg}, "
-            f"단면 {ops or '—'} → {new or '—'}{story_part}."
+            f"작업: {op_label}. 변경 부재 수 {nchg}건, "
+            f"단면 {ops_str} → {new_str}{story_part}."
         )
     else:
         recommended_change = (
-            f"operation={operation}. 구체적 변경 diff가 제공되지 않아 "
-            "정확한 부재 단위 영향 범위는 산출되지 않았습니다."
+            f"작업: {op_label}. 구체적 변경 diff가 제공되지 않아 "
+            "부재 단위 영향 범위는 산출되지 않았습니다."
         )
 
     # ── expected_structural_effect ────────────────────────────────────────
@@ -395,8 +486,8 @@ def _engineer_brief_text(context: dict[str, Any],
         ng_m = metrics.get("ng_member_count", "—")
         ng_d = metrics.get("ng_drift_count", "—")
         expected_structural_effect = (
-            f"재해석 후 최대 interaction ratio={max_dcr}, 최대 drift ratio={max_drift}, "
-            f"NG 부재={ng_m}건, NG 층={ng_d}건."
+            f"재해석 후 최대 상관식 비(DCR) {max_dcr}, 최대 층간변위비 {max_drift}, "
+            f"NG 부재 {ng_m}건, NG 층 {ng_d}건."
         )
     else:
         expected_structural_effect = (
@@ -406,13 +497,13 @@ def _engineer_brief_text(context: dict[str, Any],
     # ── verified_result ───────────────────────────────────────────────────
     if verified and improvement:
         verified_result = (
-            f"재해석 검증됨 (status={status_label}). "
-            f"DCR 변화량={_fmt_delta(improvement.get('dcr_delta'))}, "
-            f"drift 변화량={_fmt_delta(improvement.get('drift_delta'))}, "
-            f"NG 부재 변화={improvement.get('ng_member_delta', '—')}건, "
-            f"NG 층 변화={improvement.get('ng_drift_delta', '—')}건. "
-            f"종합 점수={_fmt_ratio(score.get('total'))} "
-            f"(method={score.get('method', VERIFIED_SCORE_METHOD)})."
+            f"재해석 검증 통과 ({status_label}). "
+            f"DCR 변화량 {_fmt_delta(improvement.get('dcr_delta'))}, "
+            f"층간변위비 변화량 {_fmt_delta(improvement.get('drift_delta'))}, "
+            f"NG 부재 변화 {improvement.get('ng_member_delta', '—')}건, "
+            f"NG 층 변화 {improvement.get('ng_drift_delta', '—')}건. "
+            f"종합 점수 {_fmt_ratio(score.get('total'))} "
+            f"(방식 {score.get('method', VERIFIED_SCORE_METHOD)})."
         )
     elif status == STATUS_REJECTED_NEW_NG:
         verified_result = (
@@ -534,8 +625,8 @@ def deterministic_explanation(
     warnings = list(context.get("warnings") or [])
     if not evidence:
         warnings.append(
-            "kds_evidence_missing: no KDS evidence retrieved; "
-            "explanation is based on deterministic analysis results only."
+            "kds_evidence_missing: KDS 인용이 확보되지 않아 "
+            "결정론적 해석 결과만으로 설명을 구성했습니다."
         )
 
     return RecommendationExplanation(

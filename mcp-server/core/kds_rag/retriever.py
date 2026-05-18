@@ -181,7 +181,10 @@ class InMemoryKDSRetriever(KDSRetriever):
 # Noop retriever — the explicit "no KDS index configured" backend
 # ---------------------------------------------------------------------------
 
-NOOP_WARNING = "kds_rag_unavailable: no KDS retriever/index configured"
+NOOP_WARNING = (
+    "kds_rag_unavailable: KDS 검색 인덱스가 설정되지 않았습니다. "
+    "VOYAGE_API_KEY와 KDS_RAG_INDEX_PATH 환경변수를 설정하면 활성화됩니다."
+)
 
 
 class NoopKDSRetriever(KDSRetriever):

@@ -4277,6 +4277,50 @@ const _EXPLAIN_SECTIONS = [
     ['next_user_decision', '다음 의사결정'],
 ];
 
+const _HANGUL_RE = /[가-힯]/;
+
+// Backend emits machine-readable warning codes ("code: detail"). The UI
+// translates known codes to Korean labels; unknown codes pass through.
+const _WARNING_TRANSLATIONS_KO = {
+    'kds_rag_unavailable': 'KDS-RAG 인덱스가 설정되지 않았습니다',
+    'kds_evidence_missing': 'KDS 인용이 확보되지 않았습니다 — 결정론적 분석만으로 설명되었습니다',
+    'evaluation_missing': '재해석 검증이 아직 수행되지 않았습니다',
+    'evaluation_status': '평가 상태 이상',
+    'abstract_candidate': '자동 적용 불가능한 추상 후보 — 수동 엔지니어 검토 필요',
+    'diff_missing': '구조 변경 내역이 제공되지 않았습니다',
+    'llm_provider_failed': 'LLM 설명 생성 실패 — 결정론적 설명으로 대체되었습니다',
+    'llm_provider_returned_unexpected_type': 'LLM 응답 형식 이상 — 결정론적 설명으로 대체되었습니다',
+    'kds_retriever_exception': 'KDS 검색 호출 실패',
+    'kds_query_build_failed': 'KDS 질의 생성 실패',
+    'chunk_to_ref_failed': 'KDS 청크 → 인용 변환 실패',
+    'diff_derivation_skipped': '변경 내역 산출 건너뜀',
+    'diff_derivation_inapplicable': '자동 적용 불가 — 변경 내역 산출 불가',
+    'diff_derivation_failed': '변경 내역 산출 중 오류',
+    'no_match': 'KDS 검색 결과 없음',
+    'weak_match': 'KDS 검색 매칭 약함',
+    'voyage_index_empty': 'Voyage KDS 인덱스가 비어 있습니다',
+    'voyage_embed_query_failed': 'Voyage 질의 임베딩 실패',
+    'voyage_rerank_failed': 'Voyage 리랭크 실패 — 코사인 점수로 대체',
+    'voyage_no_match': 'Voyage 검색 결과 없음',
+};
+
+function _translateWarning(w) {
+    const s = String(w || '');
+    // Allow newlines in detail (some warnings carry traceback excerpts).
+    const m = s.match(/^([a-z_]+)(?::\s*([\s\S]*))?$/);
+    if (!m) return s;
+    const code = m[1];
+    const detail = m[2] ? m[2].trim() : '';
+    // Backend-localized detail beats our static label — the explainer
+    // and Noop retriever already write user-friendly Korean (often with
+    // additional context like env var names). Show the detail verbatim.
+    if (detail && _HANGUL_RE.test(detail)) return detail;
+    // English (machine) detail → use our short Korean label if known.
+    const label = _WARNING_TRANSLATIONS_KO[code];
+    if (label) return detail ? `${label} — ${detail}` : label;
+    return s;
+}
+
 function _showRecExplainModal(open) {
     const m = document.getElementById('rec-explain-modal');
     if (!m) return;
@@ -4342,7 +4386,7 @@ function _renderRecExplainResult(data) {
         ? `<section class="rec-explain-section">
              <h4>주의</h4>
              <ul class="rec-explain-warning-list">
-               ${warnings.map(w => `<li>${_escapeHtml(w)}</li>`).join('')}
+               ${warnings.map(w => `<li>${_escapeHtml(_translateWarning(w))}</li>`).join('')}
              </ul>
            </section>`
         : '';
