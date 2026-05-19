@@ -1,0 +1,14 @@
+{
+  "doc_id": "aisc_360_22_ch_g_shear",
+  "standard_id": "AISC 360-22",
+  "version": "2022",
+  "effective_date": "2022-09-01",
+  "title": "Shear Strength of I-Shaped Members and Channels",
+  "clause": "G2",
+  "topic": "member_shear",
+  "limit_state": "shear_strength",
+  "material": "steel",
+  "jurisdiction": "AISC",
+  "source_url": null,
+  "text": "G2 전단강도 — I형 부재 및 채널\n\n설계 전단강도 φv·Vn 은 보 및 거더 복부에 작용하는 전단을 지배한다 (LRFD, 압연 I형 콤팩트 복부 φv = 1.00, 그 외 0.90). 부재의 전단 DCR 은 Vu / (φv·Vn) 이며 1.0 을 초과할 수 없다.\n\nG2-1 공칭 전단강도\nVn = 0.6 · Fy · Aw · Cv1\n여기서 Aw = d · tw 는 전단 유효 복부 면적 (전체 깊이 × 복부 두께), Cv1 은 복부 전단 강도 계수이다.\n\nG2-2 Cv1 결정 (h/tw 슬렌더니스 기반)\n- h/tw ≤ 2.24·√(E/Fy):  Cv1 = 1.0 (전단 항복 지배)\n- 비탄성 좌굴 영역:  Cv1 식 G2-4 에 따라 감소\nkv = 5.34 (보강재 없는 복부 기준); 횡보강재가 있으면 a/h 에 따라 식 G2-6 으로 산정.\n\n전단 한계상태를 초과 (Vu / φv·Vn > 1.0) 한 경우의 보강 방법:\n1. 더 깊거나 복부가 두꺼운 단면으로 교체 → Aw 증가\n2. 복부 횡보강재 추가 → kv 증대 (탄성좌굴 영역에서 Cv1 회복)\n3. 더블러 플레이트 추가 → 유효 복부 면적 증가\n\n전단 파괴는 휨 항복에 비해 취성적이므로, 휨 재설계 전에 Chapter G 한계상태를 먼저 확인해야 한다.\n\nKDS 대응: KDS 14 31 00 §7 (전단) 은 동일한 Aw·Fy·Cv1 구성을 따르며 국내 φ 인자를 적용한다."
+}

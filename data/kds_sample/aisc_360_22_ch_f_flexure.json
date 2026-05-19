@@ -1,0 +1,14 @@
+{
+  "doc_id": "aisc_360_22_ch_f_flexure",
+  "standard_id": "AISC 360-22",
+  "version": "2022",
+  "effective_date": "2022-09-01",
+  "title": "Flexural Strength of Doubly Symmetric Compact I-Shaped Members",
+  "clause": "F2",
+  "topic": "member_strength",
+  "limit_state": "strength",
+  "material": "steel",
+  "jurisdiction": "AISC",
+  "source_url": null,
+  "text": "F2 휨강도 — 양축대칭 콤팩트 I형 부재 (강축 휨)\n\n설계 휨강도 φb·Mn (LRFD, φb = 0.90) 은 다음 한계상태 중 가장 작은 값으로 결정된다: (a) 항복, (b) 횡-비틀림좌굴 (LTB). 부재의 휨 DCR (demand-capacity ratio) 은 Mu / (φb·Mn) 이며 1.0 을 초과할 수 없다.\n\nF2-1 항복 한계상태\nMn = Mp = Fy · Zx, 여기서 Fy 는 항복강도, Zx 는 강축 소성단면계수이다.\n\nF2-2 횡-비틀림좌굴 (LTB)\nLb ≤ Lp 이면 LTB 미적용 (항복 지배).\nLp < Lb ≤ Lr 이면 비탄성 LTB:\n  Mn = Cb·[Mp − (Mp − 0.7·Fy·Sx)·(Lb − Lp)/(Lr − Lp)] ≤ Mp\nLb > Lr 이면 탄성 LTB 식 F2-3 적용.\nCb 는 횡-비틀림좌굴 보정계수 (모멘트 분포 기반).\n\nChapter H — 조합하중 상관식\n축력 + 휨이 동시에 작용하는 부재는 식 H1-1a, H1-1b 를 따른다:\n  Pr/Pc + (8/9)·(Mrx/Mcx + Mry/Mcy) ≤ 1.0  (Pr/Pc ≥ 0.2)\n  Pr/(2·Pc) + (Mrx/Mcx + Mry/Mcy) ≤ 1.0    (Pr/Pc < 0.2)\n\n결론: DCR > 1.0 인 경우 강도 보강이 필요하며, 일반적 대응은 (i) 더 무거운 단면으로 교체, (ii) Fy 등급 상향, (iii) 커버 플레이트 추가 이다.\n\nKDS 대응: KDS 14 31 00 §6 (휨) 은 동일한 한계상태 체계를 채택하며 국내 부분안전계수로 보정한다. 국내 조항이 아직 인덱스에 없을 때 AISC 360-22 F2 를 인용한다."
+}
