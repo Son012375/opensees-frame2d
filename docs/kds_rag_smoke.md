@@ -121,8 +121,10 @@ curl.exe -X POST http://localhost:8001/api/v2/recommendations/explain `
 ## 수동 retrieval 품질 평가
 
 세 가지 issue_type 에 대해 retrieval 이 의도된 chunk 를 top-1 으로 잡는지
-**눈으로** 확인한다. 자동화 버전은 `tests/test_kds_rag_retrieval_quality.py`
-에서 결정론적 fake embedder 로 회귀 처리한다.
+**눈으로** 확인한다. `tests/test_kds_rag_retrieval_routing.py` 의 결정론적
+fake embedder 회귀는 *라우팅* (make_kds_query → cosine 경로의 wiring)
+까지만 보장하며, voyage-4-large 의 실제 한국어 임베딩 품질은
+**여기서 수동으로** 측정해야 한다.
 
 | 쿼리 시나리오 (issue_type / action_type) | 기대 top-1 chunk | 기대 quote 키워드 |
 |------------------------------------------|------------------|--------------------|
@@ -148,15 +150,16 @@ curl.exe -X POST http://localhost:8001/api/v2/recommendations/explain `
 & "D:\son\opensees-MCP\opensees-mcp\Scripts\python.exe" -m pytest `
   tests\test_kds_rag.py `
   tests\test_kds_voyage_rag.py `
-  tests\test_kds_rag_retrieval_quality.py `
+  tests\test_kds_rag_retrieval_routing.py `
   tests\test_recommendation_explainer.py `
   tests\test_v2_recommendations_api.py::TestExplainEndpoint `
   -q
 ```
 
 - 전체 통과해야 한다 — Voyage SDK / 네트워크 호출 0 건.
-- `test_kds_rag_retrieval_quality.py` 가 추가된 deterministic top-1
-  회귀 (drift / shear / strength).
+- `test_kds_rag_retrieval_routing.py` 가 추가된 deterministic top-1
+  *라우팅* 회귀 (drift / shear / strength). 실제 임베딩 품질은 위
+  "수동 retrieval 품질 평가" 절차로 별도 측정.
 
 ## 안전 가드 (절대 깨지면 안 됨)
 
@@ -168,6 +171,24 @@ curl.exe -X POST http://localhost:8001/api/v2/recommendations/explain `
   변경하지 않는다.
 - LLM provider 는 아직 `NoopExplanationLLMProvider` 만 — 본 스모크에서
   실제 LLM 호출은 없다. 후속 Phase 4 에서 Anthropic / OpenAI 연결.
+
+## AISC 임시 참조 — UI 표시 의무
+
+`data/kds_sample/aisc_360_22_ch_*.json` 두 파일은 `temporary_reference:
+true` 로 표기된 임시 참조다. 이 청크가 Explain 모달에 인용될 때, 운영
+측은 다음 한국어 디스클레이머를 반드시 함께 노출해야 한다:
+
+> 현재 강구조 근거는 KDS 원문이 아닌 AISC 360-22 임시 참조입니다.
+> KDS 14 31 00 / KDS 41 31 00 원문 확보 후 교체 검증이 필요합니다.
+
+ingester (`core.kds_rag.ingest._doc_from_json`) 가 현재 시점에는
+`temporary_reference` / `replacement_*` 필드를 화이트리스트에서 제외해
+JSONL 인덱스에 싣지 않으므로, UI 측은 chunk metadata 가 아닌 **소스
+JSON 을 직접 읽어** 플래그를 확인해야 한다. UI 와이어링은 Phase 4
+작업 (LLM provider 활성화와 함께) 으로 남는다.
+
+`data/kds_sample/kds_41_17_00_drift.json` 은 `temporary_reference:
+false` 이므로 위 디스클레이머가 필요 없다.
 
 ## 다음 작업 후보 (Phase 4)
 

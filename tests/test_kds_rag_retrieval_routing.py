@@ -1,39 +1,55 @@
-"""Deterministic retrieval-quality regression for the Voyage KDS path.
+"""Synthetic retrieval-routing regression for the Voyage KDS path.
 
 Phase 3B smoke deliberately keeps three issue_type query paths covered:
 ``drift_exceeded`` / ``shear_exceeded`` / ``strength_exceeded``. This test
-locks in the *retrieval ranking* for those three so a future change to
-the chunker, query builder, or cosine fast-path can't silently flip the
-top-1 chunk and drag KDS evidence in the explainer with it.
+locks in the *retrieval routing* — i.e. that ``make_kds_query`` produces
+a distinguishing signal per issue_type AND that
+``VoyageKDSRetriever.retrieve`` routes that signal to the topic-matching
+chunk via cosine + (optional) rerank + top-k.
 
-What we test
-------------
-* The full Voyage code path (``VoyageKDSRetriever.retrieve``) — embed
-  query → cosine → (optional) rerank → top-k — but with an in-process
-  topic-aware fake embedder so no network is touched. The same path runs
-  in production behind ``get_default_kds_retriever()``.
-* ``make_kds_query`` is invoked end-to-end so the contextual mapping
-  (issue_type → keywords) is exercised, not just the bare retriever.
+It is NOT a real retrieval-quality benchmark. Real Voyage embeddings do
+NOT make drift/shear/strength orthogonal the way the synthetic basis here
+does; that's why this file is called "routing" and not "quality". Genuine
+quality evaluation lives in ``docs/kds_rag_smoke.md`` as a manual
+procedure to be run once VOYAGE_API_KEY is available, against the
+``data/kds_sample/`` corpus.
 
-What we deliberately do NOT test here
+What this regression *does* guarantee
 -------------------------------------
-* Voyage SDK error paths — covered by ``test_kds_voyage_rag.py``.
-* The deterministic explainer prose — covered by
-  ``test_recommendation_explainer.py``.
-* PDF parsing — Phase 4 work; not in scope for this smoke.
+* ``make_kds_query`` produces query text + topic/limit_state hints that
+  vary by issue_type (regression on the mapping logic).
+* The retriever's cosine ranking + scores dict + top-k truncation +
+  optional rerank short-circuit all stay wired (no silent path flip).
+* The index/JSONL round-trip stays binary-compatible (chunk metadata
+  survives load).
+
+What this regression *does NOT* guarantee
+-----------------------------------------
+* That live Voyage returns the right KDS clause as top-1 on real text.
+* That short Korean keywords sufficiently separate flexure vs. shear in
+  voyage-4-large's embedding space.
+* That mixed Korean/English query text behaves like the synthetic basis.
+
+Out of scope (covered elsewhere)
+--------------------------------
+* Voyage SDK error paths — ``test_kds_voyage_rag.py``.
+* Deterministic explainer prose — ``test_recommendation_explainer.py``.
+* PDF parsing — Phase 4.
 
 The fake embedder
 -----------------
 We map each chunk to a fixed unit basis vector keyed off ``topic``:
 
-    story_drift     → e_drift   = [1, 0, 0, 0]
-    member_shear    → e_shear   = [0, 1, 0, 0]
-    member_strength → e_strength= [0, 0, 1, 0]
-    (anything else) → e_noise   = [0, 0, 0, 1]
+    story_drift     → e_drift    = [1, 0, 0, ε]
+    member_shear    → e_shear    = [0, 1, 0, ε]
+    member_strength → e_strength = [0, 0, 1, ε]
+    (anything else) → e_noise    = [ε, ε, ε, 1]
 
-The query vector is derived the same way from the *expected* topic for
-each issue_type, with a small amount of noise sprinkled in so the test
-also asserts that the top-1 wins by a margin rather than by tie-break.
+The query vector is derived the same way from ``query.topic`` (when
+``ISSUE_TYPE_TO_TOPIC`` sets it) or from a keyword scan over the
+``query_text`` (fall-back). The deliberately orthogonal basis is a
+property of the *test scaffolding*, not of real embeddings — see the
+caveat above.
 """
 from __future__ import annotations
 
@@ -212,8 +228,14 @@ def synthetic_retriever(tmp_path):
 # Tests
 # ---------------------------------------------------------------------------
 
-class TestRetrievalQualityTop1:
-    """Each issue_type returns its topic-matched chunk as top-1."""
+class TestRetrievalRoutingTop1:
+    """Each issue_type routes to its topic-matched synthetic chunk as top-1.
+
+    "Routing" here means: the contextual mapping in ``make_kds_query``
+    plus the cosine + scores plumbing pick the chunk we labelled with the
+    matching topic. It is NOT a claim that real Voyage retrieval over
+    real KDS text would behave the same — see this module's docstring.
+    """
 
     def test_drift_query_returns_drift_chunk_top1(self, synthetic_retriever):
         retriever, embedder = synthetic_retriever
@@ -318,7 +340,7 @@ class TestRetrievalQualityTop1:
         )
 
 
-class TestRetrievalQualityCoverage:
+class TestSyntheticBasisGuards:
     """Sanity-check the test scaffolding itself.
 
     These tests guard against silent drift in the fake embedder + chunk
