@@ -37,6 +37,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "mcp-server"))
 
+# Mirror webapp/backend/app/main_simple.py — load .env from the repo root so
+# the operator does not have to re-export VOYAGE_API_KEY in every PowerShell
+# session. dotenv is a soft dep: if it isn't installed we just skip and fall
+# back to whatever the environment already has.
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 from core.kds_rag.ingest import build_kds_index  # noqa: E402
 
 
