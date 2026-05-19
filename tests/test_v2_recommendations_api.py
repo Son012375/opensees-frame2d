@@ -551,6 +551,24 @@ class TestExplainEndpoint:
     the cached model_json.
     """
 
+    @pytest.fixture(autouse=True)
+    def _force_noop_retriever(self, monkeypatch):
+        """Clear Voyage env vars so ``get_default_kds_retriever()`` always
+        returns ``NoopKDSRetriever`` during these tests, regardless of
+        the operator's local ``.env``.
+
+        Without this fixture, the moment a developer activates Voyage
+        locally (sets VOYAGE_API_KEY + KDS_RAG_INDEX_PATH in .env), the
+        ``rag_used is False`` assertion below starts failing because the
+        factory returns a real retriever and the sample corpus actually
+        produces evidence. The Explain endpoint contract under test here
+        is the Noop fallback path — keep it deterministic.
+        """
+        for key in ("VOYAGE_API_KEY", "VOYAGEAI_API_KEY",
+                    "KDS_RAG_INDEX_PATH"):
+            monkeypatch.delenv(key, raising=False)
+        yield
+
     def test_explain_happy_path_applicable_candidate_without_evaluation(self):
         _seed_with_real_model(CANDIDATE_A)
         with TestClient(app) as client:

@@ -402,18 +402,66 @@ class TestChunkAdapter:
         # query_hint preserved from the base hint
         assert ref.query_hint is not None
 
-    def test_long_chunk_passes_through_so_validator_can_reject(self):
-        """Adapter never silently truncates — validator owns the cap."""
+    def test_long_chunk_is_excerpted_to_pass_validator(self):
+        """Adapter excerpts oversized chunk text so realistic 1200-char
+        retrieval chunks survive ``validate_code_reference``.
+
+        Without this excerpt step the explainer would silently fall back
+        to "RAG 미사용" on every long chunk even when Voyage retrieval
+        succeeded — see Phase 3B live-smoke regression where all three
+        sample chunks were rejected with ``quote_too_long``.
+        """
         ref = chunk_to_code_reference(_long_chunk())
-        assert ref.quote is not None  # quote is passed through verbatim
-        assert len(ref.quote) > MAX_QUOTE_LEN
-        # Validator must catch the over-length quote even when chunk_id
-        # is otherwise present.
+        assert ref.quote is not None
+        # Excerpt ends with a horizontal ellipsis (U+2026) so the user
+        # can tell it's a snippet, and the total length never exceeds
+        # the citation cap.
+        assert ref.quote.endswith("…")
+        assert len(ref.quote) <= MAX_QUOTE_LEN
+        # Validator now accepts the ref (chunk_id is present, quote is
+        # within cap, source/topic still satisfied).
         ok, reason = validate_code_reference(
             ref, chunk_id="kds_long_quote_p1",
         )
-        assert not ok
-        assert reason == "quote_too_long"
+        assert ok, f"expected acceptance after excerpt, got: {reason}"
+
+    def test_short_chunk_text_passes_through_unchanged(self):
+        """Chunks already within MAX_QUOTE_LEN must not be touched —
+        the excerpt logic only kicks in above the cap.
+        """
+        ref = chunk_to_code_reference(_h1_chunk())
+        original = _h1_chunk().text.strip()
+        assert ref.quote == original
+        assert not ref.quote.endswith("…")
+
+    def test_long_chunk_excerpt_prefers_korean_sentence_boundary(self):
+        """When the head window contains a Korean sentence terminator
+        ("다."), the excerpt should cut there instead of mid-word.
+        """
+        head = (
+            "허용 층간변위비는 내진등급에 따라 다르게 정의된다. "
+            "특등급은 0.010 × hsx 로 가장 엄격하다."
+        )
+        tail = " 추가 설명." * 80  # pushes total length well above the cap
+        chunk = KDSChunk(
+            chunk_id="kds_drift_excerpt_p1",
+            standard_id="KDS 41 17 00",
+            clause_id="8.2.3",
+            title="허용 층간변위비",
+            text=head + tail,
+            topic="seismic_story_drift",
+            limit_state="story_drift",
+            source_url="https://example.invalid/kds-41-17-00#8.2.3",
+        )
+        ref = chunk_to_code_reference(chunk)
+        assert ref.quote is not None
+        assert len(ref.quote) <= MAX_QUOTE_LEN
+        assert ref.quote.endswith("…")
+        # Cut should land after a Korean sentence terminator, never
+        # mid-sentence. The excerpt MUST contain "정의된다." (the first
+        # full sentence) and should not contain the truncated tail
+        # phrase that came after the cutoff.
+        assert "정의된다." in ref.quote
 
 
 # ============================================================
@@ -474,7 +522,16 @@ class TestEnrichCodeRefsWithKds:
         assert s["num_unresolved"] >= 1
         assert s["citation_ready"] is False
 
-    def test_long_quote_chunk_is_rejected(self):
+    def test_long_chunk_is_excerpted_and_attached_via_enrichment(self):
+        """End-to-end: oversized retrieved chunks must survive the
+        enrichment pipeline now that the adapter excerpts the quote.
+
+        Pre-fix this test asserted rejection — but rejecting every long
+        chunk meant `citation_ready` was effectively always False once
+        the chunker started emitting realistic 1200-char chunks, which
+        defeated the entire Voyage RAG path. The excerpt step restores
+        the invariant: long chunks attach with a snippet ending in "…".
+        """
         retr = InMemoryKDSRetriever([_long_chunk()])
         issue = StructuralIssue(
             issue_id="iss_strength_m7",
@@ -486,12 +543,21 @@ class TestEnrichCodeRefsWithKds:
         )
         summary = enrich_code_refs_with_kds([issue], [], retr, top_k=3)
         s = summary["kds_rag_summary"]
-        # Either rejected (if no source_url) OR attached without quote
-        # (since this chunk DOES have no source_url, it should reject).
-        # _long_chunk has no source_url, so the ref ends up with no
-        # source AND no quote — validator rejects it.
-        assert s["num_refs_rejected"] >= 1 or s["num_unresolved"] >= 1
-        assert s["citation_ready"] is False
+        assert s["num_refs_attached"] >= 1
+        assert s["citation_ready"] is True
+        # The attached ref carries the excerpted quote — find it on
+        # the mutated issue and verify the snippet shape.
+        excerpted_refs = [
+            r for r in (issue.code_refs or [])
+            if r.quote and r.quote.endswith("…")
+        ]
+        assert excerpted_refs, (
+            f"expected at least one excerpted ref; got "
+            f"{[(r.standard_id, r.quote and len(r.quote)) for r in issue.code_refs]}"
+        )
+        assert all(
+            len(r.quote) <= MAX_QUOTE_LEN for r in excerpted_refs
+        )
 
 
 # ============================================================
@@ -714,8 +780,16 @@ class TestSummarySemantics:
 
     def test_rejected_refs_make_all_queries_resolved_false(self):
         """Even if a query returned chunks, a rejected ref invalidates
-        all_queries_resolved."""
-        retr = InMemoryKDSRetriever([_long_chunk()])
+        all_queries_resolved.
+
+        Uses ``_no_source_chunk`` (empty chunk_id + no source_url) to
+        exercise the ``missing_source_url_and_chunk_id`` rejection. The
+        long-quote rejection path went away when the adapter learned to
+        excerpt — that's covered by the
+        ``test_long_chunk_is_excerpted_and_attached_via_enrichment``
+        positive case above.
+        """
+        retr = InMemoryKDSRetriever([_no_source_chunk()])
         issue = StructuralIssue(
             issue_id="iss_strength_m7",
             issue_type=IssueType.STRENGTH_EXCEEDED,

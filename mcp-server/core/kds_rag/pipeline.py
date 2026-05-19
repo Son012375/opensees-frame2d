@@ -277,6 +277,37 @@ def build_kds_queries_for_candidate(
 # Chunk → CodeReference adapter
 # ---------------------------------------------------------------------------
 
+def _excerpt_for_quote(text: str) -> str:
+    """Return a citation-friendly excerpt of ``text`` ≤ MAX_QUOTE_LEN.
+
+    The retrieval chunker (`chunk_kds_document`) deliberately produces
+    chunks up to ~1200 chars so embeddings have enough context. Citations
+    can't carry that much — `MAX_QUOTE_LEN` (400) is a copyright + UI
+    guardrail. Without this excerpt step, every realistic retrieved chunk
+    would be rejected by `validate_code_reference` with
+    `quote_too_long` and the explainer would silently fall back to
+    "RAG 미사용" even though Voyage retrieval succeeded.
+
+    Strategy: take the leading window, then try to extend back to the
+    nearest sentence boundary (Korean ".다" closers preferred, English
+    "." after that) so the snippet doesn't end mid-word. Append an
+    ellipsis so the user can tell it's an excerpt. Falls back to a hard
+    cut when no sentence boundary is found in the rear half.
+    """
+    t = text.strip()
+    if len(t) <= MAX_QUOTE_LEN:
+        return t
+    cutoff = MAX_QUOTE_LEN - 1  # reserve room for the ellipsis
+    head = t[:cutoff]
+    # Prefer Korean sentence terminators ("다."), then English ".".
+    for terminator in ("다.\n", "다. ", "다.", ".\n", ". "):
+        idx = head.rfind(terminator)
+        if idx > MAX_QUOTE_LEN // 2:
+            head = head[: idx + len(terminator)].rstrip()
+            break
+    return head + "…"
+
+
 def chunk_to_code_reference(
     chunk: KDSChunk,
     base_ref: Optional["CodeReference"] = None,
@@ -284,10 +315,12 @@ def chunk_to_code_reference(
     """Build a citation-form CodeReference from a retrieved chunk.
 
     If ``base_ref`` is provided, its hint fields are preserved when the
-    chunk doesn't override them. The chunk's ``text`` becomes the
-    ``quote`` directly — even if it's too long. The validator then
-    decides whether to accept it. We never silently truncate, since the
-    quote-length cap is a guardrail, not a styling choice.
+    chunk doesn't override them. The chunk's ``text`` is excerpted to
+    `MAX_QUOTE_LEN` before being stored as `quote` so realistic-sized
+    chunks survive `validate_code_reference`. We don't pass full chunk
+    text through because the validator's length cap exists for copyright
+    and UI reasons — silently flunking the validator on every long chunk
+    defeats the entire RAG path.
     """
     # Local import — avoid circularity at module load time.
     from ..recommendation.schemas import CodeReference
@@ -296,7 +329,7 @@ def chunk_to_code_reference(
     if chunk.text:
         t = chunk.text.strip()
         if t:
-            quote = t  # validator catches over-length quotes.
+            quote = _excerpt_for_quote(t)
 
     def _pick(field: str) -> Any:
         v = getattr(chunk, field, None)
