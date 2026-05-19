@@ -682,6 +682,14 @@ def _retrieve_evidence(
             rag_used = False
 
     evidence: list[KdsEvidence] = []
+    # Per-standard dedupe for the "임시 참조" disclaimer. The sample corpus
+    # currently has AISC 360-22 stand-in chunks because KDS 14 31 00 /
+    # KDS 41 31 00 PDFs are not yet ingested; surface that fact to the user
+    # at most once per distinct standard so the warning list stays clean
+    # even when several AISC chunks are returned. Phase 4 will replace this
+    # standard_id inference with explicit ``temporary_reference`` metadata
+    # carried on KDSChunk itself.
+    seen_temp_ref_standards: set[str] = set()
     for rank, chunk in enumerate(result.chunks or []):
         try:
             ref = chunk_to_code_reference(chunk, base_ref=None)
@@ -702,6 +710,17 @@ def _retrieve_evidence(
                 f"chunk={chunk.chunk_id} reason={reason}"
             )
             continue
+        std_id = (chunk.standard_id or "").strip()
+        is_aisc = (
+            chunk.jurisdiction == "AISC"
+            or std_id.startswith("AISC")
+        )
+        if is_aisc and std_id and std_id not in seen_temp_ref_standards:
+            seen_temp_ref_standards.add(std_id)
+            warnings.append(
+                f"aisc_temporary_reference: {std_id} 는 임시 참조입니다. "
+                "KDS 14 31 00 / KDS 41 31 00 원문 확보 후 교체 검증이 필요합니다."
+            )
         score = float(
             (result.scores or {}).get(chunk.chunk_id, 1.0 / (rank + 1))
         )

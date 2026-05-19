@@ -437,6 +437,111 @@ class TestExplainCandidateOrchestrator:
         joined = " | ".join(result.warnings)
         assert "kds_retriever_exception" in joined
 
+    def test_aisc_chunk_emits_temporary_reference_warning(self):
+        # When the retriever returns AISC chunks (stand-ins until KDS
+        # 14 31 00 / 41 31 00 are ingested), the explainer must warn the
+        # user that the citation is temporary. The warning carries the
+        # ``aisc_temporary_reference`` code so the UI translation layer
+        # surfaces a Korean disclaimer instead of silently citing AISC
+        # as if it were the Korean code.
+        cand = _applicable_candidate()  # strength_exceeded candidate
+        aisc_chunks = [
+            KDSChunk(
+                chunk_id="aisc_f2_001",
+                standard_id="AISC 360-22",
+                text=(
+                    "F2 휨강도 — 양축대칭 콤팩트 I형 부재. "
+                    "Mn = Mp = Fy · Zx; 조합응력 H1-1a/H1-1b 의 DCR ≤ 1.0."
+                ),
+                clause_id="F2",
+                title="Flexural Strength of Doubly Symmetric Compact I-Shaped Members",
+                topic="member_strength",
+                limit_state="strength",
+                jurisdiction="AISC",
+                material="steel",
+                source_url=None,
+            ),
+        ]
+        retriever = InMemoryKDSRetriever(aisc_chunks)
+        result = explain_candidate(cand, retriever=retriever)
+        # rag_used must still be True — the retriever ran and returned a
+        # validated chunk; the warning is advisory, not a failure mode.
+        assert result.source["rag_used"] is True
+        assert len(result.kds_evidence) >= 1
+        joined = " | ".join(result.warnings)
+        assert "aisc_temporary_reference" in joined, (
+            f"expected aisc_temporary_reference in warnings; got: {joined!r}"
+        )
+        # Standard id is interpolated into the disclaimer so a future
+        # second AISC standard (e.g. AISC 341) shows up separately.
+        assert "AISC 360-22" in joined
+
+    def test_aisc_warning_dedupes_per_standard_id(self):
+        # Two chunks from the same AISC 360-22 standard must produce a
+        # SINGLE warning line. Multiple AISC standards in one response
+        # would each produce their own line, but per-chunk dedupe within
+        # a single standard keeps the warning panel clean.
+        cand = _applicable_candidate()
+        aisc_chunks = [
+            KDSChunk(
+                chunk_id="aisc_f2_001",
+                standard_id="AISC 360-22",
+                text="F2 휨 — Mn = Mp = Fy · Zx.",
+                clause_id="F2",
+                title="Flexure",
+                topic="member_strength",
+                limit_state="strength",
+                jurisdiction="AISC",
+                material="steel",
+                source_url=None,
+            ),
+            KDSChunk(
+                chunk_id="aisc_f2_002",
+                standard_id="AISC 360-22",
+                text="F2-2 횡-비틀림좌굴 보정계수 Cb 적용.",
+                clause_id="F2",
+                title="LTB",
+                topic="member_strength",
+                limit_state="strength",
+                jurisdiction="AISC",
+                material="steel",
+                source_url=None,
+            ),
+        ]
+        retriever = InMemoryKDSRetriever(aisc_chunks)
+        result = explain_candidate(cand, retriever=retriever)
+        aisc_warnings = [
+            w for w in result.warnings
+            if w.startswith("aisc_temporary_reference")
+        ]
+        assert len(aisc_warnings) == 1, (
+            f"expected exactly one AISC warning (per-standard dedupe); "
+            f"got {len(aisc_warnings)}: {aisc_warnings!r}"
+        )
+
+    def test_kds_only_evidence_omits_aisc_warning(self):
+        # False-positive guard: a pure KDS response must NOT emit the AISC
+        # disclaimer. The drift chunks set jurisdiction="KDS" and
+        # standard_id="KDS 41 17 00" — neither trigger the AISC heuristic.
+        cand = RetrofitCandidate(
+            candidate_id="cand_drift",
+            issue_id="drift_exceeded_story_1",
+            action_type="add_lateral_resistance",
+            description="횡저항 시스템 검토",
+            target={"scope": "story", "story": 1, "direction": "X"},
+            proposed_change={
+                "operation": "add_lateral_resistance",
+                "applicable": False,
+            },
+        )
+        retriever = InMemoryKDSRetriever(_drift_chunks())
+        result = explain_candidate(cand, retriever=retriever)
+        assert result.source["rag_used"] is True
+        joined = " | ".join(result.warnings)
+        assert "aisc_temporary_reference" not in joined, (
+            f"AISC warning leaked onto pure-KDS evidence; warnings={joined!r}"
+        )
+
     def test_to_dict_contract(self):
         cand = _applicable_candidate()
         ev = _evaluated_evaluation()

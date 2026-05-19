@@ -4302,6 +4302,7 @@ const _WARNING_TRANSLATIONS_KO = {
     'voyage_embed_query_failed': 'Voyage 질의 임베딩 실패',
     'voyage_rerank_failed': 'Voyage 리랭크 실패 — 코사인 점수로 대체',
     'voyage_no_match': 'Voyage 검색 결과 없음',
+    'aisc_temporary_reference': '현재 강구조 근거는 KDS 원문이 아닌 AISC 360-22 임시 참조입니다. KDS 14 31 00 / KDS 41 31 00 원문 확보 후 교체 검증이 필요합니다.',
 };
 
 function _translateWarning(w) {
