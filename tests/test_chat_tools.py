@@ -239,6 +239,66 @@ def test_inspect_selection_raises_when_no_analysis_id_anywhere():
         inspect_selection({"element_ids": [1]}, session={})
 
 
+def test_inspect_selection_ui_context_analysis_id_beats_stale_session_binding(
+    seeded_analysis_cache,
+):
+    """Codex P1 on c378b05: the widget refreshes ``ui_context.analysis_id``
+    every turn so a session created before any /analyze run, or one whose
+    user just re-ran the analysis, can still resolve to the fresh id."""
+    session = {
+        "analysis_id": "stale_or_missing_id",  # not in cache
+        "history": [{
+            "role": "user", "content": "이 부재",
+            "ui_context": {
+                "analysis_id": seeded_analysis_cache,
+                "selected_element_ids": [101],
+            },
+        }],
+    }
+    out = inspect_selection({}, session=session)
+    assert out["analysis_id"] == seeded_analysis_cache
+    assert out["elements"][0]["found"] is True
+
+
+def test_inspect_selection_argument_beats_ui_context(seeded_analysis_cache):
+    """Explicit > fresh > stale — the LLM can override even the widget's
+    selection when it has a reason to."""
+    session = {
+        "history": [{
+            "role": "user", "content": "x",
+            "ui_context": {"analysis_id": "ui_id_should_lose"},
+        }],
+    }
+    out = inspect_selection(
+        {"analysis_id": seeded_analysis_cache, "element_ids": [101]},
+        session=session,
+    )
+    assert out["analysis_id"] == seeded_analysis_cache
+
+
+def test_inspect_selection_session_binding_used_when_no_ui_context():
+    """Codex P1 fallback — curl/pytest paths that build a session via
+    /sessions {analysis_id:...} keep working without a widget."""
+    # Skip the cache hit check; we only care about which id flows through.
+    with pytest.raises(ValueError, match="analysis_id is required"):
+        inspect_selection({"element_ids": [1]}, session={"history": []})
+
+
+def test_get_analysis_summary_ui_context_overrides_stale_session_binding(
+    seeded_analysis_cache,
+):
+    session = {
+        "analysis_id": "stale_id",
+        "history": [{
+            "role": "user", "content": "요약",
+            "ui_context": {"analysis_id": seeded_analysis_cache},
+        }],
+    }
+    out = get_analysis_summary({}, session=session)
+    assert out["analysis_id"] == seeded_analysis_cache
+    assert out["summary"]["ng_count"] == 1
+
+
 # ---------------------------------------------------------------------------
 # get_analysis_summary
 # ---------------------------------------------------------------------------

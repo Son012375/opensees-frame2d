@@ -31,14 +31,41 @@ def _get_cache():
 
 
 def _resolve_analysis_id(arguments: dict, session: dict) -> str:
-    """Tool arg wins over session binding. Raise if neither is set so a
-    misconfigured chat session surfaces a clear error instead of a
-    silent empty result."""
-    aid = arguments.get("analysis_id") or session.get("analysis_id")
+    """Resolve the analysis the tool should target.
+
+    Precedence — explicit > fresh > stale:
+
+        1. ``arguments.analysis_id`` — LLM was given a specific id.
+        2. Latest ``ui_context.analysis_id`` from session history — the
+           widget refreshes this every turn, so it tracks the user's
+           currently-open analysis even if the session was created
+           before any analysis ran or the user re-ran ``/api/v2/analyze``
+           and got a new ``currentJobId``.
+        3. ``session.analysis_id`` — the binding set at
+           ``POST /sessions``. Fallback for the no-widget case
+           (e.g. curl / pytest).
+
+    Raises ``ValueError`` if none of the three is set so a misconfigured
+    session surfaces a clear error instead of a silent empty result.
+    """
+    aid = arguments.get("analysis_id")
+    if aid:
+        return aid
+    # The chat widget attaches ui_context to every /messages payload and
+    # the orchestrator stows it on the user-turn history entry. Reading
+    # in reverse means the freshest analysis id wins — important when
+    # the user re-runs /api/v2/analyze mid-session.
+    for entry in reversed(session.get("history") or []):
+        ui_ctx = entry.get("ui_context") or {}
+        ui_aid = ui_ctx.get("analysis_id")
+        if ui_aid:
+            return ui_aid
+    aid = session.get("analysis_id")
     if not aid:
         raise ValueError(
-            "analysis_id is required: pass it in the tool call or bind "
-            "the chat session to one via POST /sessions {analysis_id: ...}"
+            "analysis_id is required: pass it in the tool call, attach it "
+            "to ui_context, or bind the chat session via POST /sessions "
+            "{analysis_id: ...}"
         )
     return aid
 
