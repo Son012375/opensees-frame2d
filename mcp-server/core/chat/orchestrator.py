@@ -56,6 +56,38 @@ from .tool_registry import (
 )
 
 
+def _safe_encode(event_type: str, payload: dict | None = None) -> str:
+    """Encode an event without ever raising.
+
+    ``encode_event`` rejects payloads that carry :data:`FORBIDDEN_KEYS`
+    (the forbidden-key guard that keeps ``model_json`` etc. off the
+    wire). If the orchestrator's own emit calls or a tool result happen
+    to trip the guard, we'd otherwise blow up mid-turn and the client
+    would never see a ``done`` terminator — Codex P1 on bcf3a0e.
+
+    Instead we catch and emit an ``error`` event explaining the failure.
+    The fallback ``error`` event is built from primitive strings so it
+    can never trigger the guard recursively; even so it goes through one
+    more ``try``/``except`` so a bug in the encoder itself can't crash
+    the stream.
+    """
+    try:
+        return encode_event(event_type, payload)
+    except (ValueError, TypeError) as exc:
+        try:
+            return encode_event(EVENT_ERROR, {
+                "message": f"event encoding failed for {event_type!r}: {exc}",
+                "code": "event_encoding_failed",
+            })
+        except Exception:  # noqa: BLE001 — last-resort raw NDJSON
+            import json as _json
+            return _json.dumps({
+                "type": "error",
+                "code": "event_encoding_failed",
+                "message": "encode_event failed and fallback also failed",
+            }) + "\n"
+
+
 class ChatOrchestrator:
     def __init__(
         self,
@@ -122,7 +154,7 @@ class ChatOrchestrator:
                 )
             except Exception as exc:  # noqa: BLE001
                 yield (
-                    encode_event(EVENT_ERROR, {
+                    _safe_encode(EVENT_ERROR, {
                         "message": str(exc) or type(exc).__name__,
                         "code": "tool_request_failure",
                     }),
@@ -134,7 +166,7 @@ class ChatOrchestrator:
                 return
 
             yield (
-                encode_event(EVENT_TOOL_CALL, {
+                _safe_encode(EVENT_TOOL_CALL, {
                     "round": round_idx,
                     "tool": tool_call.name,
                     "arguments": tool_call.arguments,
@@ -155,7 +187,7 @@ class ChatOrchestrator:
                 result = {"error": f"{type(exc).__name__}: {exc}", "code": "tool_crash"}
 
             yield (
-                encode_event(EVENT_TOOL_RESULT, {
+                _safe_encode(EVENT_TOOL_RESULT, {
                     "round": round_idx,
                     "tool": tool_call.name,
                     "result": result,
@@ -190,7 +222,7 @@ class ChatOrchestrator:
             "ui_context": ui_context or {},
         })
 
-        yield encode_event(EVENT_STATUS, {
+        yield _safe_encode(EVENT_STATUS, {
             "message": "thinking",
             "provider": self.llm.name,
         })
@@ -210,9 +242,9 @@ class ChatOrchestrator:
                     continue
                 full_text += tok
                 token_count += 1
-                yield encode_event(EVENT_TOKEN, {"text": tok})
+                yield _safe_encode(EVENT_TOKEN, {"text": tok})
         except Exception as exc:  # noqa: BLE001
-            yield encode_event(EVENT_ERROR, {
+            yield _safe_encode(EVENT_ERROR, {
                 "message": str(exc) or type(exc).__name__,
                 "code": "llm_failure",
             })
@@ -220,7 +252,7 @@ class ChatOrchestrator:
         history.append({"role": "assistant", "content": full_text})
         self._trim_history(history)
 
-        yield encode_event(EVENT_DONE, {
+        yield _safe_encode(EVENT_DONE, {
             "rounds": rounds,
             "total_tokens": token_count,
             "ms_total": int((time.monotonic() - t0) * 1000),

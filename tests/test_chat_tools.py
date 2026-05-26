@@ -516,6 +516,89 @@ def test_orchestrator_history_trim_runs_after_assistant_append():
     assert session["history"][-1]["role"] == "assistant"
 
 
+def test_orchestrator_emits_error_and_done_when_provider_raises_during_stream(
+    seeded_analysis_cache,
+):
+    """Codex P2 on bcf3a0e: OllamaProvider raises OllamaUnavailableError
+    when the daemon goes down mid-stream. The orchestrator's outer
+    try/except must catch that and still emit a terminating ``done`` so
+    the chat widget doesn't hang waiting for one."""
+    class CrashingProvider(BaseLLMProvider):
+        name = "crash"
+        async def stream_tokens(self, *, messages) -> AsyncIterator[str]:
+            raise RuntimeError("simulated provider failure mid-stream")
+            yield  # pragma: no cover
+
+    orch = ChatOrchestrator(CrashingProvider(), registry=None)
+    events = _drain(orch.run_turn(session={"history": []}, user_message="ping"))
+    types = [e["type"] for e in events]
+    assert "error" in types
+    assert types[-1] == "done"
+    err = next(e for e in events if e["type"] == "error")
+    assert "simulated provider failure" in err["message"]
+
+
+def test_orchestrator_emits_error_and_done_when_tool_request_raises(
+    seeded_analysis_cache,
+):
+    """Same guarantee on the tool-round path: a provider crash inside
+    ``request_tool_call`` (e.g. OllamaUnavailableError from a dead
+    daemon) becomes an ``error`` event and the loop still terminates."""
+    class CrashingProvider(BaseLLMProvider):
+        name = "crash"
+        async def request_tool_call(self, *, messages, tools):
+            raise RuntimeError("daemon down during tool round")
+        async def stream_tokens(self, *, messages) -> AsyncIterator[str]:
+            yield "fallback"
+
+    orch = ChatOrchestrator(CrashingProvider(), registry=default_registry())
+    events = _drain(orch.run_turn(
+        session={"analysis_id": seeded_analysis_cache, "history": []},
+        user_message="요약",
+    ))
+    types = [e["type"] for e in events]
+    assert "error" in types
+    assert types[-1] == "done"
+    err = next(e for e in events if e["type"] == "error")
+    assert err["code"] == "tool_request_failure"
+
+
+def test_orchestrator_safe_encode_keeps_stream_terminated_when_tool_returns_forbidden_key(
+    seeded_analysis_cache,
+):
+    """Codex P1 on bcf3a0e: if a future tool returns a dict containing
+    ``model_json`` (or any other FORBIDDEN_KEYS member), encode_event
+    raises ValueError. _safe_encode catches that and emits an ``error``
+    event with code=event_encoding_failed instead of letting the
+    exception kill the stream — the client must still see ``done``."""
+    leaky = ToolSpec(
+        name="leaky", group="inspect",
+        description="", parameters={"type": "object", "properties": {}},
+        func=lambda a, *, session: {
+            "ok": True,
+            # Phase C / future-tool foot-gun: passing model_json straight
+            # through to the wire. The guard must catch it.
+            "updated_model": {"nodes": [{"id": 1}]},
+        },
+    )
+    registry = ToolRegistry([leaky], enabled_groups=frozenset({"inspect"}))
+    provider = ScriptedToolProvider(
+        calls=[ToolCall(name="leaky", arguments={}), None],
+        final_text="end",
+    )
+    events = _drain(ChatOrchestrator(provider, registry=registry).run_turn(
+        session={"history": []},
+        user_message="trigger leak",
+    ))
+    types = [e["type"] for e in events]
+    assert types[-1] == "done"
+    encoding_errors = [
+        e for e in events
+        if e["type"] == "error" and e.get("code") == "event_encoding_failed"
+    ]
+    assert encoding_errors, f"expected event_encoding_failed in {types}"
+
+
 def test_orchestrator_provider_messages_strip_ui_context():
     """``ui_context`` is chat-router metadata. It must not be forwarded
     to the LLM (would inflate context + confuse the model)."""

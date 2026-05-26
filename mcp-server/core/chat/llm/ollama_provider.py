@@ -109,7 +109,7 @@ class OllamaProvider(BaseLLMProvider):
 
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _to_ollama_messages(messages),
             "tools": tools,
             "stream": False,
         }
@@ -138,7 +138,7 @@ class OllamaProvider(BaseLLMProvider):
         """
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _to_ollama_messages(messages),
             "stream": True,
         }
         try:
@@ -164,6 +164,33 @@ class OllamaProvider(BaseLLMProvider):
             raise OllamaUnavailableError(
                 f"Ollama stream request failed: {type(exc).__name__}: {exc}"
             ) from exc
+
+
+# ----------------------------------------------------------------------
+# Wire-format adapters — kept module-level for direct unit testing
+# ----------------------------------------------------------------------
+
+def _to_ollama_messages(messages: list[dict]) -> list[dict]:
+    """Convert orchestrator-internal messages to the Ollama wire format.
+
+    The orchestrator stores tool-result entries as ``{"role": "tool",
+    "name": ..., "content": ...}`` (the OpenAI shape we keep
+    provider-agnostic). Ollama's ``/api/chat`` expects the field to be
+    called ``tool_name`` for tool messages — that's what lets qwen2.5
+    et al. tie the result back to the originating ``tool_call``.
+
+    Non-tool messages pass through unchanged so the orchestrator never
+    has to know which provider it's talking to.
+    """
+    out: list[dict] = []
+    for m in messages:
+        if m.get("role") == "tool" and "name" in m:
+            converted = {k: v for k, v in m.items() if k != "name"}
+            converted["tool_name"] = m["name"]
+            out.append(converted)
+        else:
+            out.append(m)
+    return out
 
 
 # ----------------------------------------------------------------------

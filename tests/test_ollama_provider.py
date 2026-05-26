@@ -25,6 +25,7 @@ from core.chat.llm.ollama_provider import (  # noqa: E402
     OllamaProvider,
     OllamaUnavailableError,
     _parse_first_tool_call,
+    _to_ollama_messages,
 )
 
 
@@ -288,6 +289,87 @@ def test_parse_first_tool_call_picks_only_the_first_entry():
         },
     })
     assert out == ToolCall(name="a", arguments={"x": 1})
+
+
+# ---------------------------------------------------------------------------
+# _to_ollama_messages — name → tool_name rewrite (Codex P1 on bcf3a0e)
+# ---------------------------------------------------------------------------
+
+def test_to_ollama_messages_renames_tool_name_field():
+    """Ollama's chat API expects ``tool_name`` (not ``name``) on tool
+    messages so the model can match a result back to the originating
+    tool_call. The orchestrator keeps the internal field as ``name``
+    to stay provider-agnostic; the provider rewrites at the wire."""
+    out = _to_ollama_messages([
+        {"role": "user", "content": "이 부재"},
+        {"role": "assistant", "content": ""},
+        {"role": "tool", "name": "inspect_selection", "content": '{"elements": []}'},
+    ])
+    assert out[0] == {"role": "user", "content": "이 부재"}
+    assert out[1] == {"role": "assistant", "content": ""}
+    # name dropped, tool_name added, content preserved
+    assert out[2]["role"] == "tool"
+    assert out[2]["tool_name"] == "inspect_selection"
+    assert "name" not in out[2]
+    assert out[2]["content"] == '{"elements": []}'
+
+
+def test_to_ollama_messages_leaves_non_tool_entries_untouched():
+    inp = [
+        {"role": "system", "content": "be terse"},
+        {"role": "user", "content": "ping", "extra_metadata": {"keep": True}},
+    ]
+    assert _to_ollama_messages(inp) == inp
+
+
+def test_to_ollama_messages_tool_without_name_passes_through():
+    """Edge case: a tool entry that somehow lacks ``name`` shouldn't
+    get a synthesized ``tool_name`` key out of thin air."""
+    inp = [{"role": "tool", "content": "{}"}]
+    assert _to_ollama_messages(inp) == inp
+
+
+def test_request_tool_call_sends_tool_name_not_name():
+    """End-to-end check: orchestrator-style messages with ``name`` on
+    tool entries arrive at Ollama as ``tool_name``."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"message": {"tool_calls": []}})
+
+    provider = _provider_with(handler)
+    _run(provider.request_tool_call(
+        messages=[
+            {"role": "user", "content": "이 부재"},
+            {"role": "tool", "name": "inspect_selection", "content": '{"elements": []}'},
+        ],
+        tools=[{"type": "function", "function": {"name": "inspect_selection"}}],
+    ))
+    sent = captured["body"]["messages"]
+    tool_msg = next(m for m in sent if m["role"] == "tool")
+    assert tool_msg["tool_name"] == "inspect_selection"
+    assert "name" not in tool_msg
+
+
+def test_stream_tokens_also_rewrites_tool_messages():
+    """The stream path runs after tool rounds, so its history can already
+    contain tool entries that need rewriting. Same conversion applies."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=(
+            json.dumps({"message": {"content": "x"}, "done": True}) + "\n"
+        ).encode("utf-8"))
+
+    provider = _provider_with(handler)
+    _run(_drain(provider.stream_tokens(messages=[
+        {"role": "tool", "name": "get_analysis_summary", "content": "{}"},
+    ])))
+    tool_msg = next(m for m in captured["body"]["messages"] if m["role"] == "tool")
+    assert tool_msg["tool_name"] == "get_analysis_summary"
+    assert "name" not in tool_msg
 
 
 def test_parse_first_tool_call_non_dict_arguments_coerced_to_empty():
