@@ -1,0 +1,469 @@
+/**
+ * Chat Widget — Phase A.4
+ * ============================================================================
+ * Floating AI assistant for V2 Editor. Talks to /api/v2/chat/* and uses
+ * window.EditorV2ChatBridge for editor context.
+ *
+ * Loaded last (after editor3d_v2.js) so it can rely on the editor's
+ * globals being defined. The whole module is wrapped in try/catch — if
+ * anything blows up at init, the FAB stays hidden and the editor
+ * continues working without it (Codex Phase A.4 invariant: chat widget
+ * MUST NOT break the editor).
+ *
+ * Wire contract (NDJSON, one event per line):
+ *   {type: "status",      message, provider}
+ *   {type: "tool_call",   round, tool, arguments}
+ *   {type: "tool_result", round, tool, result, ms}
+ *   {type: "token",       text}
+ *   {type: "error",       message, code}
+ *   {type: "done",        rounds, total_tokens, ms_total}
+ */
+(function () {
+    'use strict';
+
+    const ENDPOINT_SESSIONS = '/api/v2/chat/sessions';
+    const ENDPOINT_MESSAGES = '/api/v2/chat/messages';
+
+    // ---------- module state ----------
+    let sessionId = null;
+    let busy = false;
+    let assistantTarget = null;   // current streaming <div> for assistant text
+    let assistantBuffer = '';
+    let typingIndicator = null;
+    const dom = {};
+
+    // ---------- bridge helper ----------
+    function getBridgeContext() {
+        try {
+            return window.EditorV2ChatBridge?.getContext?.() || {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    // ---------- DOM scaffold ----------
+    function buildDom() {
+        const fab = document.createElement('button');
+        fab.id = 'chat-fab';
+        fab.title = 'AI Assistant (Phase A.4)';
+        fab.textContent = '💬';
+
+        const win = document.createElement('div');
+        win.id = 'chat-window';
+        win.className = 'hidden';
+        win.innerHTML = `
+            <div class="chat-header" data-role="drag-handle">
+                <span class="chat-title">
+                    <span class="chat-status-dot" data-role="status-dot"></span>
+                    AI Assistant
+                </span>
+                <div class="chat-controls">
+                    <button data-action="minimize" title="최소화">─</button>
+                    <button data-action="close" title="닫기">×</button>
+                </div>
+            </div>
+            <div class="chat-body" data-role="body"></div>
+            <div class="chat-input-area">
+                <textarea data-role="input" rows="2"
+                          placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+                <button data-action="send" title="전송">➤</button>
+            </div>
+            <div class="chat-resize-handle" data-role="resize"></div>
+        `;
+
+        document.body.appendChild(fab);
+        document.body.appendChild(win);
+
+        dom.fab = fab;
+        dom.win = win;
+        dom.dragHandle = win.querySelector('[data-role="drag-handle"]');
+        dom.statusDot = win.querySelector('[data-role="status-dot"]');
+        dom.body = win.querySelector('[data-role="body"]');
+        dom.input = win.querySelector('[data-role="input"]');
+        dom.sendBtn = win.querySelector('[data-action="send"]');
+        dom.minBtn = win.querySelector('[data-action="minimize"]');
+        dom.closeBtn = win.querySelector('[data-action="close"]');
+        dom.resize = win.querySelector('[data-role="resize"]');
+    }
+
+    // ---------- show / hide / minimize ----------
+    function openWindow() {
+        dom.win.classList.remove('hidden', 'minimized');
+        dom.fab.classList.add('hidden');
+        setTimeout(() => dom.input.focus(), 50);
+    }
+
+    function closeWindow() {
+        dom.win.classList.add('hidden');
+        dom.fab.classList.remove('hidden');
+    }
+
+    function toggleMinimize() {
+        dom.win.classList.toggle('minimized');
+    }
+
+    // ---------- session ----------
+    async function ensureSession() {
+        if (sessionId) return sessionId;
+        const ctx = getBridgeContext();
+        const body = ctx.analysis_id ? { analysis_id: ctx.analysis_id } : {};
+        const r = await fetch(ENDPOINT_SESSIONS, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            throw new Error(`session create failed (${r.status})`);
+        }
+        const data = await r.json();
+        sessionId = data.session_id;
+        if (data.provider && data.provider !== 'noop') {
+            appendStatusMessage(`provider=${data.provider}`);
+        } else if (data.provider === 'noop') {
+            appendStatusMessage('provider=noop (LLM 미설정)');
+        }
+        return sessionId;
+    }
+
+    // ---------- NDJSON line reader ----------
+    async function* readNdjsonLines(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+                if (buffer.trim()) yield buffer;
+                return;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buffer.indexOf('\n')) >= 0) {
+                const line = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 1);
+                if (line.trim()) yield line;
+            }
+        }
+    }
+
+    // ---------- DOM appenders ----------
+    function scrollToBottom() {
+        dom.body.scrollTop = dom.body.scrollHeight;
+    }
+
+    function appendUserMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'chat-msg chat-msg-user';
+        el.textContent = text;
+        dom.body.appendChild(el);
+        scrollToBottom();
+    }
+
+    function appendStatusMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'chat-msg chat-msg-status';
+        el.textContent = text;
+        dom.body.appendChild(el);
+        scrollToBottom();
+    }
+
+    function appendErrorMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'chat-msg chat-msg-error';
+        el.textContent = text;
+        dom.body.appendChild(el);
+        scrollToBottom();
+    }
+
+    function appendToolCall(event) {
+        const el = document.createElement('div');
+        el.className = 'chat-tool-call';
+        const args = JSON.stringify(event.arguments || {});
+        el.textContent = `[round ${event.round}] ${event.tool}(${args})`;
+        dom.body.appendChild(el);
+        scrollToBottom();
+    }
+
+    function appendToolResult(event) {
+        const el = document.createElement('div');
+        el.className = 'chat-tool-result';
+        const result = event.result || {};
+        const hasError = result.error || result.code === 'tool_blocked' || result.code === 'tool_crash';
+        if (hasError) el.classList.add('has-error');
+        let summary = `[round ${event.round}] ${event.tool} →`;
+        if (result.error) summary += ` ${result.error}`;
+        else summary += ` ${summariseResult(result)}`;
+        const meta = document.createElement('span');
+        meta.className = 'chat-tool-meta';
+        meta.textContent = ` (${event.ms}ms)`;
+        el.textContent = summary;
+        el.appendChild(meta);
+        dom.body.appendChild(el);
+        scrollToBottom();
+    }
+
+    function summariseResult(result) {
+        // Compact one-line preview of the tool result. Full payload is in
+        // the chat session history; the UI just shows enough to confirm
+        // the call did the right thing.
+        if (Array.isArray(result.elements)) {
+            return `${result.elements.length} element(s)`;
+        }
+        if (result.summary) {
+            const s = result.summary;
+            const parts = [];
+            if (s.ng_count != null) parts.push(`NG=${s.ng_count}`);
+            if (s.max_drift?.x != null) parts.push(`maxDriftX=${s.max_drift.x}`);
+            if (s.num_stories) parts.push(`stories=${s.num_stories}`);
+            return parts.join(', ') || 'ok';
+        }
+        const keys = Object.keys(result);
+        return keys.length ? keys.slice(0, 3).join(',') : 'ok';
+    }
+
+    function ensureAssistantTarget() {
+        if (assistantTarget) return assistantTarget;
+        removeTypingIndicator();
+        const el = document.createElement('div');
+        el.className = 'chat-msg chat-msg-assistant';
+        el.textContent = '';
+        dom.body.appendChild(el);
+        assistantTarget = el;
+        assistantBuffer = '';
+        return el;
+    }
+
+    function appendToken(text) {
+        const target = ensureAssistantTarget();
+        assistantBuffer += text;
+        target.textContent = assistantBuffer;
+        scrollToBottom();
+    }
+
+    function showTypingIndicator() {
+        removeTypingIndicator();
+        const el = document.createElement('div');
+        el.className = 'chat-typing';
+        el.innerHTML = '<span></span><span></span><span></span>';
+        dom.body.appendChild(el);
+        typingIndicator = el;
+        scrollToBottom();
+    }
+
+    function removeTypingIndicator() {
+        if (typingIndicator && typingIndicator.parentNode) {
+            typingIndicator.remove();
+        }
+        typingIndicator = null;
+    }
+
+    // ---------- event dispatch ----------
+    function handleEvent(event) {
+        switch (event.type) {
+            case 'status':
+                // First status event of a turn → show typing indicator.
+                showTypingIndicator();
+                break;
+            case 'tool_call':
+                removeTypingIndicator();
+                appendToolCall(event);
+                showTypingIndicator();
+                break;
+            case 'tool_result':
+                removeTypingIndicator();
+                appendToolResult(event);
+                showTypingIndicator();
+                break;
+            case 'token':
+                removeTypingIndicator();
+                appendToken(event.text || '');
+                break;
+            case 'error':
+                removeTypingIndicator();
+                appendErrorMessage(`[${event.code || 'error'}] ${event.message || ''}`);
+                break;
+            case 'done':
+                removeTypingIndicator();
+                assistantTarget = null;
+                assistantBuffer = '';
+                break;
+            default:
+                // unknown event type — surface so the user can tell
+                // something is up, but don't crash the stream loop
+                appendStatusMessage(`unknown event: ${event.type}`);
+                break;
+        }
+    }
+
+    // ---------- send turn ----------
+    async function sendMessage(text) {
+        if (busy || !text) return;
+        busy = true;
+        dom.sendBtn.disabled = true;
+        dom.statusDot.classList.add('busy');
+        dom.statusDot.classList.remove('error');
+
+        try {
+            await ensureSession();
+            appendUserMessage(text);
+            dom.input.value = '';
+            const ctx = getBridgeContext();
+
+            const r = await fetch(ENDPOINT_MESSAGES, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    message: text,
+                    ui_context: ctx,
+                }),
+            });
+
+            if (!r.ok) {
+                // 404 = session expired → drop the id and let the next
+                // turn create a fresh one
+                if (r.status === 404) sessionId = null;
+                appendErrorMessage(`HTTP ${r.status}: ${await r.text().catch(() => '')}`);
+                dom.statusDot.classList.add('error');
+                return;
+            }
+
+            for await (const line of readNdjsonLines(r)) {
+                let event;
+                try { event = JSON.parse(line); }
+                catch (_) {
+                    appendErrorMessage(`malformed event line: ${line.slice(0, 80)}`);
+                    continue;
+                }
+                handleEvent(event);
+            }
+        } catch (e) {
+            appendErrorMessage(`network: ${e?.message || e}`);
+            dom.statusDot.classList.add('error');
+        } finally {
+            busy = false;
+            dom.sendBtn.disabled = false;
+            dom.statusDot.classList.remove('busy');
+            removeTypingIndicator();
+            assistantTarget = null;
+            assistantBuffer = '';
+            dom.input.focus();
+        }
+    }
+
+    // ---------- input handling ----------
+    function attachInputHandlers() {
+        dom.input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+                ev.preventDefault();
+                const text = dom.input.value.trim();
+                if (text) sendMessage(text);
+            }
+            if (ev.key === 'Escape') closeWindow();
+        });
+        dom.sendBtn.addEventListener('click', () => {
+            const text = dom.input.value.trim();
+            if (text) sendMessage(text);
+        });
+    }
+
+    // ---------- drag (header) ----------
+    function attachDragHandlers() {
+        let start = null;
+        dom.dragHandle.addEventListener('mousedown', (ev) => {
+            // Ignore clicks on the header buttons
+            if (ev.target.closest('button')) return;
+            const rect = dom.win.getBoundingClientRect();
+            start = {
+                x: ev.clientX,
+                y: ev.clientY,
+                left: rect.left,
+                top: rect.top,
+            };
+            // Switch from `right/bottom` anchor to `left/top` so dragging
+            // does what the user expects.
+            dom.win.style.left = `${rect.left}px`;
+            dom.win.style.top = `${rect.top}px`;
+            dom.win.style.right = 'auto';
+            dom.win.style.bottom = 'auto';
+            ev.preventDefault();
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp, { once: true });
+        });
+
+        function onMove(ev) {
+            if (!start) return;
+            const dx = ev.clientX - start.x;
+            const dy = ev.clientY - start.y;
+            const left = Math.max(0, Math.min(window.innerWidth - 100, start.left + dx));
+            const top = Math.max(0, Math.min(window.innerHeight - 60, start.top + dy));
+            dom.win.style.left = `${left}px`;
+            dom.win.style.top = `${top}px`;
+        }
+
+        function onUp() {
+            start = null;
+            document.removeEventListener('mousemove', onMove);
+        }
+    }
+
+    // ---------- resize (bottom-right handle) ----------
+    function attachResizeHandlers() {
+        let start = null;
+        dom.resize.addEventListener('mousedown', (ev) => {
+            const rect = dom.win.getBoundingClientRect();
+            start = { x: ev.clientX, y: ev.clientY, w: rect.width, h: rect.height };
+            ev.preventDefault();
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp, { once: true });
+        });
+
+        function onMove(ev) {
+            if (!start) return;
+            const dx = ev.clientX - start.x;
+            const dy = ev.clientY - start.y;
+            const w = Math.max(320, Math.min(window.innerWidth * 0.9, start.w + dx));
+            const h = Math.max(280, Math.min(window.innerHeight * 0.9, start.h + dy));
+            dom.win.style.width = `${w}px`;
+            dom.win.style.height = `${h}px`;
+        }
+
+        function onUp() {
+            start = null;
+            document.removeEventListener('mousemove', onMove);
+        }
+    }
+
+    // ---------- init ----------
+    function init() {
+        try {
+            buildDom();
+            dom.fab.addEventListener('click', openWindow);
+            dom.closeBtn.addEventListener('click', closeWindow);
+            dom.minBtn.addEventListener('click', toggleMinimize);
+            attachInputHandlers();
+            attachDragHandlers();
+            attachResizeHandlers();
+            // Expose a tiny surface for the editor / future tests
+            window.ChatWidget = {
+                open: openWindow,
+                close: closeWindow,
+                send: (text) => sendMessage(String(text || '')),
+                version: '0.1.0',
+            };
+        } catch (e) {
+            console.error('[ChatWidget] init failed:', e);
+            // Best-effort cleanup so a half-built widget doesn't shadow
+            // the editor
+            try { document.getElementById('chat-fab')?.remove(); } catch (_) {}
+            try { document.getElementById('chat-window')?.remove(); } catch (_) {}
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        // editor3d_v2.js has already run — safe to mount immediately
+        init();
+    }
+})();
