@@ -111,7 +111,7 @@ def test_returns_five_chat_tool_keys():
         "analysis_summary",
         "envelope",
         "member_info_by_elem_id",
-        "member_forces_by_elem_id",
+        "member_ratios_by_elem_id",
         "modal_summary",
     }
 
@@ -149,7 +149,7 @@ def test_member_info_indexed_by_elem_id():
 def test_design_envelope_keyed_by_elem_id_not_member_id():
     """The chat tool gets element_id from the 3D viewer click. Keying by
     member_id would force an extra hop — by_elem_id collapses both lookups."""
-    env_by_eid = _build()["member_forces_by_elem_id"]
+    env_by_eid = _build()["member_ratios_by_elem_id"]
     # Member 1's four sub-elements all see member 1's ratios
     assert env_by_eid["101"]["ratio_interaction"] == 0.74
     assert env_by_eid["104"]["status"] == "OK"
@@ -171,6 +171,18 @@ def test_modal_summary_keeps_top_three():
     assert m["top_modes"][1]["mass_y_pct"] == 79.2
 
 
+def test_modal_summary_preserves_zero_participation():
+    """Mode 3 in the fixture is a pure torsion mode with 0 % translation
+    participation. A ``a or b`` fallback would drop the 0.0 to None — the
+    helper must coalesce on ``is not None`` so chat answers can still say
+    "mode 3 is torsion-dominant" instead of "mode 3 participation unknown".
+    """
+    top3 = _build()["modal_summary"]["top_modes"][2]
+    assert top3["mode"] == 3
+    assert top3["mass_x_pct"] == 0.0  # NOT None
+    assert top3["mass_y_pct"] == 0.0
+
+
 def test_handles_missing_optional_inputs():
     out = build_compact_subset(
         env=None,
@@ -181,5 +193,5 @@ def test_handles_missing_optional_inputs():
     assert out["analysis_summary"]["ng_count"] == 0
     assert out["envelope"] == {}
     assert out["member_info_by_elem_id"] == {}
-    assert out["member_forces_by_elem_id"] == {}
+    assert out["member_ratios_by_elem_id"] == {}
     assert out["modal_summary"] is None

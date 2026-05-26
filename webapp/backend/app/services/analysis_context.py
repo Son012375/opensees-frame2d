@@ -100,13 +100,18 @@ def _index_member_info(
     return result
 
 
-def _envelope_by_elem_from_design_check(
+def _design_ratios_by_elem(
     member_check: Optional[dict],
     member_info_list: Optional[list[dict]],
 ) -> dict[str, dict]:
     """Design-check ratios are computed per *member* but the 3D viewer sends
-    per-*element* ids on click. Build an elem_id → envelope (ratios + status)
-    lookup so a single dict access answers the chat tool's question."""
+    per-*element* ids on click. Build an elem_id → ratios+status lookup so
+    a single dict access answers the chat tool's "is this member safe?".
+
+    Note this stores design ratios (interaction/shear/axial/bending), not
+    raw N/V/M forces — those are envelope-aggregated downstream in
+    ``multi.member_forces`` if a future tool needs them.
+    """
     if not member_check or not member_info_list:
         return {}
     by_mid: dict = {}
@@ -132,6 +137,17 @@ def _envelope_by_elem_from_design_check(
     return out
 
 
+def _coalesce(*values):
+    """Return the first value that is not ``None``. Unlike ``a or b`` this
+    preserves meaningful falsy numbers like ``0.0`` — important for modal
+    mass participation, where 0 % is a real measurement, not a missing one.
+    """
+    for v in values:
+        if v is not None:
+            return v
+    return None
+
+
 def _modal_subset(modal_analysis: Optional[dict]) -> Optional[dict]:
     if not modal_analysis:
         return None
@@ -141,16 +157,16 @@ def _modal_subset(modal_analysis: Optional[dict]) -> Optional[dict]:
         "fundamental_periods": modal_analysis.get("fundamental_periods", {}),
         "top_modes": [
             {
-                "mode": m.get("mode") or m.get("mode_num"),
+                "mode": _coalesce(m.get("mode"), m.get("mode_num")),
                 "period_s": m.get("period_s"),
                 "direction": m.get("direction"),
-                "mass_x_pct": (
-                    m.get("mass_participation_x_pct")
-                    or (m.get("mass_participation") or {}).get("x_pct")
+                "mass_x_pct": _coalesce(
+                    m.get("mass_participation_x_pct"),
+                    (m.get("mass_participation") or {}).get("x_pct"),
                 ),
-                "mass_y_pct": (
-                    m.get("mass_participation_y_pct")
-                    or (m.get("mass_participation") or {}).get("y_pct")
+                "mass_y_pct": _coalesce(
+                    m.get("mass_participation_y_pct"),
+                    (m.get("mass_participation") or {}).get("y_pct"),
                 ),
             }
             for m in modes
@@ -172,8 +188,11 @@ def build_compact_subset(
 
     Pure transformation — no I/O, no global state. Safe to call from any
     thread. Returns a dict with the keys ``analysis_summary``, ``envelope``,
-    ``member_info_by_elem_id``, ``member_forces_by_elem_id`` (design ratios,
-    not raw N/V/M), and ``modal_summary``.
+    ``member_info_by_elem_id``, ``member_ratios_by_elem_id`` (design
+    interaction/shear/axial/bending ratios, not raw N/V/M), and
+    ``modal_summary``. Raw force envelopes by element are intentionally not
+    pre-derived — if a future tool needs them, compute on demand from
+    ``multi.member_forces`` to keep this cache slice small.
     """
     env = env or {}
     return {
@@ -198,7 +217,7 @@ def build_compact_subset(
         },
         "envelope": dict(env),
         "member_info_by_elem_id": _index_member_info(member_info_list, material_name),
-        "member_forces_by_elem_id": _envelope_by_elem_from_design_check(
+        "member_ratios_by_elem_id": _design_ratios_by_elem(
             member_check, member_info_list,
         ),
         "modal_summary": _modal_subset(modal_analysis),

@@ -7405,22 +7405,38 @@ window.EditorV2ChatBridge = {
 
     /** UI context attached to every chat message. Returns the freshest
      *  selection + analysis id + visible tab so the LLM can resolve
-     *  pronouns like "이 부재" / "현재 결과" without explicit ids. */
+     *  pronouns like "이 부재" / "현재 결과" without explicit ids.
+     *
+     *  Element ids and node ids are kept on separate keys — the 3D viewer
+     *  treats both as selectable meshes (``userData.elementData``), but a
+     *  chat tool asking "이 부재의 ratio" needs the element-only filter
+     *  (matches the existing ``getSelectedElementIds()`` semantics).
+     */
     getContext() {
         const set = (typeof selectedMeshSet !== 'undefined' && selectedMeshSet instanceof Set)
             ? [...selectedMeshSet]
             : [];
-        const selectedIds = set
-            .map(m => m?.userData?.elementData?.id)
-            .filter(id => id != null);
+        const elementIds = [];
+        const nodeIds = [];
+        for (const m of set) {
+            const d = m?.userData?.elementData;
+            if (!d || d.id == null) continue;
+            if (d.type === 'node') nodeIds.push(d.id);
+            else elementIds.push(d.id);
+        }
 
         // Single-click selection: ensure the primary mesh's id is present
-        // and surfaces first, even when the multi-select Set is empty.
+        // and surfaces first in its respective bucket, even when the
+        // multi-select Set is empty.
         const primary = (typeof selectedMesh !== 'undefined')
-            ? selectedMesh?.userData?.elementData?.id
+            ? selectedMesh?.userData?.elementData
             : null;
-        if (primary != null && !selectedIds.includes(primary)) {
-            selectedIds.unshift(primary);
+        if (primary && primary.id != null) {
+            if (primary.type === 'node') {
+                if (!nodeIds.includes(primary.id)) nodeIds.unshift(primary.id);
+            } else {
+                if (!elementIds.includes(primary.id)) elementIds.unshift(primary.id);
+            }
         }
 
         const caseSel = document.getElementById('case-selector');
@@ -7431,17 +7447,20 @@ window.EditorV2ChatBridge = {
                 (window._recState && window._recState.analysisId)
                 || (typeof currentJobId !== 'undefined' ? currentJobId : null)
                 || null,
-            selected_element_ids: selectedIds,
+            selected_element_ids: elementIds,
+            selected_node_ids: nodeIds,
             current_load_case: caseSel?.value || null,
             current_result_tab: activeRtab?.dataset?.rtab || null,
             model_source: typeof modelSource === 'string' ? modelSource : null,
         };
     },
 
-    /** Switch the right-panel result tabs to the recommendations view. */
+    /** Switch the right-panel result tabs to the recommendations view.
+     *  The dataset key is ``recommend`` (see editor_v2.html `<button
+     *  data-rtab="recommend">`), not ``rec``. */
     openRecommendationTab() {
         if (typeof switchResultTab === 'function') {
-            switchResultTab('rec');
+            switchResultTab('recommend');
         }
     },
 

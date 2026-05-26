@@ -3,9 +3,14 @@
 ``eval_jobs_db[eval_job_id]`` tracks each batch reanalysis (status,
 progress, results, errors). OpenSees keeps process-global state, so
 reanalysis runs are serialised through a single-worker thread pool
-(:data:`MAX_PARALLEL_EVALS` = 1). Any future caller (chat router,
-scripts) that wants to queue an evaluation MUST submit through
-:data:`_eval_executor` so the global lock is honoured.
+(:data:`MAX_PARALLEL_EVALS` = 1).
+
+Today the executor is exposed as :data:`_eval_executor` (underscore =
+internal) and ``main_simple.post_recommendations_evaluate`` is its only
+caller. Before Phase B (chat-router recommendations tooling) lands we
+plan to add public ``submit_eval`` / ``poll_eval`` wrappers here so new
+callers go through a documented service API instead of touching the
+private executor directly.
 """
 from __future__ import annotations
 
