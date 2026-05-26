@@ -7383,3 +7383,83 @@ function _checkAutoRestore() {
     } catch (e) { /* 무시 */ }
 }
 setTimeout(_checkAutoRestore, 1000);
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EditorV2ChatBridge — Phase 0 Step 0-3
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Stable surface between the floating chat widget (loaded as a separate
+// script) and the editor's internal state. The widget MUST NOT reach into
+// the top-level `let` variables here — they are not on `window`, so any
+// future rename inside this file would silently break the chat tools.
+// Everything the chat orchestrator needs flows through this object.
+//
+// Phase A reads `getContext()` to attach `ui_context` to each chat turn.
+// Phase B uses `openRecommendationTab()` / `openCandidate()` to surface
+// existing modals from chat citations. Phase C will hydrate
+// `openDiffPreview()` to wire virtual (LLM-proposed) candidates into the
+// same diff modal that cached candidates use.
+window.EditorV2ChatBridge = {
+    version: '0.1.0',
+
+    /** UI context attached to every chat message. Returns the freshest
+     *  selection + analysis id + visible tab so the LLM can resolve
+     *  pronouns like "이 부재" / "현재 결과" without explicit ids. */
+    getContext() {
+        const set = (typeof selectedMeshSet !== 'undefined' && selectedMeshSet instanceof Set)
+            ? [...selectedMeshSet]
+            : [];
+        const selectedIds = set
+            .map(m => m?.userData?.elementData?.id)
+            .filter(id => id != null);
+
+        // Single-click selection: ensure the primary mesh's id is present
+        // and surfaces first, even when the multi-select Set is empty.
+        const primary = (typeof selectedMesh !== 'undefined')
+            ? selectedMesh?.userData?.elementData?.id
+            : null;
+        if (primary != null && !selectedIds.includes(primary)) {
+            selectedIds.unshift(primary);
+        }
+
+        const caseSel = document.getElementById('case-selector');
+        const activeRtab = document.querySelector('.rtab-btn.active');
+
+        return {
+            analysis_id:
+                (window._recState && window._recState.analysisId)
+                || (typeof currentJobId !== 'undefined' ? currentJobId : null)
+                || null,
+            selected_element_ids: selectedIds,
+            current_load_case: caseSel?.value || null,
+            current_result_tab: activeRtab?.dataset?.rtab || null,
+            model_source: typeof modelSource === 'string' ? modelSource : null,
+        };
+    },
+
+    /** Switch the right-panel result tabs to the recommendations view. */
+    openRecommendationTab() {
+        if (typeof switchResultTab === 'function') {
+            switchResultTab('rec');
+        }
+    },
+
+    /** Open the existing diff modal for a cached candidate_id (Phase B). */
+    openCandidate(candidateId) {
+        if (typeof openRecDiffModal === 'function') {
+            return openRecDiffModal(candidateId);
+        }
+    },
+
+    /**
+     * Phase C — inject a virtual diff (LLM-generated section change) into
+     * the existing rec-diff modal without going through the cached
+     * candidate_id flow. Stubbed in Phase 0 so the surface exists; Phase C
+     * hydrates window._recState with a synthetic entry and calls
+     * _showRecModal(true).
+     */
+    openDiffPreview(/* diffData */) {
+        console.warn('EditorV2ChatBridge.openDiffPreview: Phase C not yet implemented');
+    },
+};

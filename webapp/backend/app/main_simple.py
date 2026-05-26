@@ -134,7 +134,7 @@ jobs_db: dict[str, dict] = {}
 
 # ── /api/v2/recommendations/evaluate state ──
 #
-# Two parallel dicts:
+# Two parallel dicts (now owned by ``app.services``):
 #   * ``analysis_context_cache[job_id]`` — what /api/v2/analyze cached:
 #     model_json, load_cases/combos, building_model, seismic_report,
 #     baseline design_check, candidates_by_id, expires_at.
@@ -143,54 +143,23 @@ jobs_db: dict[str, dict] = {}
 #
 # OpenSees has process-global state, so reanalysis runs are serialized
 # through a single-worker thread pool (MAX_PARALLEL_EVALS = 1).
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 
-analysis_context_cache: dict[str, dict] = {}
-eval_jobs_db: dict[str, dict] = {}
-_ANALYSIS_CONTEXT_TTL_SEC = 30 * 60  # 30 minutes
-_ANALYSIS_CONTEXT_LOCK = threading.Lock()
-_EVAL_JOBS_LOCK = threading.Lock()
-
-MAX_PARALLEL_EVALS = 1
-_eval_executor = ThreadPoolExecutor(
-    max_workers=MAX_PARALLEL_EVALS,
-    thread_name_prefix="rec-eval",
+from app.services.analysis_context import (
+    analysis_context_cache,
+    _ANALYSIS_CONTEXT_LOCK,
+    _ANALYSIS_CONTEXT_TTL_SEC,
+    _purge_expired_analysis_contexts,
+    _get_analysis_context,
+    build_compact_subset,
 )
-
-
-def _purge_expired_analysis_contexts() -> None:
-    """Drop entries past their TTL. Called opportunistically on each
-    cache write — no background thread."""
-    now = time.time()
-    with _ANALYSIS_CONTEXT_LOCK:
-        expired = [
-            k for k, v in analysis_context_cache.items()
-            if v.get("expires_at", 0) < now
-        ]
-        for k in expired:
-            analysis_context_cache.pop(k, None)
-
-
-def _get_analysis_context(analysis_id: str) -> Optional[dict]:
-    """TTL-aware read for ``analysis_context_cache``.
-
-    Returns the cached context if present and unexpired, otherwise
-    evicts the (expired) entry and returns ``None``. Both the POST
-    endpoint and the background worker call this single helper so the
-    TTL is enforced on every read — not only when /api/v2/analyze
-    happens to run and triggers the bulk purge.
-    """
-    now = time.time()
-    with _ANALYSIS_CONTEXT_LOCK:
-        ctx = analysis_context_cache.get(analysis_id)
-        if ctx is None:
-            return None
-        if ctx.get("expires_at", 0) < now:
-            analysis_context_cache.pop(analysis_id, None)
-            return None
-        return ctx
+from app.services.recommendation_jobs import (
+    eval_jobs_db,
+    _EVAL_JOBS_LOCK,
+    MAX_PARALLEL_EVALS,
+    _eval_executor,
+    _rehydrate_candidate,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1102,6 +1071,21 @@ async def analyze_v2_api(request: Request):
         candidates_by_id = {
             c["candidate_id"]: c for c in rec_payload["recommendation_candidates"]
         }
+        # Phase 0 Step 0-2: pre-derive the compact subset the chat router's
+        # inspect/summary tools will read. Computed outside the lock since it
+        # is pure-functional.
+        compact = build_compact_subset(
+            env=env,
+            member_info_list=multi.member_info,
+            member_check=(dc_result or {}).get("member_check"),
+            modal_analysis=modal_analysis_result,
+            material_name=(
+                getattr(multi, "material_name", None)
+                or getattr(model, "material_name", None)
+            ),
+            num_stories=getattr(model, "num_stories", 0) or 0,
+            num_elements=len(getattr(model, "elements", []) or []),
+        )
         with _ANALYSIS_CONTEXT_LOCK:
             analysis_context_cache[job_id] = {
                 "model_json": model.to_json(),
@@ -1111,6 +1095,8 @@ async def analyze_v2_api(request: Request):
                 "seismic_report": seismic_rpt,
                 "design_check": dc_result,
                 "candidates_by_id": candidates_by_id,
+                # Chat-router lookups (see services.analysis_context.build_compact_subset)
+                **compact,
                 "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
             }
 
@@ -1286,28 +1272,6 @@ def _run_evaluation_job(eval_job_id: str) -> None:
             job["status"] = "failed"
             job["error"] = f"{type(e).__name__}: {e}"
             job["completed_at"] = datetime.now().isoformat()
-
-
-def _rehydrate_candidate(cand_dict: dict):
-    """Reconstruct a :class:`RetrofitCandidate` from its ``to_dict`` form."""
-    from core.recommendation import RetrofitCandidate
-
-    return RetrofitCandidate(
-        candidate_id=cand_dict["candidate_id"],
-        issue_id=cand_dict["issue_id"],
-        action_type=cand_dict["action_type"],
-        description=cand_dict.get("description", ""),
-        member_id=cand_dict.get("member_id"),
-        element_id=cand_dict.get("element_id"),
-        expected_effect=cand_dict.get("expected_effect", ""),
-        tradeoffs=cand_dict.get("tradeoffs", ""),
-        requires_reanalysis=cand_dict.get("requires_reanalysis", True),
-        confidence=cand_dict.get("confidence", "low"),
-        code_refs=[],   # RAG references not needed for execution
-        target=dict(cand_dict.get("target") or {}),
-        proposed_change=dict(cand_dict.get("proposed_change") or {}),
-        metadata=dict(cand_dict.get("metadata") or {}),
-    )
 
 
 @app.post("/api/v2/recommendations/evaluate")
