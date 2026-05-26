@@ -70,19 +70,43 @@ def _resolve_analysis_id(arguments: dict, session: dict) -> str:
     return aid
 
 
+def _coerce_id_list(raw) -> list[int]:
+    """Normalise an LLM- or UI-supplied id payload to ``list[int]``.
+
+    Real Ollama tool_call outputs are loose with types — qwen2.5 has
+    been observed to emit ``101`` (int), ``"101"`` (str), and
+    ``[101, "102"]`` (mixed list) for the same parameter. We accept any
+    of those and drop anything that can't be coerced rather than letting
+    a single bad entry crash the tool (Codex P2 on c378b05).
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (int, str)):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: list[int] = []
+    for item in raw:
+        try:
+            out.append(int(item))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
 def _resolve_element_ids(arguments: dict, session: dict) -> list[int]:
     """Explicit ``element_ids`` wins. Otherwise fall back to the latest
     ``ui_context.selected_element_ids`` the widget attached to a user
     turn (the EditorV2ChatBridge selection)."""
-    explicit = arguments.get("element_ids")
+    explicit = _coerce_id_list(arguments.get("element_ids"))
     if explicit:
-        return [int(e) for e in explicit]
+        return explicit
     history = session.get("history") or []
     for entry in reversed(history):
         ui_ctx = entry.get("ui_context") or {}
-        sel = ui_ctx.get("selected_element_ids") or []
+        sel = _coerce_id_list(ui_ctx.get("selected_element_ids"))
         if sel:
-            return [int(e) for e in sel]
+            return sel
     return []
 
 

@@ -17,6 +17,7 @@ final A.2 one.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 import time
@@ -26,6 +27,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+
+logger = logging.getLogger(__name__)
 
 # Inject the mcp-server root so we can ``import core.chat.*`` at module
 # load. main_simple uses the same MCP_SERVER_PATH constant lazily inside
@@ -92,16 +96,34 @@ def _get_session(session_id: str) -> Optional[dict]:
 def _resolve_llm_provider() -> BaseLLMProvider:
     """Pick a provider based on ``CHAT_LLM_PROVIDER``.
 
-    Phase A.1 only ships ``noop``. Phase A.3 adds ``ollama``; unknown
-    values fall back to noop with a warning so a typo doesn't bring the
-    whole route down.
+    Phase A.3 wires Ollama. If the daemon is down or the env is
+    misconfigured we fall back to :class:`NoopProvider` with a logger
+    warning rather than 500-ing — the route's streaming contract
+    matters more than the LLM being live, and the Noop placeholder
+    text tells the user what to fix.
     """
     name = (os.environ.get("CHAT_LLM_PROVIDER") or "noop").strip().lower()
-    if name == "noop":
-        return NoopProvider()
-    # Future: if name == "ollama": from ...ollama_provider import ...
-    # For now any unknown value silently falls back. A.3 will make this
-    # raise loudly if "ollama" is configured but unreachable.
+
+    if name == "ollama":
+        try:
+            from core.chat.llm.ollama_provider import OllamaProvider
+            return OllamaProvider()
+        except Exception as exc:  # noqa: BLE001 — keep route up
+            logger.warning(
+                "CHAT_LLM_PROVIDER=ollama but provider init failed (%s) — "
+                "falling back to NoopProvider", exc,
+            )
+            return NoopProvider(message=(
+                f"[Ollama 초기화 실패] {exc} — "
+                "OLLAMA_BASE_URL / OLLAMA_MODEL 환경 변수를 확인하거나 "
+                "`ollama serve`가 실행 중인지 확인하세요."
+            ))
+
+    if name and name != "noop":
+        logger.warning(
+            "CHAT_LLM_PROVIDER=%r is not a recognised provider — using NoopProvider",
+            name,
+        )
     return NoopProvider()
 
 

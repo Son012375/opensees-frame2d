@@ -300,6 +300,60 @@ def test_get_analysis_summary_ui_context_overrides_stale_session_binding(
 
 
 # ---------------------------------------------------------------------------
+# element_ids coercion (Codex P2 on c378b05) — real Ollama emits permissive
+# types: single int, single str, mixed lists. Tools must normalise instead
+# of crashing the chat turn.
+# ---------------------------------------------------------------------------
+
+def test_inspect_selection_accepts_single_int_element_id(seeded_analysis_cache):
+    out = inspect_selection(
+        {"element_ids": 101, "analysis_id": seeded_analysis_cache},
+        session={},
+    )
+    assert [e["element_id"] for e in out["elements"]] == [101]
+    assert out["elements"][0]["found"] is True
+
+
+def test_inspect_selection_accepts_single_string_element_id(seeded_analysis_cache):
+    out = inspect_selection(
+        {"element_ids": "101", "analysis_id": seeded_analysis_cache},
+        session={},
+    )
+    assert out["elements"][0]["element_id"] == 101
+    assert out["elements"][0]["found"] is True
+
+
+def test_inspect_selection_accepts_mixed_list_dropping_unparseable(
+    seeded_analysis_cache,
+):
+    """qwen2.5 has been observed to mix int and str in the same list and
+    occasionally emit a stray non-numeric token. The tool keeps the
+    parseable ids and silently drops junk."""
+    out = inspect_selection(
+        {"element_ids": [101, "201", "bad", None], "analysis_id": seeded_analysis_cache},
+        session={},
+    )
+    eids = [e["element_id"] for e in out["elements"]]
+    assert eids == [101, 201]
+
+
+def test_inspect_selection_coerces_ui_context_selection_too(seeded_analysis_cache):
+    """The fallback path from ui_context should also normalise types —
+    the chat widget already filters node selections (see
+    EditorV2ChatBridge.getContext) but a future bridge change could
+    forward strings."""
+    session = {
+        "analysis_id": seeded_analysis_cache,
+        "history": [{
+            "role": "user", "content": "이 부재",
+            "ui_context": {"selected_element_ids": ["101"]},
+        }],
+    }
+    out = inspect_selection({}, session=session)
+    assert out["elements"][0]["element_id"] == 101
+
+
+# ---------------------------------------------------------------------------
 # get_analysis_summary
 # ---------------------------------------------------------------------------
 
