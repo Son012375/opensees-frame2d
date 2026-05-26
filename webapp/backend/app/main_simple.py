@@ -114,6 +114,13 @@ class BuildingInput(BaseModel):
 # Application
 app = FastAPI(title="OpenSees Structural Analysis Platform")
 
+# Phase A.1 — chat router (sessions + NDJSON stream). Imported here so
+# the include_router call sits right next to app creation; chat_router
+# does its own MCP_SERVER_PATH injection so importing it is safe even
+# before main_simple's endpoints run.
+from app.chat_router import router as chat_router  # noqa: E402
+app.include_router(chat_router)
+
 # Demo auth - disabled for now
 # from app.core.auth import check_demo_auth, make_auth_response, set_auth_cookie
 
