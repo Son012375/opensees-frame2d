@@ -1,4 +1,4 @@
-"""FastAPI router for ``/api/v2/chat/*`` — Phase A.1.
+"""FastAPI router for ``/api/v2/chat/*`` — Phase A.2.
 
 Mounts two POST endpoints plus a debug GET:
 
@@ -6,13 +6,17 @@ Mounts two POST endpoints plus a debug GET:
     POST /api/v2/chat/messages       send a turn, receive NDJSON stream
     GET  /api/v2/chat/sessions/{id}  inspect history (debug only)
 
-Tool calling, virtual candidate storage, KDS RAG queries are NOT here
-yet — those are Phase A.2 / B / C / D. This module exists to lock down
-the route contract + NDJSON stream so the chat widget (Phase A.4) and
-later orchestrator extensions can build on a stable surface.
+Phase A.2 wires the tool registry (``inspect_selection`` +
+``get_analysis_summary``) and a per-session ``asyncio.Lock`` so two
+concurrent ``/messages`` calls on the same session_id serialise through
+the orchestrator instead of interleaving ``history`` (Codex P2 on
+6112155). The OllamaProvider lands in A.3; today only scripted test
+providers exercise the tool loop, but the route surface is already the
+final A.2 one.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import time
@@ -35,12 +39,19 @@ if str(MCP_SERVER_PATH) not in sys.path:
 from core.chat.llm.base import BaseLLMProvider  # noqa: E402
 from core.chat.llm.noop_provider import NoopProvider  # noqa: E402
 from core.chat.orchestrator import ChatOrchestrator  # noqa: E402
+from core.chat.tool_registry import ToolRegistry, default_registry  # noqa: E402
 
 from app.services.chat_session import (  # noqa: E402
     _CHAT_SESSION_LOCK,
     _CHAT_SESSION_TTL_SEC,
     chat_session_cache,
 )
+
+
+# Module-level singleton — the registry is stateless and reading
+# ``CHAT_TOOLS_ENABLED`` once at import time matches how the rest of
+# main_simple treats env-driven config (no per-request re-parsing).
+_TOOL_REGISTRY: ToolRegistry = default_registry()
 
 
 router = APIRouter(prefix="/api/v2/chat", tags=["chat"])
@@ -153,6 +164,13 @@ async def post_message(payload: PostMessageRequest):
     Returns 404 for unknown / expired sessions and 400 for blank
     messages. On success the response is ``application/x-ndjson`` with
     one JSON object per line, terminated by ``done``.
+
+    Concurrent POSTs to the same session_id serialise through a
+    per-session ``asyncio.Lock`` (Codex P2 from the 6112155 review):
+    history mutation while another turn streams would otherwise
+    interleave user/assistant entries. The lock is created lazily on
+    first use and lives on the session dict — disposed when the session
+    expires.
     """
     if not payload.message or not payload.message.strip():
         raise HTTPException(status_code=400, detail="message cannot be empty")
@@ -168,17 +186,22 @@ async def post_message(payload: PostMessageRequest):
     # doesn't expire mid-turn.
     sess["expires_at"] = time.time() + _CHAT_SESSION_TTL_SEC
 
+    # Per-session busy lock — see docstring above. dict.setdefault is
+    # atomic under the GIL, and asyncio.Lock() construction is cheap +
+    # lazy so a rare double-create is harmless.
+    session_lock: asyncio.Lock = sess.setdefault("_busy_lock", asyncio.Lock())
+
     provider = _resolve_llm_provider()
-    orchestrator = ChatOrchestrator(llm=provider)
-    history: list[dict] = sess.setdefault("history", [])
+    orchestrator = ChatOrchestrator(llm=provider, registry=_TOOL_REGISTRY)
 
     async def _stream():
-        async for line in orchestrator.run_turn(
-            history=history,
-            user_message=payload.message,
-            ui_context=payload.ui_context or {},
-        ):
-            yield line
+        async with session_lock:
+            async for line in orchestrator.run_turn(
+                session=sess,
+                user_message=payload.message,
+                ui_context=payload.ui_context or {},
+            ):
+                yield line
 
     return StreamingResponse(_stream(), media_type="application/x-ndjson")
 
