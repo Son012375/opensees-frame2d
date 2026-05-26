@@ -99,7 +99,27 @@
     }
 
     function toggleMinimize() {
-        dom.win.classList.toggle('minimized');
+        // The CSS minimized rule collapses the window to its header, but a
+        // user who already resized the panel has an inline ``style.height``
+        // that overrides the rule. Stash and clear inline height on the
+        // way into minimised state, then restore it on the way back so
+        // the user's custom size survives a minimise/restore round trip.
+        // (Codex P2 on 7b18d40.)
+        const win = dom.win;
+        if (win.classList.contains('minimized')) {
+            win.classList.remove('minimized');
+            const saved = win.dataset.preMinimizeHeight;
+            if (saved) {
+                win.style.height = saved;
+                delete win.dataset.preMinimizeHeight;
+            }
+        } else {
+            if (win.style.height) {
+                win.dataset.preMinimizeHeight = win.style.height;
+                win.style.height = '';
+            }
+            win.classList.add('minimized');
+        }
     }
 
     // ---------- session ----------
@@ -133,6 +153,12 @@
         for (;;) {
             const { done, value } = await reader.read();
             if (done) {
+                // Final flush — if the server's last chunk ended in the
+                // middle of a UTF-8 sequence, the bytes are still inside
+                // the decoder's internal buffer. Without a no-arg
+                // decode() call they would be silently dropped, clipping
+                // the last line (Codex P3 on 7b18d40).
+                buffer += decoder.decode();
                 if (buffer.trim()) yield buffer;
                 return;
             }
@@ -261,7 +287,15 @@
     function handleEvent(event) {
         switch (event.type) {
             case 'status':
-                // First status event of a turn → show typing indicator.
+                // ``thinking`` is the only status the A.1 orchestrator
+                // emits and the typing indicator already covers it. Phase B
+                // will stream evaluation progress ("evaluating 3/12", "tool
+                // queued", etc.) as status events — surface those as a
+                // compact line so the user sees the orchestrator is alive
+                // even when no tokens are flowing (Codex P2 on 7b18d40).
+                if (event.message && event.message !== 'thinking') {
+                    appendStatusMessage(event.message);
+                }
                 showTypingIndicator();
                 break;
             case 'tool_call':
@@ -413,6 +447,17 @@
         dom.resize.addEventListener('mousedown', (ev) => {
             const rect = dom.win.getBoundingClientRect();
             start = { x: ev.clientX, y: ev.clientY, w: rect.width, h: rect.height };
+            // The CSS anchors the window at bottom/right by default. Only
+            // changing width/height keeps the right edge fixed, so the
+            // bottom-right handle would expand the panel UP and LEFT —
+            // backwards from where the cursor is going. Mirror the drag
+            // setup: pin left/top from the current rect and release the
+            // right/bottom anchors so growth tracks the cursor. (Codex P1
+            // on 7b18d40.)
+            dom.win.style.left = `${rect.left}px`;
+            dom.win.style.top = `${rect.top}px`;
+            dom.win.style.right = 'auto';
+            dom.win.style.bottom = 'auto';
             ev.preventDefault();
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp, { once: true });
