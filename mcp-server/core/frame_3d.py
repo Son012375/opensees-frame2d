@@ -541,6 +541,21 @@ def _build_frame_3d_model(
     elem_id = 1
     next_node_id = max(n.id for n in nodes) + 1
 
+    # Reverse map node_id → story (0 = base, 1..N = floor index). Used to
+    # tag member_info entries with a ``story`` field that the chat
+    # inspect_selection tool surfaces when the user asks "이거 어느 층?".
+    # Without this Node3D has no .story attribute so the cache builder
+    # always returned None — the LLM correctly said "층 정보 없음" but
+    # that was a missing-data bug, not a real "unknown story" case.
+    node_to_story: dict[int, int] = {}
+    if node_grid:
+        for key, nid in node_grid.items():
+            node_to_story[nid] = key[0]  # key = (story, cx, cy)
+    elif story_nodes_map:
+        for s, nids in story_nodes_map.items():
+            for nid in nids:
+                node_to_story[nid] = s
+
     for member_id, (ni, nj, etype) in enumerate(connections, start=1):
         # 단면 물성 및 변환 결정
         if etype == "column":
@@ -631,6 +646,11 @@ def _build_frame_3d_model(
             + (nj_node.y - ni_node.y) ** 2
             + (nj_node.z - ni_node.z) ** 2
         )
+        # ``story`` tagged from the nj side: columns span (story-1) → story,
+        # beams sit at their story — using nj's story gives the floor the
+        # member supports (column at story 1 = "1층 기둥", beam_x at story 1
+        # = "1층 보"). Falls back to ni for safety.
+        member_story = node_to_story.get(nj) or node_to_story.get(ni)
         member_info_list.append({
             "member_id": member_id,
             "type": etype,
@@ -639,6 +659,7 @@ def _build_frame_3d_model(
             "length_m": round(length, 4),
             "section": sec.name,
             "element_ids": member_elem_ids,
+            "story": member_story,
         })
 
     return elements_info, member_to_elements, member_info_list, next_node_id
@@ -2224,6 +2245,13 @@ def _build_model_v2(
             + (nj_node.y - ni_node.y) ** 2
             + (nj_node.z - ni_node.z) ** 2
         )
+        # Story tag for chat inspect_selection — see legacy path comment
+        # above for the same reasoning. V2 nodes are StructuralNode which
+        # carries .story directly, so we can read it without a reverse
+        # lookup. nj first (column nj = supported floor), fall back to ni.
+        v2_story = getattr(nj_node, "story", None)
+        if v2_story is None:
+            v2_story = getattr(ni_node, "story", None)
         member_info_list.append({
             "member_id": member_id,
             "type": v1_etype,
@@ -2232,6 +2260,7 @@ def _build_model_v2(
             "length_m": round(length, 4),
             "section": sec.name,
             "element_ids": member_elem_ids,
+            "story": v2_story,
         })
 
     return nodes_3d, elements_info, member_to_elements, member_info_list, base_node_ids, next_node_id

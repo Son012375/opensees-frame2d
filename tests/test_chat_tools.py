@@ -72,7 +72,13 @@ def _clean_caches():
 
 @pytest.fixture
 def seeded_analysis_cache():
-    """Insert a minimal context dict matching the Phase 0 compact subset."""
+    """Insert a minimal context dict matching the Phase 0 compact subset.
+
+    Both ``_by_elem_id`` and ``_by_member_id`` index variants are seeded
+    so tests cover the live viewer's member_id click path as well as
+    direct sub-element queries. ``member_id=1`` happens to have
+    ``element_id=101`` in this fixture — no collision — but the regression
+    test for the cross-index bug uses a custom fixture below."""
     with _ANALYSIS_CONTEXT_LOCK:
         analysis_context_cache[ANALYSIS_ID] = {
             "expires_at": time.time() + 3600,
@@ -92,8 +98,14 @@ def seeded_analysis_cache():
             "member_info_by_elem_id": {
                 "101": {"member_id": 1, "section": "H-300x300", "story": 1, "etype": "column"},
             },
+            "member_info_by_member_id": {
+                "1": {"member_id": 1, "section": "H-300x300", "story": 1, "etype": "column"},
+            },
             "member_ratios_by_elem_id": {
                 "101": {"member_id": 1, "status": "OK", "ratio_interaction": 0.74},
+            },
+            "member_ratios_by_member_id": {
+                "1": {"member_id": 1, "status": "OK", "ratio_interaction": 0.74},
             },
         }
     return ANALYSIS_ID
@@ -220,6 +232,71 @@ def test_inspect_selection_unknown_element_returns_found_false(seeded_analysis_c
     assert out["elements"][0]["found"] is False
 
 
+def test_inspect_selection_resolves_via_member_id_first_when_collision():
+    """Live regression: in a 27-column / 4-subdivision building, sub-
+    element id 19 is owned by member #5 (1st-story column), while
+    member #19 itself is a 3rd-story column. The 3D viewer sends a
+    member_id when the user clicks, so the chat tool must consult the
+    by_member_id index FIRST. Without that, the bot reported "1층" for
+    every clicked column because every numeric member-id ≤ 27 collided
+    with a 1st-story sub-element id of the same number."""
+    cache_id = "analysis_collision_test"
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[cache_id] = {
+            "expires_at": time.time() + 3600,
+            # Sub-element 19 belongs to member 5 (1st-story column).
+            "member_info_by_elem_id": {
+                "19": {"member_id": 5, "section": "H-300x300", "story": 1, "etype": "column"},
+            },
+            # Member 19 itself is a 3rd-story column.
+            "member_info_by_member_id": {
+                "19": {"member_id": 19, "section": "H-300x300", "story": 3, "etype": "column"},
+            },
+            "member_ratios_by_elem_id": {
+                "19": {"member_id": 5, "status": "OK", "ratio_interaction": 0.2},
+            },
+            "member_ratios_by_member_id": {
+                "19": {"member_id": 19, "status": "OK", "ratio_interaction": 0.305},
+            },
+        }
+    out = inspect_selection(
+        {"element_ids": [19], "analysis_id": cache_id},
+        session={},
+    )
+    # Resolves to the *clicked member* (#19, story 3) NOT to the member
+    # whose sub-element happens to be numbered 19 (#5, story 1).
+    assert out["elements"][0]["info"]["member_id"] == 19
+    assert out["elements"][0]["info"]["story"] == 3
+    assert out["elements"][0]["ratios"]["ratio_interaction"] == 0.305
+
+
+def test_inspect_selection_falls_back_to_elem_id_when_member_id_missing():
+    """If a caller passes a real OpenSees sub-element id (no member_id
+    match exists), the elem_id map is still consulted. Keeps the door
+    open for future tools that probe internal sub-elements directly."""
+    cache_id = "analysis_elem_only_test"
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[cache_id] = {
+            "expires_at": time.time() + 3600,
+            "member_info_by_elem_id": {
+                "73": {"member_id": 19, "section": "H-300x300", "story": 3, "etype": "column"},
+            },
+            # member_id="73" intentionally absent
+            "member_info_by_member_id": {},
+            "member_ratios_by_elem_id": {
+                "73": {"member_id": 19, "status": "OK", "ratio_interaction": 0.305},
+            },
+            "member_ratios_by_member_id": {},
+        }
+    out = inspect_selection(
+        {"element_ids": [73], "analysis_id": cache_id},
+        session={},
+    )
+    assert out["elements"][0]["found"] is True
+    assert out["elements"][0]["info"]["story"] == 3
+    assert out["elements"][0]["info"]["member_id"] == 19
+
+
 def test_inspect_selection_unknown_analysis_returns_error(seeded_analysis_cache):
     out = inspect_selection(
         {"element_ids": [101], "analysis_id": "missing_id"},
@@ -335,6 +412,84 @@ def test_inspect_selection_accepts_mixed_list_dropping_unparseable(
     )
     eids = [e["element_id"] for e in out["elements"]]
     assert eids == [101, 201]
+
+
+def test_inspect_selection_member_id_wins_over_colliding_elem_id():
+    """Regression for the 'every member is 1층' bug found in live smoke.
+
+    The 3D viewer attaches ``member_id`` to mesh userData, so a click on
+    column #19 sends ``selected_element_ids=[19]`` — but 19 is also the
+    OpenSees sub-element id of column #5's third internal element when
+    ``num_elements_per_member=4``. The buggy version of inspect_selection
+    used the elem_id map alone and returned column #5's info (story 1)
+    for every click on a high-numbered column. This test seeds exactly
+    that collision and asserts the member_id map wins.
+    """
+    aid = "collision_test"
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[aid] = {
+            "expires_at": time.time() + 3600,
+            # Member 5 = first column at story 1, sub-elements 17-20
+            "member_info_by_elem_id": {
+                "17": {"member_id": 5, "story": 1, "etype": "column"},
+                "18": {"member_id": 5, "story": 1, "etype": "column"},
+                "19": {"member_id": 5, "story": 1, "etype": "column"},
+                "20": {"member_id": 5, "story": 1, "etype": "column"},
+            },
+            # Member 19 = first column at story 3 — what the user
+            # actually clicked. Editor sends id=19 meaning member_id=19.
+            "member_info_by_member_id": {
+                "19": {"member_id": 19, "story": 3, "etype": "column"},
+            },
+            "member_ratios_by_elem_id": {
+                "17": {"member_id": 5, "status": "OK", "ratio_interaction": 0.36},
+                "19": {"member_id": 5, "status": "OK", "ratio_interaction": 0.36},
+            },
+            "member_ratios_by_member_id": {
+                "19": {"member_id": 19, "status": "OK", "ratio_interaction": 0.305},
+            },
+        }
+    try:
+        out = inspect_selection(
+            {"element_ids": [19], "analysis_id": aid}, session={},
+        )
+        assert out["elements"][0]["found"] is True
+        # The bug: would return member_id=5, story=1. Fix: member_id wins.
+        assert out["elements"][0]["info"]["member_id"] == 19
+        assert out["elements"][0]["info"]["story"] == 3
+        assert out["elements"][0]["ratios"]["ratio_interaction"] == 0.305
+    finally:
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache.pop(aid, None)
+
+
+def test_inspect_selection_falls_back_to_elem_id_when_no_member_id_match():
+    """When the caller passes a real sub-element id (not in the member_id
+    map), the elem_id fallback still resolves. Belt-and-suspenders for
+    future tools that legitimately want sub-element granularity."""
+    aid = "elem_fallback_test"
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[aid] = {
+            "expires_at": time.time() + 3600,
+            "member_info_by_elem_id": {
+                "73": {"member_id": 19, "story": 3, "etype": "column"},
+            },
+            "member_info_by_member_id": {
+                # Note: key "73" is NOT here — caller is asking about a
+                # genuine sub-element, not a member_id
+                "19": {"member_id": 19, "story": 3, "etype": "column"},
+            },
+        }
+    try:
+        out = inspect_selection(
+            {"element_ids": [73], "analysis_id": aid}, session={},
+        )
+        assert out["elements"][0]["found"] is True
+        assert out["elements"][0]["info"]["member_id"] == 19
+        assert out["elements"][0]["info"]["story"] == 3
+    finally:
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache.pop(aid, None)
 
 
 def test_inspect_selection_coerces_ui_context_selection_too(seeded_analysis_cache):

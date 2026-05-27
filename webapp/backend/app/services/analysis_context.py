@@ -77,42 +77,67 @@ def _count_ng_members(member_check: Optional[dict]) -> int:
     return sum(1 for m in members if m.get("status") == "NG")
 
 
+def _build_info(m: dict, material_name: Optional[str]) -> dict:
+    return {
+        "member_id": m.get("member_id"),
+        "section": m.get("section"),
+        "material": material_name,
+        "story": m.get("story"),
+        "etype": m.get("type") or m.get("elem_type"),
+        "length_mm": m.get("length_mm"),
+    }
+
+
 def _index_member_info(
     member_info_list: Optional[list[dict]],
     material_name: Optional[str],
 ) -> dict[str, dict]:
     """Explode ``multi.member_info`` (one entry per member, each carrying a
-    list of sub-element ids) into a lookup keyed by element_id."""
+    list of sub-element ids) into a lookup keyed by OpenSees sub-element
+    id. The 3D viewer doesn't expose sub-element ids today (selection
+    sends ``member_id`` — see :func:`_index_member_info_by_member_id`),
+    but the keys are kept so a future feature can resolve an explicit
+    sub-element reference (e.g. peak-force probe at element midspan)."""
     result: dict[str, dict] = {}
     if not member_info_list:
         return result
     for m in member_info_list:
-        info = {
-            "member_id": m.get("member_id"),
-            "section": m.get("section"),
-            "material": material_name,
-            "story": m.get("story"),
-            "etype": m.get("type") or m.get("elem_type"),
-            "length_mm": m.get("length_mm"),
-        }
+        info = _build_info(m, material_name)
         for eid in (m.get("element_ids") or []):
             result[str(eid)] = info
     return result
 
 
-def _design_ratios_by_elem(
-    member_check: Optional[dict],
+def _index_member_info_by_member_id(
     member_info_list: Optional[list[dict]],
+    material_name: Optional[str],
 ) -> dict[str, dict]:
-    """Design-check ratios are computed per *member* but the 3D viewer sends
-    per-*element* ids on click. Build an elem_id → ratios+status lookup so
-    a single dict access answers the chat tool's "is this member safe?".
+    """Same payload as :func:`_index_member_info` but keyed by ``member_id``.
 
-    Note this stores design ratios (interaction/shear/axial/bending), not
-    raw N/V/M forces — those are envelope-aggregated downstream in
-    ``multi.member_forces`` if a future tool needs them.
-    """
-    if not member_check or not member_info_list:
+    The V2 Editor's 3D viewer attaches ``member_id`` to each mesh
+    (``viewer_elements[i].id = minfo["member_id"]`` in main_simple.py)
+    so a click sends member ids in ``ui_context.selected_element_ids``
+    despite the key name. Without this lookup, ``inspect_selection``
+    would resolve a click on column #19 to whichever member happens to
+    have a sub-element id of 19 — which (at num_elements_per_member=4)
+    is column #5 of the 1st story. That's the source of the "every
+    member is 1층" misreport seen in live smoke."""
+    result: dict[str, dict] = {}
+    if not member_info_list:
+        return result
+    for m in member_info_list:
+        mid = m.get("member_id")
+        if mid is None:
+            continue
+        result[str(mid)] = _build_info(m, material_name)
+    return result
+
+
+def _build_ratios_by_mid(member_check: Optional[dict]) -> dict:
+    """Pull ratios+status off design_check's member_check, keyed by
+    member_id. Internal helper for both per-element and per-member
+    lookups."""
+    if not member_check:
         return {}
     by_mid: dict = {}
     for m in (member_check.get("members") or []):
@@ -126,6 +151,20 @@ def _design_ratios_by_elem(
             "ratio_axial": ratios.get("axial", 0),
             "ratio_bending": ratios.get("bending", 0),
         }
+    return by_mid
+
+
+def _design_ratios_by_elem(
+    member_check: Optional[dict],
+    member_info_list: Optional[list[dict]],
+) -> dict[str, dict]:
+    """Per sub-element_id lookup for design ratios. See sibling
+    :func:`_design_ratios_by_member_id` for the keying used by the live
+    chat viewer; this map is retained for potential future tools that
+    operate on raw OpenSees sub-elements."""
+    if not member_check or not member_info_list:
+        return {}
+    by_mid = _build_ratios_by_mid(member_check)
     out: dict[str, dict] = {}
     for m_info in member_info_list:
         mid = m_info.get("member_id")
@@ -135,6 +174,18 @@ def _design_ratios_by_elem(
         for eid in (m_info.get("element_ids") or []):
             out[str(eid)] = env
     return out
+
+
+def _design_ratios_by_member_id(
+    member_check: Optional[dict],
+) -> dict[str, dict]:
+    """Same content as :func:`_design_ratios_by_elem` but keyed by
+    member_id — what the 3D viewer sends in ``ui_context``. Required
+    for the chat ``inspect_selection`` tool to return ratios that
+    actually match the clicked column instead of the sub-element with
+    a colliding numeric id."""
+    by_mid = _build_ratios_by_mid(member_check)
+    return {str(mid): env for mid, env in by_mid.items() if mid is not None}
 
 
 def _coalesce(*values):
@@ -216,9 +267,17 @@ def build_compact_subset(
             "num_elements": num_elements,
         },
         "envelope": dict(env),
+        # Two indexes per metric: the live viewer sends member_id (mesh
+        # userData carries minfo["member_id"]), but the keys read like
+        # "element_ids" so future code paths that surface a real sub-
+        # element id can still resolve via the _by_elem_id maps.
         "member_info_by_elem_id": _index_member_info(member_info_list, material_name),
+        "member_info_by_member_id": _index_member_info_by_member_id(
+            member_info_list, material_name,
+        ),
         "member_ratios_by_elem_id": _design_ratios_by_elem(
             member_check, member_info_list,
         ),
+        "member_ratios_by_member_id": _design_ratios_by_member_id(member_check),
         "modal_summary": _modal_subset(modal_analysis),
     }

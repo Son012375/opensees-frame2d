@@ -105,13 +105,18 @@ def _build():
     )
 
 
-def test_returns_five_chat_tool_keys():
+def test_returns_chat_tool_keys():
     out = _build()
+    # Two index variants per metric (elem_id + member_id) so the chat
+    # tool can resolve either lookup style — see analysis_context's
+    # _index_member_info_by_member_id docstring.
     assert set(out.keys()) == {
         "analysis_summary",
         "envelope",
         "member_info_by_elem_id",
+        "member_info_by_member_id",
         "member_ratios_by_elem_id",
+        "member_ratios_by_member_id",
         "modal_summary",
     }
 
@@ -158,6 +163,40 @@ def test_design_envelope_keyed_by_elem_id_not_member_id():
     assert env_by_eid["201"]["ratio_interaction"] == 1.08
     # member_id=99 had no matching member_info → no element entries leaked
     assert all(v["member_id"] in (1, 2) for v in env_by_eid.values())
+
+
+def test_member_info_indexed_by_member_id():
+    """The 3D viewer sends ``member_id`` (its mesh userData carries
+    minfo[member_id]) so the chat tool MUST be able to resolve a
+    member_id lookup. Without this map a click on column #19 was
+    mis-resolved to the member owning sub-element #19 (column #5)."""
+    info_by_mid = _build()["member_info_by_member_id"]
+    assert set(info_by_mid.keys()) == {"1", "2"}
+    assert info_by_mid["1"]["section"] == "H-300x300"
+    assert info_by_mid["1"]["story"] == 1
+    assert info_by_mid["1"]["etype"] == "column"
+    assert info_by_mid["2"]["section"] == "H-400x200"
+    assert info_by_mid["2"]["etype"] == "beam_x"
+
+
+def test_design_ratios_indexed_by_member_id():
+    ratios_by_mid = _build()["member_ratios_by_member_id"]
+    assert ratios_by_mid["1"]["ratio_interaction"] == 0.74
+    assert ratios_by_mid["1"]["status"] == "OK"
+    assert ratios_by_mid["2"]["status"] == "NG"
+    assert ratios_by_mid["2"]["ratio_interaction"] == 1.08
+
+
+def test_member_id_index_does_not_collide_with_elem_id_index():
+    """Regression for the 'every member is 1층' bug: a member_id (1) and a
+    sub-element id (101) live in DIFFERENT maps so the chat tool never
+    has to disambiguate by accident. The element_id map keys with
+    sub-element ids only, never member_ids."""
+    out = _build()
+    # member_id=1 has sub-elements 101-104. The elem_id map must NOT have
+    # a key '1' (would collide with member id lookup if both shared a map).
+    assert "1" not in out["member_info_by_elem_id"]
+    assert "1" in out["member_info_by_member_id"]
 
 
 def test_modal_summary_keeps_top_three():
