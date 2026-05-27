@@ -169,6 +169,49 @@ from app.services.recommendation_jobs import (
 )
 
 
+# Marker on each ``analysis_context_cache`` entry that tells the
+# recommendation endpoints whether the entry was created with the full
+# baseline (model_json + load_cases + candidates_by_id + design_check)
+# or only the compact chat-tool subset (member_info_by_*, modal_summary,
+# envelope, analysis_summary).
+#
+#   "full"    — written by /api/v2/analyze. Recommendation pipeline OK.
+#   "compact" — written by /api/building/analyze. Chat tools OK but the
+#               recommendation endpoints (evaluate / preview-apply /
+#               explain) must reject this with a clear 422 because
+#               they read ``ctx["model_json"]`` etc. that aren't there.
+#
+# A future change can promote the building endpoint to full context if
+# we decide to support recommendations from the legacy analyze path —
+# at that point the field stays valid as the discriminator and the
+# 422 just stops firing for those entries.
+CONTEXT_KIND_FULL = "full"
+CONTEXT_KIND_COMPACT = "compact"
+
+
+def _assert_full_context_for_recommendations(ctx: dict, analysis_id: str) -> None:
+    """Raise 422 if ``ctx`` lacks the fields the recommendation API needs.
+
+    Called at the entry of every /api/v2/recommendations/* endpoint
+    *after* the 400/410 split on ``ctx is None``. Surfaces the partial-
+    cache state as a discrete, documented failure mode instead of a
+    silent ``candidates_by_id={}`` or a downstream ``KeyError`` on
+    ``ctx["model_json"]`` (which the apply-candidate path hits).
+    """
+    if ctx.get("context_kind") == CONTEXT_KIND_FULL:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"analysis '{analysis_id}' was created via /api/building/"
+            "analyze and only carries the compact chat-tool subset — "
+            "recommendation endpoints require a /api/v2/analyze baseline "
+            "(model_json + candidates_by_id). Re-run the analysis "
+            "through the V2 node-element path to enable recommendations."
+        ),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Page Routes
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -645,6 +688,10 @@ async def analyze_building_api(input_data: BuildingInput):
         with _ANALYSIS_CONTEXT_LOCK:
             analysis_context_cache[job_id] = {
                 **compact,
+                # Compact = chat tools can read this entry, recommendation
+                # endpoints will reject it with 422. See
+                # ``_assert_full_context_for_recommendations``.
+                "context_kind": CONTEXT_KIND_COMPACT,
                 "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
             }
 
@@ -1127,6 +1174,9 @@ async def analyze_v2_api(request: Request):
                 "candidates_by_id": candidates_by_id,
                 # Chat-router lookups (see services.analysis_context.build_compact_subset)
                 **compact,
+                # Full = recommendation endpoints can use this entry.
+                # See ``_assert_full_context_for_recommendations``.
+                "context_kind": CONTEXT_KIND_FULL,
                 "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
             }
 
@@ -1355,6 +1405,8 @@ async def post_recommendations_evaluate(request: Request):
             ),
         )
 
+    _assert_full_context_for_recommendations(ctx, analysis_id)
+
     eval_job_id = f"rec_eval_{uuid.uuid4().hex[:12]}"
     record = _make_eval_job_record(analysis_id, candidate_ids)
     record["job_id"] = eval_job_id
@@ -1461,6 +1513,8 @@ async def post_recommendations_preview_apply(request: Request):
                 "Re-run /api/v2/analyze first."
             ),
         )
+
+    _assert_full_context_for_recommendations(ctx, analysis_id)
 
     cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
     if cand_dict is None:
@@ -1578,6 +1632,8 @@ async def post_recommendations_explain(request: Request):
                 "Re-run /api/v2/analyze first."
             ),
         )
+
+    _assert_full_context_for_recommendations(ctx, analysis_id)
 
     cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
     if cand_dict is None:
