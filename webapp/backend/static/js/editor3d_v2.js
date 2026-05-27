@@ -1782,6 +1782,12 @@ async function applyNLToIFCForm() {
 async function runAnalysisFromIFCWizard() {
     if (!ifcEditedData) { alert('형상 정보가 없습니다.'); return; }
 
+    // V2 분기로 가기 전에 source marker 확정. 이전엔 _v2Model 체크 후
+    // 바로 runAnalysisV2()로 빠져나가서 아래 V1 fallback의 modelSource='IFC'
+    // 라인에 도달하지 못해, 첫 IFC V2 분석에서 isIFCSource가 false가 되고
+    // IFC 폼의 region/importance가 누락되던 버그.
+    modelSource = 'IFC';
+
     // V2 모델이 있으면 V2 파이프라인 사용
     if (window._v2Model) {
         return await runAnalysisV2();
