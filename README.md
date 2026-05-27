@@ -171,6 +171,71 @@ LLM(Claude)이 이를 구조해석 Config로 변환하고, OpenSeesPy로 해석�
 - 100 OK, 12 CHECK (3D 요소 정식화 차이 ~3%)
 - 선형/비선형 모두 우수한 일치 확인
 
+### 3.8 In-Editor Chat Assistant (Phase A)
+
+V2 Editor 우하단 플로팅 챗 위젯이 로컬 Ollama(`qwen2.5:14b` 기본)와 통신해 해석 결과/선택 부재를 자연어로 답합니다. **계산은 도구가 하고 LLM은 번역만**하는 구조 — `inspect_selection`, `get_analysis_summary` 두 도구가 `analysis_context_cache`에서 진짜 값을 읽고, LLM은 그 결과를 한국어로 풀어 씁니다.
+
+**기본 흐름**
+```
+사용자 입력 → 휴리스틱(키워드 매칭) → 도구 호출 → 캐시 조회 → tool_result NDJSON → LLM 스트리밍 → 한국어 답변
+```
+
+**도구 (Phase A.2-A.4)**
+
+| 도구 | 입력 | 출력 |
+|------|------|------|
+| `inspect_selection` | `element_ids: [int]` (생략 시 UI 선택) | 부재별 section/material/story/ratios |
+| `get_analysis_summary` | (없음) | max_disp / max_drift / ng_count / num_stories / 상위 3개 모드 |
+
+**환각/표류 방지 3중 가드**
+
+1. **시스템 프롬프트**: 영어 LANGUAGE POLICY + 금지 패턴 명시 (`info.story=3`이면 반드시 "3층" 출력 등). qwen2.5는 시스템 메타-지시를 영어로 받을 때 더 잘 따름.
+2. **낮은 온도** (`OLLAMA_TEMPERATURE=0.1` 기본). Ollama 기본 0.8에서는 한국어 답변 중 중국어("根据提供的信息") 누출 + 임의 숫자 fabrication이 잦았음.
+3. **휴리스틱 강제 도구 호출**: 사용자 메시지가 명확한 키워드("이 부재", "결과 요약", "5번 부재" 등)에 매칭되면 LLM에게 물어보지 않고 즉시 해당 도구를 강제 호출. "N번 부재" 패턴에서 ID도 자동 추출.
+
+**Per-tool creativity routing**
+
+`ToolSpec.creativity_hint`가 stream_tokens 온도를 결정합니다:
+- `factual` (기본) → provider 기본 온도 (0.1) — inspect/summary 등 사실 번역
+- `narrative` → 0.5 — 미래의 리포트 드래프트 도구용
+
+추가 tier가 필요하면 `_TEMPERATURE_BY_HINT`에 키 하나 추가. Per-call `temperature` 파라미터가 `BaseLLMProvider.stream_tokens`에 노출되어 있어 호출자별 오버라이드도 가능.
+
+**ID 시맨틱**
+
+3D 뷰어는 `viewer_elements[i].id = member_id`를 mesh userData에 붙입니다. 따라서 사용자 클릭 → `ui_context.selected_element_ids = [member_id]` (이름은 element지만 실제는 member_id). 챗 도구는 캐시에 두 인덱스를 모두 보관합니다:
+- `member_info_by_member_id` — viewer 클릭 경로 (우선 조회)
+- `member_info_by_elem_id` — OpenSees 분할 sub-element ID (LLM이 raw 값을 넘기는 경우 fallback)
+
+이 분리가 없으면 `num_elements_per_member=4`일 때 member #19 클릭이 sub-element ID 19(=member #5의 일부)와 충돌해서 "모든 부재가 1층"으로 잘못 보고됩니다.
+
+**환경변수**
+
+| Key | 기본값 | 설명 |
+|-----|--------|------|
+| `CHAT_LLM_PROVIDER` | `noop` | `ollama`로 설정하면 활성. 실패 시 NoopProvider로 우아한 fallback |
+| `CHAT_TOOLS_ENABLED` | `inspect,summary` | 활성화할 tool group (쉼표 구분) |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 데몬 URL |
+| `OLLAMA_MODEL` | `qwen2.5:14b` | 모델명 |
+| `OLLAMA_TIMEOUT_S` | `120` | HTTP 타임아웃 |
+| `OLLAMA_TEMPERATURE` | `0.1` | 기본 샘플링 온도 (낮을수록 결정론적) |
+
+**시스템 진입점**
+
+| 파일 | 역할 |
+|------|------|
+| `webapp/backend/app/chat_router.py` | `/api/v2/chat/sessions` + `/api/v2/chat/messages` NDJSON 스트림 |
+| `mcp-server/core/chat/orchestrator.py` | 도구 루프 + 휴리스틱 가드 + creativity hint 라우팅 |
+| `mcp-server/core/chat/llm/ollama_provider.py` | Ollama `/api/chat` 어댑터 (tool_call + 스트리밍) |
+| `mcp-server/core/chat/tools/inspect.py` | `inspect_selection` / `get_analysis_summary` 구현 |
+| `webapp/backend/static/js/chat_widget.js` | 플로팅 위젯 (드래그/리사이즈, NDJSON 소비) |
+| `webapp/backend/static/js/editor3d_v2.js` | `EditorV2ChatBridge.getContext()` — 선택/케이스/탭 컨텍스트 전송 |
+
+**확장 계획**
+- ❌ 결과 리포트 생성 도구 (`creativity_hint="narrative"`, 미구현)
+- ❌ 부재 단면 변경 명령 (factual hint, deterministic 적용)
+- ❌ KDS-RAG 인용 통합 (Phase A 외부, [3.Y](#3y-kds-rag-인터페이스-레이어-test-double-단계) 인터페이스 위에 후속)
+
 ---
 
 ## 3.X Recommendation Pipeline Foundation
