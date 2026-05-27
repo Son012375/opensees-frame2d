@@ -19,6 +19,18 @@ Environment
 ``OLLAMA_BASE_URL`` (default ``http://localhost:11434``)
 ``OLLAMA_MODEL``    (default ``qwen2.5:14b`` — see plan §A.3 model choice)
 ``OLLAMA_TIMEOUT_S`` (default ``120``)
+``OLLAMA_TEMPERATURE`` (default ``0.1``) — base temperature applied to
+    both /api/chat calls. Tuned for *factual* conversation: the chat tools
+    return exact data (member story, ratio, drift) and the LLM's only job
+    is to translate that JSON into Korean. Low temperature stops qwen2.5
+    from drifting (e.g. answering "1층" for every member regardless of the
+    actual ``info.story`` value, or leaking Chinese phrases).
+
+    Callers that need creative prose (future: result-report generation
+    where varied phrasing is desirable) should pass ``temperature=`` per
+    call instead of bumping this default. ``request_tool_call`` always
+    benefits from low temp because tool routing is a discrete decision;
+    only the final-answer ``stream_tokens`` call should ever go higher.
 
 A failed transport (daemon down, model not pulled, network unreachable)
 raises :class:`OllamaUnavailableError` which the chat router catches at
@@ -75,6 +87,7 @@ class OllamaProvider(BaseLLMProvider):
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout_s: Optional[float] = None,
+        temperature: Optional[float] = None,
         client_factory: Optional[Callable[[], httpx.AsyncClient]] = None,
     ):
         self.base_url = (
@@ -84,7 +97,29 @@ class OllamaProvider(BaseLLMProvider):
         self.timeout_s = float(
             timeout_s if timeout_s is not None else os.environ.get("OLLAMA_TIMEOUT_S", "120")
         )
+        # Low default so qwen2.5 sticks to the system prompt + reads
+        # tool_result fields verbatim. Higher prose-friendly values can
+        # be passed per call (see _ollama_options docstring).
+        self.temperature = float(
+            temperature if temperature is not None
+            else os.environ.get("OLLAMA_TEMPERATURE", "0.1")
+        )
         self._client_factory = client_factory or _default_client_factory(self.timeout_s)
+
+    def _ollama_options(self, temperature: Optional[float] = None) -> dict:
+        """Per-request sampler options passed in both /api/chat payloads.
+
+        Pass ``temperature=`` to override the instance default for a
+        single call — used by future report-generation flows that want
+        more varied prose than the factual chat default. ``None`` (no
+        override) means "use whatever was configured at construction".
+
+        Kept as one helper so future knobs (top_p, num_ctx, ...) can be
+        added without touching two call sites.
+        """
+        return {
+            "temperature": temperature if temperature is not None else self.temperature,
+        }
 
     # ------------------------------------------------------------------
     # Public BaseLLMProvider hooks
@@ -95,12 +130,18 @@ class OllamaProvider(BaseLLMProvider):
         *,
         messages: list[dict],
         tools: list[dict],
+        temperature: Optional[float] = None,
     ) -> Optional[ToolCall]:
         """Ask Ollama whether the next move is a tool call.
 
         Returns the first :class:`ToolCall` in the response, or ``None``
         if the model produced a plain-text answer (orchestrator then
         falls through to :meth:`stream_tokens`).
+
+        ``temperature`` overrides ``self.temperature`` for this call. Tool
+        routing is a discrete decision so callers rarely want anything
+        but the default low value — exposed for symmetry with
+        :meth:`stream_tokens`.
         """
         # No tools available → skip the round trip entirely. Saves a
         # network hop when CHAT_TOOLS_ENABLED is empty.
@@ -112,6 +153,7 @@ class OllamaProvider(BaseLLMProvider):
             "messages": _to_ollama_messages(messages),
             "tools": tools,
             "stream": False,
+            "options": self._ollama_options(temperature),
         }
         try:
             async with self._client_factory() as client:
@@ -129,17 +171,24 @@ class OllamaProvider(BaseLLMProvider):
         self,
         *,
         messages: list[dict],
+        temperature: Optional[float] = None,
     ) -> AsyncIterator[str]:
         """Yield ``message.content`` text as Ollama streams the answer.
 
         Ollama's streaming format is NDJSON — one JSON object per line.
         We skip the final ``{"done": true}`` line and any malformed
         lines (network can occasionally split a UTF-8 boundary).
+
+        ``temperature`` overrides ``self.temperature`` for this single
+        call. Default behaviour is low-temp factual narration; future
+        report-generation flows can pass e.g. ``temperature=0.5`` to get
+        more varied prose without mutating the provider's default state.
         """
         payload = {
             "model": self.model,
             "messages": _to_ollama_messages(messages),
             "stream": True,
+            "options": self._ollama_options(temperature),
         }
         try:
             async with self._client_factory() as client:

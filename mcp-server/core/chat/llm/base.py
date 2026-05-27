@@ -48,19 +48,34 @@ class BaseLLMProvider(ABC):
         *,
         messages: list[dict],
         tools: list[dict],
+        temperature: Optional[float] = None,
     ) -> Optional[ToolCall]:
         """Decide whether to call a tool this round.
 
         Default: never request a tool — final answer streams immediately.
         Overridden by tool-capable providers (Ollama in A.3, scripted
         doubles in tests).
+
+        ``temperature`` is an optional per-call sampling override. The
+        orchestrator passes it based on the active tool's creativity
+        hint (see :attr:`ToolSpec.creativity_hint`). Providers that
+        ignore temperature must still accept the kwarg without erroring.
         """
         return None
 
     @abstractmethod
-    def stream_tokens(self, *, messages: list[dict]) -> AsyncIterator[str]:
+    def stream_tokens(
+        self,
+        *,
+        messages: list[dict],
+        temperature: Optional[float] = None,
+    ) -> AsyncIterator[str]:
         """Yield response tokens one at a time.
 
         Implementations are async generators (``async def`` + ``yield``)
         and may yield a single chunk if the upstream API doesn't stream.
+
+        ``temperature`` is an optional per-call sampling override — see
+        :meth:`request_tool_call` for context. Providers without sampling
+        control accept the kwarg and ignore it.
         """

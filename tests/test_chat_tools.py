@@ -119,7 +119,7 @@ class ScriptedToolProvider(BaseLLMProvider):
         self._final_text = final_text
         self.requested_with: list[list[dict]] = []
 
-    async def request_tool_call(self, *, messages, tools):
+    async def request_tool_call(self, *, messages, tools, temperature=None):
         self.requested_with.append([{"name": t["function"]["name"]} for t in tools])
         if self._idx >= len(self._calls):
             return None
@@ -127,7 +127,7 @@ class ScriptedToolProvider(BaseLLMProvider):
         self._idx += 1
         return tc
 
-    async def stream_tokens(self, *, messages) -> AsyncIterator[str]:
+    async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
         yield self._final_text
 
 
@@ -448,8 +448,12 @@ def test_orchestrator_tool_crash_surfaces_as_tool_result_error(seeded_analysis_c
         final_text="확인 못 했습니다.",
     )
     session = {"analysis_id": seeded_analysis_cache, "history": []}
+    # User message is intentionally neutral so the heuristic pre-guard in
+    # ``_run_tool_loop`` does NOT short-circuit to a forced tool call.
+    # This test exercises the LLM-driven path where the scripted provider
+    # passes an explicit bad analysis_id and the tool surfaces the error.
     events = _drain(ChatOrchestrator(provider, registry=default_registry()).run_turn(
-        session=session, user_message="이 부재",
+        session=session, user_message="체크 부탁해",
     ))
     tr = next(e for e in events if e["type"] == "tool_result")
     # inspect_selection returns dict (not raise) when analysis_id missing
@@ -525,7 +529,7 @@ def test_orchestrator_emits_error_and_done_when_provider_raises_during_stream(
     the chat widget doesn't hang waiting for one."""
     class CrashingProvider(BaseLLMProvider):
         name = "crash"
-        async def stream_tokens(self, *, messages) -> AsyncIterator[str]:
+        async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
             raise RuntimeError("simulated provider failure mid-stream")
             yield  # pragma: no cover
 
@@ -546,9 +550,9 @@ def test_orchestrator_emits_error_and_done_when_tool_request_raises(
     daemon) becomes an ``error`` event and the loop still terminates."""
     class CrashingProvider(BaseLLMProvider):
         name = "crash"
-        async def request_tool_call(self, *, messages, tools):
+        async def request_tool_call(self, *, messages, tools, temperature=None):
             raise RuntimeError("daemon down during tool round")
-        async def stream_tokens(self, *, messages) -> AsyncIterator[str]:
+        async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
             yield "fallback"
 
     orch = ChatOrchestrator(CrashingProvider(), registry=default_registry())
@@ -599,6 +603,258 @@ def test_orchestrator_safe_encode_keeps_stream_terminated_when_tool_returns_forb
     assert encoding_errors, f"expected event_encoding_failed in {types}"
 
 
+# ---------------------------------------------------------------------------
+# Heuristic pre-guard (anti-hallucination)
+# ---------------------------------------------------------------------------
+
+def test_pick_forced_tool_inspect_keywords():
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    assert _pick_forced_tool("이 부재 안전한가?", available) == "inspect_selection"
+    assert _pick_forced_tool("선택된 부재 정보 알려줘", available) == "inspect_selection"
+    assert _pick_forced_tool("이거 안전?", available) == "inspect_selection"
+    assert _pick_forced_tool("ratio 얼마야?", available) == "inspect_selection"
+
+
+def test_pick_forced_tool_summary_keywords():
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    assert _pick_forced_tool("결과 요약해줘", available) == "get_analysis_summary"
+    assert _pick_forced_tool("분석 결과 보여줘", available) == "get_analysis_summary"
+    assert _pick_forced_tool("NG 몇 개?", available) == "get_analysis_summary"
+    assert _pick_forced_tool("층간변위 어때?", available) == "get_analysis_summary"
+    assert _pick_forced_tool("주기는?", available) == "get_analysis_summary"
+
+
+def test_pick_forced_tool_neutral_messages_return_none():
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    assert _pick_forced_tool("안녕", available) is None
+    assert _pick_forced_tool("도움말 보여줘", available) is None
+    assert _pick_forced_tool("체크 부탁해", available) is None
+    assert _pick_forced_tool("", available) is None
+
+
+def test_pick_forced_tool_inspect_wins_when_both_match():
+    """A user with a selection asking about it should never be routed to
+    the global summary tool just because their message also mentions
+    'NG' or 'drift'."""
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    # "이 부재" + "NG" → inspect wins (more specific)
+    assert _pick_forced_tool("이 부재 NG야?", available) == "inspect_selection"
+
+
+def test_pick_forced_tool_bare_이거_no_longer_triggers_inspect():
+    """Bug C fix: ambiguous bare '이거' (without 부재/요소/안전?) used to
+    force inspect_selection, then returned ``code=no_selection`` and
+    frustrated the user. Now it falls through to LLM judgement."""
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    # No explicit element noun, no "안전?" — must NOT force inspect
+    assert _pick_forced_tool("이거 괜찮아?", available) is None
+    assert _pick_forced_tool("이거 어때?", available) is None
+    # But "이거 안전?" still matches via the "안전?" branch
+    assert _pick_forced_tool("이거 안전?", available) == "inspect_selection"
+    # And "이 부재" continues to fire as before
+    assert _pick_forced_tool("이 부재 정보", available) == "inspect_selection"
+
+
+def test_pick_forced_tool_n_번_부재_routes_to_inspect():
+    """Bug B fix part 1: '5번 부재' style references must hit the inspect
+    pattern. The element_id itself is extracted separately by
+    _extract_explicit_element_ids."""
+    from core.chat.orchestrator import _pick_forced_tool
+    available = {"inspect_selection", "get_analysis_summary"}
+    assert _pick_forced_tool("5번 부재 정보 보여줘", available) == "inspect_selection"
+    assert _pick_forced_tool("12번 요소 어때?", available) == "inspect_selection"
+    assert _pick_forced_tool("element 7 보여줘", available) == "inspect_selection"
+
+
+def test_extract_explicit_element_ids_korean_n_번_form():
+    from core.chat.orchestrator import _extract_explicit_element_ids
+    assert _extract_explicit_element_ids("5번 부재 정보") == [5]
+    assert _extract_explicit_element_ids("12번 요소 보여줘") == [12]
+    # Multi-id, comma-separated
+    assert _extract_explicit_element_ids("5번, 10번 부재 비교해줘") == [5, 10]
+
+
+def test_extract_explicit_element_ids_english_form():
+    from core.chat.orchestrator import _extract_explicit_element_ids
+    assert _extract_explicit_element_ids("element 7 보여줘") == [7]
+    assert _extract_explicit_element_ids("엘리먼트 42 정보") == [42]
+    # "#" prefix tolerated
+    assert _extract_explicit_element_ids("element #99") == [99]
+
+
+def test_extract_explicit_element_ids_requires_element_noun_for_korean():
+    """Bare 'N번' without an element noun must not match — otherwise
+    story references ('5층') or order references ('5번째 케이스') would
+    be miscategorised as element_ids."""
+    from core.chat.orchestrator import _extract_explicit_element_ids
+    # No 부재/요소/element noun → must NOT extract
+    assert _extract_explicit_element_ids("5번 케이스 결과") == []
+    assert _extract_explicit_element_ids("5층 어때?") == []
+    # Pure greeting
+    assert _extract_explicit_element_ids("안녕") == []
+    # Empty / None safety
+    assert _extract_explicit_element_ids("") == []
+
+
+def test_extract_explicit_element_ids_dedups_and_preserves_order():
+    from core.chat.orchestrator import _extract_explicit_element_ids
+    # Same id mentioned twice → kept once
+    assert _extract_explicit_element_ids("5번 부재, 5번도 확인") == [5]
+    # First-seen order preserved
+    assert _extract_explicit_element_ids("10번, 5번 부재 비교") == [10, 5]
+
+
+def test_orchestrator_forces_inspect_with_extracted_element_id(
+    seeded_analysis_cache,
+):
+    """End-to-end: '5번 부재 정보 보여줘' WITHOUT a UI selection must
+    still resolve to element_id=5 via the heuristic argument extractor,
+    not return ``code=no_selection``. This is the failing case from the
+    live smoke test."""
+    # Seed cache has element_id=101 wired; we'll ask about a missing one
+    # (5) so the tool returns found=False — the point of this test is
+    # that the forced call carries element_ids=[5], NOT that 5 exists.
+    from core.chat.llm.noop_provider import NoopProvider
+    orch = ChatOrchestrator(NoopProvider(), registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    events = _drain(orch.run_turn(
+        session=session,
+        user_message="5번 부재 정보 보여줘",
+        # Intentionally no ui_context selection — proves the id came
+        # from the message itself, not from a click.
+        ui_context={},
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["tool"] == "inspect_selection"
+    assert tool_calls[0]["arguments"] == {"element_ids": [5]}
+    # And the result actually targets that id
+    tool_results = [e for e in events if e["type"] == "tool_result"]
+    assert tool_results[0]["result"]["elements"][0]["element_id"] == 5
+
+
+def test_orchestrator_forces_inspect_with_multiple_extracted_ids(
+    seeded_analysis_cache,
+):
+    """'5번, 10번 부재 비교' style — multi-id extraction wires through."""
+    from core.chat.llm.noop_provider import NoopProvider
+    orch = ChatOrchestrator(NoopProvider(), registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    events = _drain(orch.run_turn(
+        session=session,
+        user_message="5번, 10번 부재 비교해줘",
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert tool_calls[0]["arguments"] == {"element_ids": [5, 10]}
+
+
+def test_pick_forced_tool_respects_disabled_tools():
+    """If the registry doesn't expose a tool, the heuristic must not
+    pick it (defensive against env-disabled tool groups)."""
+    from core.chat.orchestrator import _pick_forced_tool
+    only_summary = {"get_analysis_summary"}
+    # inspect pattern but inspect tool not available → falls through to None
+    assert _pick_forced_tool("이 부재 안전?", only_summary) is None
+    # summary pattern still picks summary
+    assert _pick_forced_tool("결과 요약", only_summary) == "get_analysis_summary"
+
+
+def test_orchestrator_forces_inspect_selection_on_keyword_with_noop_provider(
+    seeded_analysis_cache,
+):
+    """The whole point of the pre-guard: even when the LLM would NOT call
+    a tool (Noop returns None from request_tool_call), the heuristic
+    forces inspect_selection so the answer is grounded in real data."""
+    # NoopProvider declines tools, so without the heuristic this test
+    # would observe rounds=0. With the heuristic, rounds=1.
+    from core.chat.llm.noop_provider import NoopProvider
+    orch = ChatOrchestrator(NoopProvider(), registry=default_registry())
+    session = {
+        "analysis_id": seeded_analysis_cache,
+        "history": [],
+    }
+    events = _drain(orch.run_turn(
+        session=session,
+        user_message="이 부재 안전한가?",
+        ui_context={"selected_element_ids": [101]},
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["tool"] == "inspect_selection"
+    assert tool_calls[0]["arguments"] == {}
+    tool_results = [e for e in events if e["type"] == "tool_result"]
+    assert tool_results[0]["result"]["elements"][0]["element_id"] == 101
+
+
+def test_orchestrator_forces_summary_on_keyword_with_noop_provider(
+    seeded_analysis_cache,
+):
+    from core.chat.llm.noop_provider import NoopProvider
+    orch = ChatOrchestrator(NoopProvider(), registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    events = _drain(orch.run_turn(
+        session=session, user_message="결과 요약해줘",
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["tool"] == "get_analysis_summary"
+
+
+def test_orchestrator_forced_round_exits_loop_even_when_provider_wants_more(
+    seeded_analysis_cache,
+):
+    """After a forced round, the LLM does NOT get a second tool round —
+    otherwise qwen2.5 would re-call the same tool (history doesn't show
+    the forced call as 'its' decision)."""
+    provider = ScriptedToolProvider(
+        calls=[
+            # If the loop ever asked the LLM a second time, this scripted
+            # call would land in events. The forced-round early-exit
+            # ensures it never runs.
+            ToolCall(name="get_analysis_summary", arguments={}),
+            None,
+        ],
+        final_text="ok",
+    )
+    orch = ChatOrchestrator(provider, registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    events = _drain(orch.run_turn(
+        session=session, user_message="결과 요약해줘",
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    # Exactly one tool_call — the forced one. Scripted provider's call
+    # never ran because the loop exited after the forced round.
+    assert len(tool_calls) == 1
+    assert events[-1]["type"] == "done"
+    assert events[-1]["rounds"] == 1
+    # And the scripted provider never had its request_tool_call called
+    assert provider.requested_with == []
+
+
+def test_orchestrator_neutral_message_does_not_trigger_heuristic(
+    seeded_analysis_cache,
+):
+    """Bare greetings shouldn't force a tool round — the original LLM-
+    driven path must still work for messages that don't match patterns."""
+    provider = ScriptedToolProvider(
+        calls=[None],  # LLM declines tools
+        final_text="안녕하세요",
+    )
+    orch = ChatOrchestrator(provider, registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    events = _drain(orch.run_turn(
+        session=session, user_message="안녕",
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert tool_calls == []
+    assert events[-1]["rounds"] == 0
+
+
 def test_orchestrator_provider_messages_strip_ui_context():
     """``ui_context`` is chat-router metadata. It must not be forwarded
     to the LLM (would inflate context + confuse the model)."""
@@ -607,7 +863,7 @@ def test_orchestrator_provider_messages_strip_ui_context():
     class CapturingProvider(BaseLLMProvider):
         name = "capture"
 
-        async def stream_tokens(self, *, messages):
+        async def stream_tokens(self, *, messages, temperature=None):
             seen.append([dict(m) for m in messages])
             yield ""
 
@@ -620,6 +876,118 @@ def test_orchestrator_provider_messages_strip_ui_context():
     ))
     for m in seen[0]:
         assert "ui_context" not in m
+
+
+# ---------------------------------------------------------------------------
+# creativity_hint → stream_tokens temperature routing (Option A)
+# ---------------------------------------------------------------------------
+
+class _TemperatureCapturingProvider(BaseLLMProvider):
+    """Test double that records the ``temperature`` kwarg the orchestrator
+    passes into stream_tokens, while staying tool-aware enough to drive a
+    full run_turn through."""
+    name = "capture-temp"
+
+    def __init__(self):
+        self.stream_temp: Optional[float] = "UNSET"  # type: ignore[assignment]
+        self.tool_temp: Optional[float] = "UNSET"  # type: ignore[assignment]
+
+    async def request_tool_call(self, *, messages, tools, temperature=None):
+        self.tool_temp = temperature
+        return None  # let the heuristic / final stream take over
+
+    async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
+        self.stream_temp = temperature
+        yield "ok"
+
+
+def test_factual_tool_routes_to_provider_default_temperature(seeded_analysis_cache):
+    """get_analysis_summary has the default ``factual`` hint → orchestrator
+    passes ``temperature=None`` so the provider uses its configured
+    default (low for chat, high if a future caller swaps it)."""
+    provider = _TemperatureCapturingProvider()
+    orch = ChatOrchestrator(provider, registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    # "결과 요약" triggers the forced-tool heuristic → get_analysis_summary
+    # actually runs, so the routing has a tool to read a hint from.
+    _drain(orch.run_turn(session=session, user_message="결과 요약해줘"))
+    assert provider.stream_temp is None
+
+
+def test_narrative_tool_routes_to_higher_temperature():
+    """A tool registered with ``creativity_hint='narrative'`` makes the
+    orchestrator hand stream_tokens a non-None temperature (currently
+    0.5). Verified end-to-end through a custom registry."""
+    narrative_tool = ToolSpec(
+        name="draft_report",
+        group="report",
+        description="Draft a Korean prose summary of the analysis.",
+        parameters={"type": "object", "properties": {}},
+        func=lambda args, *, session: {"draft": "보고서 초안"},
+        creativity_hint="narrative",
+    )
+    registry = ToolRegistry([narrative_tool], enabled_groups=frozenset({"report"}))
+    provider = _TemperatureCapturingProvider()
+    # Scripted call drives the tool — heuristic won't fire for this
+    # custom tool name.
+    class _Scripted(_TemperatureCapturingProvider):
+        async def request_tool_call(self, *, messages, tools, temperature=None):
+            self.tool_temp = temperature
+            return ToolCall(name="draft_report", arguments={})
+    provider = _Scripted()
+    orch = ChatOrchestrator(provider, registry=registry)
+    _drain(orch.run_turn(
+        session={"history": []}, user_message="보고서 초안 만들어줘",
+    ))
+    # 0.5 matches the current narrative tier in _TEMPERATURE_BY_HINT
+    assert provider.stream_temp == 0.5
+
+
+def test_no_tool_ran_falls_back_to_provider_default(seeded_analysis_cache):
+    """If the LLM declines tools and just answers, the previous turn's
+    tool hint must NOT leak into this turn's temperature. The reset in
+    run_turn ensures _last_tool_hint is None at stream_tokens time."""
+    provider = _TemperatureCapturingProvider()
+    orch = ChatOrchestrator(provider, registry=default_registry())
+    session = {"analysis_id": seeded_analysis_cache, "history": []}
+    _drain(orch.run_turn(session=session, user_message="안녕"))
+    assert provider.stream_temp is None
+
+
+def test_per_turn_hint_reset_prevents_leakage_between_turns():
+    """Turn 1: narrative tool → bumps hint. Turn 2: just chat → must
+    revert to provider default, not stay at the narrative temperature."""
+    narrative_tool = ToolSpec(
+        name="draft_report",
+        group="report",
+        description="x",
+        parameters={"type": "object", "properties": {}},
+        func=lambda args, *, session: {"draft": "x"},
+        creativity_hint="narrative",
+    )
+    registry = ToolRegistry([narrative_tool], enabled_groups=frozenset({"report"}))
+
+    class _SeqProvider(_TemperatureCapturingProvider):
+        def __init__(self):
+            super().__init__()
+            self._turn = 0
+            self.temps_seen: list = []
+
+        async def request_tool_call(self, *, messages, tools, temperature=None):
+            self._turn += 1
+            return ToolCall(name="draft_report", arguments={}) if self._turn == 1 else None
+
+        async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
+            self.temps_seen.append(temperature)
+            yield "x"
+
+    provider = _SeqProvider()
+    orch = ChatOrchestrator(provider, registry=registry)
+    session = {"history": []}
+    _drain(orch.run_turn(session=session, user_message="보고서 초안"))
+    _drain(orch.run_turn(session=session, user_message="안녕"))
+    # Turn 1: narrative tool ran → 0.5. Turn 2: no tool ran → None.
+    assert provider.temps_seen == [0.5, None]
 
 
 # ---------------------------------------------------------------------------

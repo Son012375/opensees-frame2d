@@ -26,11 +26,32 @@ from typing import Callable, Iterable, Optional
 
 @dataclass(frozen=True)
 class ToolSpec:
+    """A registered chat tool.
+
+    ``creativity_hint`` tells the orchestrator how much sampling
+    variance the LLM needs when narrating *this* tool's result:
+
+      * ``"factual"`` (default) — answer is a faithful translation of
+        ``tool_result`` fields into Korean. Want deterministic output so
+        the model can't drift away from numbers/IDs it just read.
+        Examples: inspect_selection, get_analysis_summary, edit tools
+        that echo a confirmation.
+      * ``"narrative"`` — answer is a free-form prose summary built
+        from the result (e.g. a future ``generate_report`` that drafts
+        a few paragraphs of design-review text). Varied phrasing
+        improves readability; some sampling temperature is desirable.
+
+    The orchestrator maps these hints to per-call ``temperature`` values
+    on the Ollama provider (see :data:`_TEMPERATURE_BY_HINT`). A future
+    ``"creative"`` tier (for marketing-style copy etc.) can be added
+    without breaking the existing call sites.
+    """
     name: str
     group: str
     description: str
     parameters: dict
     func: Callable[..., dict]
+    creativity_hint: str = "factual"
 
 
 class ToolNotFoundError(KeyError):

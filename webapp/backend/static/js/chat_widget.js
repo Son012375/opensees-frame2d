@@ -231,9 +231,24 @@
     function summariseResult(result) {
         // Compact one-line preview of the tool result. Full payload is in
         // the chat session history; the UI just shows enough to confirm
-        // the call did the right thing.
+        // the call did the right thing — and importantly, to let the user
+        // spot when the LLM's narration disagrees with the actual tool
+        // output (e.g. tool returned story=3 but bot said "1층").
         if (Array.isArray(result.elements)) {
-            return `${result.elements.length} element(s)`;
+            const n = result.elements.length;
+            if (n === 0) return '0 elements';
+            // Surface the first element's identifying fields so a "어느 층?"
+            // mis-answer is visible in the box itself.
+            const e0 = result.elements[0] || {};
+            const info = e0.info || {};
+            const ratios = e0.ratios || {};
+            const parts = [`${n} element(s)`];
+            if (e0.element_id != null) parts.push(`id=${e0.element_id}`);
+            if (info.member_id != null) parts.push(`member=${info.member_id}`);
+            if (info.story != null) parts.push(`story=${info.story}`);
+            if (info.section) parts.push(`sec=${info.section}`);
+            if (ratios.status) parts.push(ratios.status);
+            return parts.join(', ');
         }
         if (result.summary) {
             const s = result.summary;
