@@ -1880,7 +1880,15 @@ async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
     // 숨은 다른 탭의 기본값(예: ifc-region=서울)이 적용되어 분석 환경이
     // 조용히 바뀌는 위험이 있음. _v2Model.environment를 1차 source로 쓰고
     // (분석 시점에 확정된 값), DOM은 IFC 탭에서만 우선 적용.
-    const isIFCSource = !!(ifcEditedData && Array.isArray(ifcEditedData.stories));
+    //
+    // isIFCSource: modelSource AND ifcEditedData 두 신호가 모두 IFC를
+    // 가리킬 때만 true. ifcEditedData 단독 체크는 "IFC 로드 → 직접입력
+    // 분석 → Apply 재해석" 순서에서 stale ifcEditedData가 IFC 분기를
+    // 잘못 트리거하던 버그를 막기 위함. modelSource 단독은 분석 직후
+    // 재할당 누락(예: runAnalysisV2 성공시) 같은 휴먼 에러에 약함 →
+    // AND 조합으로 defense in depth.
+    const isIFCSource = (modelSource || '').startsWith('IFC')
+        && !!(ifcEditedData && Array.isArray(ifcEditedData.stories));
     const envFromModel = (window._v2Model && window._v2Model.environment) || {};
     const envVal = (ifcId, inputId, modelKey, fallback) => {
         if (isIFCSource) {
@@ -1938,7 +1946,12 @@ async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
         // V2 결과를 V1 형식으로 변환하여 기존 UI에 표시
         currentJobId = result.job_id;
         _setExportBtnEnabled(true);
-        modelSource = 'IFC (V2)';
+        // modelSource는 호출자가 정한 값을 보존 — 직접입력/NL이 V2 경로를
+        // 거치는 경우(Apply, Ctrl+Z 자동 재해석)도 'IFC (V2)'로 덮어쓰면
+        // 이후 isIFCSource 판정이 오염됨. IFC 출발일 때만 V2 마커 부착.
+        if ((modelSource || '').startsWith('IFC')) {
+            modelSource = 'IFC (V2)';
+        }
 
         // V1 buildScene/updateResultsPanel이 기대하는 형식으로 변환
         const v1Result = convertV2ResultToV1(result);
@@ -2186,7 +2199,12 @@ async function runAnalysis(configOverride = null) {
     if (configOverride) {
         config = configOverride;
     } else {
-        if (!modelSource) modelSource = 'Manual';
+        // 직접입력 진입: 이전 IFC/V2 마커가 남아있으면 강제로 'Manual'로
+        // 리셋해서 후속 재해석의 isIFCSource 판정이 오염되지 않도록 한다.
+        // runAnalysisFromNL이 미리 'NL'로 세팅한 경우는 보존.
+        if (!modelSource || (modelSource || '').startsWith('IFC')) {
+            modelSource = 'Manual';
+        }
         const stories = getStoriesFromEditor();
         const isIrregular = document.getElementById('irregular-toggle')?.checked;
 
