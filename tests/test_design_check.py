@@ -5,8 +5,9 @@ KDS 41 17 00 층간변위 검토 + KDS 41 31 00 부재 강도 검토.
 실행: cd mcp-server && python -m pytest ../tests/test_design_check.py -v
 """
 import math
-import sys
 import os
+import sys
+import types
 
 # mcp-server를 import path에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp-server"))
@@ -366,6 +367,78 @@ def test_T12_member_check_ng():
     assert result["status"] == "NG"
     assert result["summary"]["ng"] >= 1
     assert result["members"][0]["ratios"]["interaction"] > 1.0
+
+
+def test_T12b_member_check_per_member_section(monkeypatch):
+    """동일 mtype에서 서로 다른 section을 가진 부재가 각자의 단면 기준으로
+    capacity를 받는지 확인 (Phase B 단면 변경 후 회귀 방지).
+
+    이전엔 multi.{mtype}_section을 첫 부재 단면으로 일괄 적용해서
+    "5번 부재만 H-200x200으로 변경" 같은 시나리오에서 변경 부재의 ratio가
+    원래 단면(예: H-400x200) capacity로 계산되는 버그가 있었음.
+    """
+    # get_section_3d를 가짜 단면 룩업으로 교체 — 두 단면 모두 명시적 props
+    fake_sections = {
+        "H-400x200": types.SimpleNamespace(
+            name="H-400x200",
+            A=8412.0, Ix=23700e4, Iy=1740e4, J=66e4,
+            h=400.0, b=200.0, tw=8.0, tf=13.0,
+        ),
+        "H-200x100": types.SimpleNamespace(
+            name="H-200x100",
+            A=2716.0, Ix=1840e4, Iy=134e4, J=10e4,
+            h=200.0, b=100.0, tw=5.5, tf=8.0,
+        ),
+    }
+    import core.section_3d as section_3d_mod
+    monkeypatch.setattr(
+        section_3d_mod, "get_section_3d",
+        lambda name: fake_sections.get(name) or fake_sections["H-400x200"],
+    )
+
+    multi = MockMultiResult()
+    # multi_result의 mtype 기본 단면은 H-400x200 (큰 단면). 두 번째 부재만
+    # 약한 H-200x100로 교체 — 동일 하중에서 capacity가 다르고, 따라서
+    # interaction ratio도 명확히 달라야 함.
+    multi.member_info = [
+        {"member_id": 1, "type": "beam_x", "length_m": 6.0,
+         "section": "H-400x200", "element_ids": [1, 2, 3, 4]},
+        {"member_id": 2, "type": "beam_x", "length_m": 6.0,
+         "section": "H-200x100", "element_ids": [5, 6, 7, 8]},
+    ]
+
+    pts = 5
+    # 두 부재에 동일한 하중 인가 (단면 차이만 ratio에 반영되도록)
+    forces = [
+        _make_member_forces_entry(1, "beam_x", "H-400x200", 6.0,
+                                   [0]*pts, [60]*pts, [0]*pts,
+                                   [120]*pts, [0]*pts),
+        _make_member_forces_entry(2, "beam_x", "H-200x100", 6.0,
+                                   [0]*pts, [60]*pts, [0]*pts,
+                                   [120]*pts, [0]*pts),
+    ]
+    multi.member_forces = {"1.2DL+1.6LL": forces}
+    multi.combo_results = {"1.2DL+1.6LL": MockCaseResult()}
+
+    result = check_member_strengths(multi, 275.0, 205000.0)
+
+    m_by_id = {m["member_id"]: m for m in result["members"]}
+    m1 = m_by_id[1]  # H-400x200
+    m2 = m_by_id[2]  # H-200x100
+
+    # capacity가 단면별로 다르게 계산되었는지
+    assert m1["capacity"]["phiMnx_kNm"] > m2["capacity"]["phiMnx_kNm"], (
+        f"큰 단면(H-400x200) capacity가 작은 단면(H-200x100)보다 커야 함: "
+        f"{m1['capacity']} vs {m2['capacity']}"
+    )
+    # 따라서 같은 하중에서 작은 단면의 interaction ratio가 더 커야 함
+    assert m2["ratios"]["interaction"] > m1["ratios"]["interaction"], (
+        f"같은 하중·작은 단면의 ratio가 더 커야 함: "
+        f"m1={m1['ratios']}, m2={m2['ratios']}"
+    )
+    # 결과 객체에도 부재별 실제 단면이 보고되어야 함
+    assert m1["section"] == "H-400x200"
+    assert m2["section"] == "H-200x100"
 
 
 def test_T13_member_check_envelope():

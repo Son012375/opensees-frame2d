@@ -1875,28 +1875,43 @@ async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
         }
     }
 
-    // env DOM — IFC 탭이 활성이면 ifc-*, 아니면 직접입력 탭 input-* 폴백.
-    // 두 세트 모두 DOM에 상존하므로 IFC 우선, 빈 값/없으면 input 사용.
-    const envVal = (ifcId, inputId, fallback) => {
-        const a = document.getElementById(ifcId)?.value;
-        if (a) return a;
-        const b = document.getElementById(inputId)?.value;
-        if (b) return b;
-        return fallback;
+    // env DOM — IFC와 직접입력 탭의 input은 DOM에 둘 다 상존하므로,
+    // 모델 소스에 따라 우선 prefix를 정확히 골라야 한다. 잘못 고르면
+    // 숨은 다른 탭의 기본값(예: ifc-region=서울)이 적용되어 분석 환경이
+    // 조용히 바뀌는 위험이 있음. _v2Model.environment를 1차 source로 쓰고
+    // (분석 시점에 확정된 값), DOM은 IFC 탭에서만 우선 적용.
+    const isIFCSource = !!(ifcEditedData && Array.isArray(ifcEditedData.stories));
+    const envFromModel = (window._v2Model && window._v2Model.environment) || {};
+    const envVal = (ifcId, inputId, modelKey, fallback) => {
+        if (isIFCSource) {
+            return document.getElementById(ifcId)?.value
+                || envFromModel[modelKey]
+                || fallback;
+        }
+        // 직접입력/NL — model env가 진실의 원천. DOM은 마지막 폴백.
+        return envFromModel[modelKey]
+            || document.getElementById(inputId)?.value
+            || fallback;
     };
 
     const config = {
-        region: envVal('ifc-region', 'input-region', '서울'),
-        importance: envVal('ifc-importance', 'input-importance', 'II'),
-        site_class: 'S3',
-        seismic_system: 'ordinary_moment_frame',
-        exposure_category: 'B',
+        region: envVal('ifc-region', 'input-region', 'region', '서울'),
+        importance: envVal('ifc-importance', 'input-importance', 'importance', 'II'),
+        site_class: envFromModel.site_class || 'S3',
+        seismic_system: envFromModel.seismic_system || 'ordinary_moment_frame',
+        exposure_category: envFromModel.exposure_category || 'B',
         geometric_nonlinearity: 'linear',
         stories: storyConfigs,
-        // Seismic method (ELF / RSA)
-        seismic_method: envVal('ifc-seismic-method', 'input-seismic-method', 'ELF'),
-        rsa_combination: envVal('ifc-rsa-combination', 'input-rsa-combination', 'CQC'),
-        rsa_direction: envVal('ifc-rsa-direction', 'input-rsa-direction', '30pct'),
+        // Seismic method (ELF / RSA) — DOM only (model meta에 없음)
+        seismic_method: isIFCSource
+            ? (document.getElementById('ifc-seismic-method')?.value || 'ELF')
+            : (document.getElementById('input-seismic-method')?.value || 'ELF'),
+        rsa_combination: isIFCSource
+            ? (document.getElementById('ifc-rsa-combination')?.value || 'CQC')
+            : (document.getElementById('input-rsa-combination')?.value || 'CQC'),
+        rsa_direction: isIFCSource
+            ? (document.getElementById('ifc-rsa-direction')?.value || '30pct')
+            : (document.getElementById('input-rsa-direction')?.value || '30pct'),
     };
 
     try {

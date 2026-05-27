@@ -18,8 +18,11 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 # ============================================================
 # 상수
@@ -378,18 +381,43 @@ def check_member_strengths(multi_result, fy_MPa: float, E_MPa: float) -> dict:
         # combo가 없으면 case_results 사용
         combo_names = list(multi_result.case_results.keys())
 
-    # 부재 타입별 설계 물성 캐시
-    design_props_cache = {}
+    # 단면별 설계 물성 캐시 (member section이 부재마다 다를 수 있어 mtype-cache로는
+    # 부족함. Phase B 단면 변경 후 변경 부재만 capacity가 새 단면 기준이어야 한다).
+    # mtype 폴백은 section_name이 비었을 때만 사용 (정상 분석에선 일어나지 않음).
+    section_props_cache: dict[str, dict] = {}
+    mtype_fallback_cache: dict[str, dict] = {}
     for mtype in ["column", "beam_x", "beam_y"]:
         sp = _get_section_props_for_type(multi_result, mtype)
-        design_props_cache[mtype] = _compute_design_props(
+        mtype_fallback_cache[mtype] = _compute_design_props(
             sp["A"], sp["Ix"], sp["Iy"],
             sp["h"], sp["b"], sp["tw"], sp["tf"],
         )
-        design_props_cache[mtype]["A"] = sp["A"]
-        design_props_cache[mtype]["section_name"] = getattr(
+        mtype_fallback_cache[mtype]["A"] = sp["A"]
+        mtype_fallback_cache[mtype]["section_name"] = getattr(
             multi_result, f"{mtype}_section", ""
         )
+
+    def _props_for(section_name: str, mtype: str) -> dict:
+        if section_name and section_name in section_props_cache:
+            return section_props_cache[section_name]
+        if section_name:
+            try:
+                from core.section_3d import get_section_3d
+                sec = get_section_3d(section_name)
+                dp = _compute_design_props(
+                    sec.A, sec.Ix, sec.Iy,
+                    sec.h, sec.b, sec.tw, sec.tf,
+                )
+                dp["A"] = sec.A
+                dp["section_name"] = section_name
+                section_props_cache[section_name] = dp
+                return dp
+            except Exception as exc:
+                _log.warning(
+                    "design_check: 단면 %s 조회 실패 (%s) — mtype fallback",
+                    section_name, exc,
+                )
+        return mtype_fallback_cache.get(mtype, {})
 
     for minfo in member_info_list:
         mid = minfo["member_id"]
@@ -398,7 +426,7 @@ def check_member_strengths(multi_result, fy_MPa: float, E_MPa: float) -> dict:
         section_name = minfo.get("section", "")
         KL_mm = length_m * 1000  # K = 1.0
 
-        dp = design_props_cache.get(mtype, {})
+        dp = _props_for(section_name, mtype)
         A = dp.get("A", 0)
 
         if A <= 0:

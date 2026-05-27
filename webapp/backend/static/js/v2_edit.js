@@ -526,6 +526,17 @@ function _refreshAfterUndoRedo(msg) {
             setStatus(msg + ' · 자동 재해석 중...', 'running');
         }
         if (typeof runAnalysisV2 === 'function') {
+            // 재해석이 in-flight인 동안 채팅이 이전 캐시(post-Apply 상태)로 답하지
+            // 않도록 analysis_id를 즉시 무효화. 성공 시 runAnalysisV2 내부에서
+            // 새 job_id로 currentResult/currentJobId/_recState가 갱신된다.
+            // 실패하면 null로 유지되어 챗봇이 "분석 없음"으로 안전하게 처리.
+            if (typeof currentJobId !== 'undefined') currentJobId = null;
+            if (typeof currentResult !== 'undefined') currentResult = null;
+            if (window._recState) {
+                window._recState.analysisId = null;
+                window._recState.candidatesById = {};
+                window._recState.candidates = [];
+            }
             // skipUndo:true — editUndo/editRedo가 이미 스택을 적절히 조정했으므로
             // runAnalysisV2의 기본 pushUndo가 직전 상태를 덮어쓰지 않도록.
             runAnalysisV2({ rethrow: false, skipUndo: true });
