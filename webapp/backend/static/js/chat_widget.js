@@ -228,6 +228,42 @@
         scrollToBottom();
     }
 
+    // Phase B — dispatch UI-side actions a tool may request via
+    // ``result.ui_action`` (e.g. open the rec-diff modal for a chat-
+    // staged section change). The chat stream itself can't carry the
+    // heavy payload (streaming.FORBIDDEN_KEYS), so the action receives
+    // an opaque ``ui_payload`` (typically ``{preview_id, source}``)
+    // and the bridge fetches the rest over plain HTTP. Unknown
+    // actions are ignored — forward-compat for future tool tiers.
+    function dispatchUiAction(result) {
+        if (!result || typeof result !== 'object') return;
+        const action = result.ui_action;
+        if (!action) return;
+        const payload = result.ui_payload || {};
+        try {
+            if (action === 'open_diff_preview') {
+                const bridge = window.EditorV2ChatBridge;
+                if (bridge && typeof bridge.openDiffPreview === 'function') {
+                    Promise.resolve(bridge.openDiffPreview(payload))
+                        .catch((e) => {
+                            appendErrorMessage(
+                                `미리보기 모달을 열지 못했습니다: ${e?.message || e}`,
+                            );
+                        });
+                } else {
+                    appendStatusMessage(
+                        '미리보기 모달 브릿지를 찾지 못했습니다 (EditorV2ChatBridge.openDiffPreview).',
+                    );
+                }
+                return;
+            }
+            // Unknown action — log once at debug, ignore for the user.
+            console.debug('[ChatWidget] unknown ui_action:', action);
+        } catch (e) {
+            appendErrorMessage(`ui_action 실행 실패: ${e?.message || e}`);
+        }
+    }
+
     function summariseResult(result) {
         // Compact one-line preview of the tool result. Full payload is in
         // the chat session history; the UI just shows enough to confirm
@@ -321,6 +357,7 @@
             case 'tool_result':
                 removeTypingIndicator();
                 appendToolResult(event);
+                dispatchUiAction(event.result);
                 showTypingIndicator();
                 break;
             case 'token':

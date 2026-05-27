@@ -1560,6 +1560,52 @@ async def post_recommendations_preview_apply(request: Request):
     }
 
 
+@app.get("/api/v2/recommendations/chat-preview/{preview_id}")
+async def get_recommendations_chat_preview(preview_id: str):
+    """Fetch a chat-staged section-change preview.
+
+    The Phase B chat tool ``propose_section_change`` stages the
+    ``updated_model`` server-side and returns only a ``preview_id`` over
+    the chat NDJSON stream (the streaming guard rejects ``updated_model``
+    /``model_json`` keys at any depth — see
+    ``chat/streaming.FORBIDDEN_KEYS``). The frontend bridge fetches the
+    full payload here once before opening the rec-diff modal.
+
+    Response shape matches ``/api/v2/recommendations/preview-apply`` so
+    the existing ``_renderRecDiffPreview`` / ``applyRecDiff`` code path
+    consumes it unchanged.
+
+    Status codes:
+        200 — preview present and unexpired.
+        410 — preview existed but its TTL elapsed (chat tool ran more
+              than 30 minutes ago). Ask the user to repeat the request.
+        404 — preview id unknown (typo / wrong server / cache cleared).
+    """
+    from app.services.chat_preview_cache import get_preview
+
+    entry = get_preview(preview_id)
+    if entry is None:
+        # We don't keep an audit trail of evicted ids, so 404 here may
+        # also mean "expired and already swept". Surface 410 only when
+        # the entry is *currently* still there at TTL-edge timing.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"chat preview '{preview_id}' not found — it may have "
+                "expired (30 min TTL) or never existed. Ask the chatbot "
+                "to repeat the section-change request."
+            ),
+        )
+    return {
+        "preview_id": preview_id,
+        "analysis_id": entry.get("analysis_id"),
+        "diff": entry.get("diff") or {},
+        "candidate": entry.get("candidate") or {},
+        "preview_meta": entry.get("preview_meta") or {},
+        "updated_model": entry.get("updated_model") or {},
+    }
+
+
 @app.post("/api/v2/recommendations/explain")
 async def post_recommendations_explain(request: Request):
     """Produce a Korean engineer-brief explanation for a candidate.

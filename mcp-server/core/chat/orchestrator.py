@@ -78,6 +78,54 @@ _FORCE_SUMMARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Phase B — imperative "change member section" pattern. Deliberately
+# narrow: requires either (member id + 단면 + change verb) or (단면 +
+# explicit section name + change verb) so a casual question like
+# "단면이 뭐야?" never triggers it. Vague phrasings ("강하게 해줘") are
+# left for the LLM to route — false-forcing them would produce a worse
+# UX than letting the LLM ask a clarifying question.
+_FORCE_COMMAND_RE = re.compile(
+    r"(?:"
+    r"\d+\s*번\s*(?:부재|요소|element)[^\n]{0,30}(?:단면|section)[^\n]{0,15}"
+    r"(?:변경|바꿔|바꾸|교체)"
+    r"|단면(?:을|이)?[^\n]{0,10}[A-Z]+-?\d+(?:x\d+){0,2}(?:\s*[으]?로)?\s*"
+    r"(?:변경|바꿔|바꾸|교체)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Extracts the first section-name-like token. Matches "H-400", "H400",
+# "H-400x400", "SHS-200x200x6" etc. We re-normalize the result so
+# "H400" → "H-400" before handing it to the tool (the catalog stores
+# names with the dash form).
+#
+# Trailing boundary is ``(?!\d)`` rather than ``\b`` on purpose: Python
+# treats Korean syllables as word characters under re.UNICODE, so
+# ``\b`` does NOT fire between "0" and "으" in "H-400x400으로". A
+# negative-lookahead on a digit is the right boundary here (we only
+# want to make sure we didn't stop in the middle of a longer number).
+_SECTION_TARGET_RE = re.compile(
+    r"\b([A-Z]+)-?(\d+(?:x\d+){0,2})(?!\d)",
+    re.IGNORECASE,
+)
+
+
+def _extract_section_target(user_message: str) -> Optional[str]:
+    """Return the first catalog-style section name from ``user_message``.
+
+    Always upper-cases the prefix and ensures a dash separator. Returns
+    None if no matching token is present. Used by the force-routing
+    path; the chat tool itself validates the name against the catalog.
+    """
+    if not user_message:
+        return None
+    m = _SECTION_TARGET_RE.search(user_message)
+    if not m:
+        return None
+    prefix = m.group(1).upper()
+    dims = m.group(2)
+    return f"{prefix}-{dims}"
+
 # When the heuristic forces inspect_selection, look inside the same
 # message for explicit "N번 부재 / N번 요소 / element N" references and
 # forward them as ``element_ids`` instead of relying on the (often empty)
@@ -96,9 +144,17 @@ def _pick_forced_tool(user_message: str, available: set[str]) -> Optional[str]:
     ``available`` is the set of currently-registered tool names so a forced
     pick can't reference a tool the registry doesn't know about (defensive
     against a future registry that disables one of them via env flag).
+
+    Priority: command > inspect > summary. A user asking to *change* a
+    member's section ("5번 부재 단면을 H-400으로 변경") also matches the
+    inspect pattern ("\\d+번 부재"), but the change verb makes the
+    intent unambiguous — the LLM-narrated final answer must come from
+    the command tool's preview, not from an inspect dump.
     """
     if not user_message:
         return None
+    if "propose_section_change" in available and _FORCE_COMMAND_RE.search(user_message):
+        return "propose_section_change"
     if "inspect_selection" in available and _FORCE_INSPECT_RE.search(user_message):
         return "inspect_selection"
     if "get_analysis_summary" in available and _FORCE_SUMMARY_RE.search(user_message):
@@ -225,6 +281,7 @@ DEFAULT_SYSTEM_PROMPT = """LANGUAGE POLICY (highest priority — overrides any o
    - "결과", "요약", "분석 상태", "NG", "층간변위", "변위", "모드", "주기", "고유주기" → `get_analysis_summary` 호출
    - "이 부재", "선택한 부재", "선택된 부재", "부재 정보", "이거", "ratio", "안전한가" → `inspect_selection` 호출 (인자 비워도 됨 — 사용자의 현재 3D 선택을 자동으로 사용)
    - 특정 element 번호 명시 → `inspect_selection({"element_ids":[번호]})`
+   - **단면 변경 요청** ("N번 부재 단면을 H-XXX으로 변경/바꿔", "단면 바꿔줘", "단면 교체") → `propose_section_change` 호출. 인자: `member_id`(정수) + `target_section`(문자열). 부재 번호가 명시되지 않으면 호출 시 `member_id` 생략 — 도구가 UI 선택을 자동으로 사용합니다. 단면명이 모호하거나 빠지면 사용자에게 정확한 단면명을 다시 물으세요 (도구를 호출하지 말 것).
 
 4. 도구 결과의 `error` 또는 `code` 필드가 있으면 그 내용을 한국어로 사용자에게 그대로 전달하세요. **결과의 error/code를 무시하고 "정상입니다" 같은 답을 만들지 마세요:**
    - `code=analysis_not_found` → "분석이 만료되었거나 찾을 수 없습니다. 좌측 패널에서 분석을 다시 실행해주세요."
@@ -259,6 +316,15 @@ inspect_selection 결과의 `elements[0].info`는 정수/문자열 필드가 그
 - ❌ 도구 호출 없이 "get_analysis_summary() 호출 결과를 기반으로..."로 시작 — 호출하지 않았으면 절대 이 문구 쓰지 마세요.
 - ❌ "부재 ID: 12345, ratio_interaction: 0.85" 같은 그럴듯한 임의 숫자 — tool_result에 실제로 그 값이 있어야만 출력.
 - ❌ tool_result가 `code=no_selection`인데 "부재의 안전성 비율(ratio)이 1.0 이하로 안전합니다" 같은 답변 — 결과를 무시하지 말 것.
+
+## 단면 변경 도구(`propose_section_change`) 응답 규칙 (Phase B)
+이 도구는 **미리보기**만 생성합니다. 실제 모델 변경/재해석은 사용자가 미리보기 모달의 [Apply to editor] 버튼을 직접 눌러야 일어납니다.
+
+- ✅ 도구가 성공하면 답변은 한 줄: "미리보기 모달이 열렸습니다. 변경 내역을 확인하고 [Apply to editor] 버튼을 눌러주세요." 정도. tool_result의 `diff_summary.section_from → section_to`를 한 줄 덧붙여도 됩니다.
+- ❌ **"적용했습니다", "단면이 바뀌었습니다", "재해석이 끝났습니다" 류의 자체 보고 절대 금지.** 사용자가 Apply를 누르기 전에는 아무것도 적용되지 않았습니다.
+- 도구 결과에 `error`가 있으면 그 내용을 그대로 한국어로 전달. `options` 필드(후보 단면명 리스트)가 있으면 함께 보여주세요.
+- 부재 ID 인용 시 "부재 N" / "member_id=N" 형식 사용. "element_id" 라는 용어는 사용자에게 노출하지 마세요.
+- 단면명 형식: `H-400x400`, `SHS-200x200x6` 등 정형 우선. 사용자가 `H-400` 같이 축약형으로 말하면 도구가 자동 정규화를 시도합니다 — 도구가 `options`를 돌려주면 그대로 사용자에게 보여주고 다시 묻기.
 """
 
 
@@ -365,6 +431,21 @@ class ChatOrchestrator:
             explicit_ids = _extract_explicit_element_ids(latest_user_msg)
             if explicit_ids:
                 forced_args = {"element_ids": explicit_ids}
+        elif forced_tool == "propose_section_change":
+            # The tool requires target_section. If we can't extract one
+            # from the message we drop the force — the LLM is better at
+            # asking "어느 단면으로 바꿀까요?" than the tool returning
+            # an opaque "target_section_required" error. member_id is
+            # also extracted opportunistically; if absent, the tool
+            # itself falls back to the latest UI selection.
+            target_sec = _extract_section_target(latest_user_msg)
+            if not target_sec:
+                forced_tool = None
+            else:
+                forced_args = {"target_section": target_sec}
+                explicit_ids = _extract_explicit_element_ids(latest_user_msg)
+                if explicit_ids:
+                    forced_args["member_id"] = explicit_ids[0]
 
         for round_idx in range(self.max_rounds):
             tool_call: Optional[ToolCall]

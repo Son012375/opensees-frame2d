@@ -7472,13 +7472,77 @@ window.EditorV2ChatBridge = {
     },
 
     /**
-     * Phase C — inject a virtual diff (LLM-generated section change) into
-     * the existing rec-diff modal without going through the cached
-     * candidate_id flow. Stubbed in Phase 0 so the surface exists; Phase C
-     * hydrates window._recState with a synthetic entry and calls
-     * _showRecModal(true).
+     * Phase B — open the rec-diff modal for a chat-driven section change.
+     *
+     * The chat tool ``propose_section_change`` stages the updated_model
+     * server-side and returns only a ``preview_id`` (the chat stream
+     * guard rejects ``updated_model`` keys — see streaming.py
+     * FORBIDDEN_KEYS). We fetch the full payload over plain HTTP, drop
+     * it into ``_recState._pendingApply`` matching the shape that
+     * ``/preview-apply`` returns, and reuse the existing modal +
+     * applyRecDiff path. No new mutation code in chat — the Apply
+     * button still goes through ``applyRecDiff → runAnalysisV2``.
      */
-    openDiffPreview(/* diffData */) {
-        console.warn('EditorV2ChatBridge.openDiffPreview: Phase C not yet implemented');
+    async openDiffPreview(payload) {
+        const previewId = payload?.preview_id;
+        if (!previewId) {
+            console.warn('EditorV2ChatBridge.openDiffPreview: missing preview_id');
+            return;
+        }
+        const st = window._recState;
+        if (!st) {
+            console.warn('EditorV2ChatBridge.openDiffPreview: _recState not initialised');
+            return;
+        }
+        // Don't trample an in-flight rec-driven modal session — let the
+        // user finish that one first. Chat replays the request if needed.
+        if (st.previewLoading || st.applyInFlight) {
+            return;
+        }
+
+        st.previewLoading = true;
+        // Chat-driven previews don't correspond to a cached candidate_id.
+        // Null it out so any code path that asserts on it can detect.
+        st.selectedCandidateId = null;
+        if (typeof _showRecModal === 'function') _showRecModal(true);
+        if (typeof _renderRecDiffLoading === 'function') _renderRecDiffLoading();
+        if (typeof _setRecModalApplyState === 'function') _setRecModalApplyState('disabled');
+
+        try {
+            const resp = await fetch(
+                '/api/v2/recommendations/chat-preview/'
+                + encodeURIComponent(previewId)
+            );
+            if (!resp.ok) {
+                const raw = await resp.text();
+                let detail = raw;
+                try { detail = JSON.parse(raw).detail || raw; } catch (_) { /* keep raw */ }
+                if (typeof _renderRecDiffError === 'function') {
+                    _renderRecDiffError(detail, resp.status);
+                }
+                return;
+            }
+            const data = await resp.json();
+            // Pin the analysis_id from the staged preview so the
+            // Apply flow (and any auto-rollback) refers to the right
+            // baseline even if the editor state has drifted.
+            if (data.analysis_id) {
+                st.analysisId = data.analysis_id;
+            }
+            st._pendingApply = data;
+            if (typeof _renderRecDiffPreview === 'function') {
+                _renderRecDiffPreview(data);
+            }
+            const hasChanges = (data?.diff?.changed_member_count || 0) > 0;
+            if (typeof _setRecModalApplyState === 'function') {
+                _setRecModalApplyState(hasChanges ? 'idle' : 'disabled');
+            }
+        } catch (e) {
+            if (typeof _renderRecDiffError === 'function') {
+                _renderRecDiffError(String(e?.message || e), 0);
+            }
+        } finally {
+            st.previewLoading = false;
+        }
     },
 };

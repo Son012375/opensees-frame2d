@@ -63,7 +63,9 @@ class ToolDisabledError(PermissionError):
 
 
 def parse_enabled_groups(raw: Optional[str] = None) -> frozenset[str]:
-    raw = raw if raw is not None else os.environ.get("CHAT_TOOLS_ENABLED", "inspect,summary")
+    raw = raw if raw is not None else os.environ.get(
+        "CHAT_TOOLS_ENABLED", "inspect,summary,edit",
+    )
     return frozenset(g.strip() for g in raw.split(",") if g.strip())
 
 
@@ -123,17 +125,20 @@ class ToolRegistry:
 
 
 def default_registry() -> ToolRegistry:
-    """Build the Phase A.2 default registry.
+    """Build the default registry.
 
-    inspect_selection (group: inspect) + get_analysis_summary (group:
-    summary). Phase B will add recs tools, Phase C edit, Phase D kds.
-    Each phase appends; the env flag controls which are visible.
+    Phase A.2 inspect_selection (group: inspect) + get_analysis_summary
+    (group: summary). Phase B adds propose_section_change (group: edit).
+    Phase D will add KDS narrative tools (group: kds). Each phase
+    appends; the env flag controls which are visible.
     """
     # Lazy import so this module doesn't pull the tools — and their
     # webapp-side cache imports — at module-load time.
     from .tools.inspect import INSPECT_SELECTION_TOOL, GET_ANALYSIS_SUMMARY_TOOL
+    from .tools.section_change import PROPOSE_SECTION_CHANGE_TOOL
 
     return ToolRegistry([
         INSPECT_SELECTION_TOOL,
         GET_ANALYSIS_SUMMARY_TOOL,
+        PROPOSE_SECTION_CHANGE_TOOL,
     ])
