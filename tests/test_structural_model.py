@@ -371,3 +371,94 @@ class TestSummary:
         assert s["num_columns"] == 1
         assert s["num_beams"] == 0
         assert s["region"] == "서울"
+
+
+# ──────────────────────────────────────────────────────────────
+#  from_building_config — V1 config → V2 모델 변환
+# ──────────────────────────────────────────────────────────────
+
+class TestFromBuildingConfig:
+    def test_regular_grid_shape(self):
+        """3층 2×2 베이 정형 그리드 — 노드/요소 개수와 메타 검증."""
+        config = {
+            "stories": [
+                {"height": 4.0, "usage": "retail", "dead_load_finish": 1.5},
+                {"height": 3.5, "usage": "office"},
+                {"height": 3.5, "usage": "office"},
+            ],
+            "bays_x": [6.0, 6.0],
+            "bays_y": [6.0, 6.0],
+            "column_section": "H-400x400",
+            "beam_x_section": "H-400x200",
+            "beam_y_section": "H-400x200",
+            "material_name": "SS275",
+            "supports": "fixed",
+            "region": "서울",
+            "importance": "II",
+        }
+        m = StructuralModel.from_building_config(config)
+
+        # 노드: (3층 + base) × 3×3 = 36
+        assert len(m.nodes) == 36
+
+        # 요소: 기둥 3×3×3=27, beam_x 2×3×3=18, beam_y 3×2×3=18 → 63
+        cols = [e for e in m.elements.values() if e.elem_type == ElementType.COLUMN]
+        beams = [e for e in m.elements.values() if e.elem_type == ElementType.BEAM]
+        assert len(cols) == 27
+        assert len(beams) == 36
+        assert len(m.elements) == 63
+
+        # 단면/재료 매핑
+        assert all(e.section == "H-400x400" for e in cols)
+        assert all(e.material == "SS275" for e in m.elements.values())
+        # 보 단면: x/y 둘 다 H-400x200 (이 테스트에서는 같은 값)
+        assert all(e.section == "H-400x200" for e in beams)
+
+        # 베이스 노드: 9개, support=fixed
+        base = [n for n in m.nodes.values() if n.support == SupportType.FIXED]
+        assert len(base) == 9
+        assert all(abs(n.z) < 1e-9 for n in base)
+
+        # 환경/층 메타
+        assert m.region == "서울"
+        assert m.importance == "II"
+        assert m.importance_factor == 1.0
+        assert m.story_elevations == [0.0, 4.0, 7.5, 11.0]
+        assert m.story_usages[1] == "retail"
+        assert m.story_usages[2] == "office"
+        assert m.story_slab_thickness[1] == 0.15
+        assert m.story_dead_load_finish[1] == 1.5
+
+    def test_beam_x_vs_y_sections(self):
+        """beam_x_section과 beam_y_section이 다를 때 방향별로 올바른 단면이 적용되는지."""
+        config = {
+            "stories": [{"height": 4.0}],
+            "bays_x": [6.0],
+            "bays_y": [5.0],
+            "column_section": "H-300x300",
+            "beam_x_section": "H-500x200",
+            "beam_y_section": "H-450x200",
+            "material_name": "SS275",
+            "supports": "pinned",
+        }
+        m = StructuralModel.from_building_config(config)
+
+        # X방향 보: y=const, x i→j 증가 — 두 노드 y좌표 동일
+        # Y방향 보: x=const, y i→j 증가 — 두 노드 x좌표 동일
+        x_beams = []
+        y_beams = []
+        for e in m.elements.values():
+            if e.elem_type != ElementType.BEAM:
+                continue
+            ni, nj = m.nodes[e.node_i], m.nodes[e.node_j]
+            if abs(ni.y - nj.y) < 1e-6:
+                x_beams.append(e)
+            elif abs(ni.x - nj.x) < 1e-6:
+                y_beams.append(e)
+
+        assert all(e.section == "H-500x200" for e in x_beams), "X방향 보는 beam_x_section"
+        assert all(e.section == "H-450x200" for e in y_beams), "Y방향 보는 beam_y_section"
+
+        # supports=pinned → base 노드 SupportType.PINNED
+        base = [n for n in m.nodes.values() if n.support is not None]
+        assert all(n.support == SupportType.PINNED for n in base)

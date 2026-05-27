@@ -878,39 +878,55 @@ async def analyze_v2_api(request: Request):
     model_json = body.get("model")
     user_config = body.get("config", {})
 
-    if not model_json:
-        raise HTTPException(status_code=400, detail="model JSON이 필요합니다.")
-
     if str(MCP_SERVER_PATH) not in sys.path:
         sys.path.insert(0, str(MCP_SERVER_PATH))
 
     from core.structural_model import StructuralModel
     from core.frame_3d import analyze_from_model
 
-    model = StructuralModel.from_json(model_json)
+    # 입력 분기: {model} = IFC/편집기 경로(node-element 명시),
+    # {config} = 직접입력/NL 경로(high-level config → 자동 그리드 생성)
+    if model_json:
+        model = StructuralModel.from_json(model_json)
+        config_built = False
+    else:
+        if not user_config:
+            raise HTTPException(
+                status_code=400,
+                detail="model 또는 config 중 하나가 필요합니다.",
+            )
+        # config-only 진입 시 user_config가 곧 BuildingModel 입력
+        model = StructuralModel.from_building_config(user_config)
+        config_built = True
 
     warnings: list[str] = []  # 부분 실패 정보 (success 응답에 포함)
 
-    # 요소 분류 확인 + 자동 분류
-    from core.structural_model import ElementType as _ET
-    type_set = set(e.elem_type for e in model.elements.values())
-    logger.info("[V2] Element types before classify: %s", [t.value for t in type_set])
-    if len(type_set) == 1 and len(model.elements) > 3:
-        model.classify_elements()
-        type_set2 = set(e.elem_type for e in model.elements.values())
-        logger.info("[V2] Auto-classified: %s", [t.value for t in type_set2])
+    if not config_built:
+        # 요소 분류 확인 + 자동 분류 (IFC는 elem_type이 누락된 경우가 있음)
+        from core.structural_model import ElementType as _ET
+        type_set = set(e.elem_type for e in model.elements.values())
+        logger.info("[V2] Element types before classify: %s", [t.value for t in type_set])
+        if len(type_set) == 1 and len(model.elements) > 3:
+            model.classify_elements()
+            type_set2 = set(e.elem_type for e in model.elements.values())
+            logger.info("[V2] Auto-classified: %s", [t.value for t in type_set2])
 
-    # A-1: 근접 노드 병합 (보-기둥 접합 보장)
-    merged = model.merge_nearby_nodes()  # 적응형: 단면 높이 기반 자동 계산
-    if merged > 0:
-        logger.info("[V2] Merged %d nearby nodes", merged)
+        # A-1: 근접 노드 병합 (보-기둥 접합 보장)
+        merged = model.merge_nearby_nodes()  # 적응형: 단면 높이 기반 자동 계산
+        if merged > 0:
+            logger.info("[V2] Merged %d nearby nodes", merged)
 
-    # 보-보 교차점 자동 분할
-    intersections = model.split_at_intersections()
-    if intersections > 0:
+        # 보-보 교차점 자동 분할
+        intersections = model.split_at_intersections()
+        if intersections > 0:
+            logger.info(
+                "[V2] Created %d intersection nodes, model: %d nodes, %d elems",
+                intersections, len(model.nodes), len(model.elements),
+            )
+    else:
         logger.info(
-            "[V2] Created %d intersection nodes, model: %d nodes, %d elems",
-            intersections, len(model.nodes), len(model.elements),
+            "[V2] config-built model: %d nodes, %d elems (post-process skipped)",
+            len(model.nodes), len(model.elements),
         )
 
     # 사용자 config 반영

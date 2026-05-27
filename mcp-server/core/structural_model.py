@@ -1206,6 +1206,109 @@ class StructuralModel:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return cls.from_json(data)
 
+    @classmethod
+    def from_building_config(cls, config: dict) -> "StructuralModel":
+        """V1 high-level config(stories/bays/sections/material) → V2 StructuralModel.
+
+        BuildingModel.from_json으로 검증 후 frame_3d의 그리드 생성기를 재사용해
+        명시적 node-element 그래프를 구축한다. /api/v2/analyze가 IFC 없이도
+        full context(recommendations, Phase B 명령형 도구)를 만들 수 있게 해주는
+        직접입력·NL 탭용 진입점.
+        """
+        from core.building_model import BuildingModel
+        from core.frame_3d import (
+            _generate_frame_3d_geometry,
+            _generate_irregular_geometry,
+        )
+
+        bm = BuildingModel.from_json(config)
+
+        if bm.is_irregular:
+            zones_payload = [
+                {
+                    "id": z.id,
+                    "bays_x": z.bays_x,
+                    "bays_y": z.bays_y,
+                    "origin_x": z.origin_x,
+                    "origin_y": z.origin_y,
+                    "story_from": z.story_from,
+                    "story_to": z.story_to,
+                }
+                for z in bm.zones
+            ]
+            nodes3d, connections, story_nodes_map, base_nodes, _meta = (
+                _generate_irregular_geometry(bm.story_heights_list, zones_payload)
+            )
+        else:
+            nodes3d, connections, node_grid, base_nodes = (
+                _generate_frame_3d_geometry(
+                    bm.story_heights_list, bm.bays_x, bm.bays_y,
+                )
+            )
+            story_nodes_map = {}
+            for (story, _cx, _cy), nid in node_grid.items():
+                story_nodes_map.setdefault(story, []).append(nid)
+
+        # node_id → story 역인덱스
+        node_to_story: dict[int, int] = {}
+        for s, nids in story_nodes_map.items():
+            for nid in nids:
+                node_to_story[nid] = s
+
+        base_set = set(base_nodes)
+        support_value = bm.supports  # "fixed" | "pinned"
+
+        model = cls()
+
+        # 노드
+        for n in nodes3d:
+            sup = support_value if n.id in base_set else None
+            model.add_node(
+                x=n.x, y=n.y, z=n.z,
+                support=sup,
+                story=node_to_story.get(n.id),
+                node_id=n.id,
+            )
+
+        # 요소
+        section_for = {
+            "column": bm.column_section,
+            "beam_x": bm.beam_x_section,
+            "beam_y": bm.beam_y_section,
+        }
+        for elem_id, (ni, nj, etype) in enumerate(connections, start=1):
+            v2_type = ElementType.COLUMN if etype == "column" else ElementType.BEAM
+            model.add_element(
+                node_i=ni, node_j=nj,
+                elem_type=v2_type,
+                section=section_for.get(etype, bm.beam_x_section),
+                material=bm.material_name,
+                elem_id=elem_id,
+            )
+
+        # 층/환경/해석 옵션 메타
+        model.story_elevations = [0.0]
+        for h in bm.story_heights_list:
+            model.story_elevations.append(model.story_elevations[-1] + h)
+        for s in bm.stories:
+            model.story_usages[s.story] = s.usage
+            model.story_slab_thickness[s.story] = s.slab_thickness
+            model.story_dead_load_finish[s.story] = s.dead_load_finish
+
+        model.region = bm.region
+        model.site_class = bm.site_class
+        model.importance = bm.importance
+        model.importance_factor = bm.importance_factor
+        model.seismic_system = bm.seismic_system
+        model.seismic_direction = bm.seismic_direction
+        model.exposure_category = bm.exposure_category
+
+        model.num_elements_per_member = bm.num_elements_per_member
+        model.rigid_diaphragm = bm.rigid_diaphragm
+        model.geometric_nonlinearity = bm.geometric_nonlinearity
+
+        return model
+
     # ──────────────────────────────────────────────
     #  요약
     # ──────────────────────────────────────────────

@@ -1844,30 +1844,59 @@ async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
 
     setStatus('V2 해석 중 (KDS Load Gen + Analysis + Design Check)...', 'running');
 
-    // 층별 용도 수집
+    // 층별 용도 수집 — IFC 경로는 ifcEditedData + IFC DOM에서, 직접입력/NL은
+    // _v2Model 메타에서 derive (applyRecDiff → runAnalysisV2 재해석 경로에서
+    // ifcEditedData가 null이라 NPE가 났던 버그 fix).
     const usageRows = document.querySelectorAll('.ifc-usage-sel');
     const storyConfigs = [];
-    ifcEditedData.stories.forEach((s, i) => {
-        storyConfigs.push({
-            story: i + 1,
-            usage: (i < usageRows.length) ? usageRows[i].value : 'office',
-            slab_thickness: 0.15,
-            dead_load_finish: 1.0,
+    if (ifcEditedData && Array.isArray(ifcEditedData.stories)) {
+        ifcEditedData.stories.forEach((s, i) => {
+            storyConfigs.push({
+                story: i + 1,
+                usage: (i < usageRows.length) ? usageRows[i].value : 'office',
+                slab_thickness: 0.15,
+                dead_load_finish: 1.0,
+            });
         });
-    });
+    } else {
+        const m = window._v2Model;
+        const numStories = (m.story_elevations?.length || 1) - 1;
+        const su = m.story_usages || {};
+        const st = m.story_slab_thickness || {};
+        const sdl = m.story_dead_load_finish || {};
+        for (let i = 0; i < numStories; i++) {
+            const sn = i + 1;
+            storyConfigs.push({
+                story: sn,
+                usage: su[sn] ?? su[String(sn)] ?? 'office',
+                slab_thickness: st[sn] ?? st[String(sn)] ?? 0.15,
+                dead_load_finish: sdl[sn] ?? sdl[String(sn)] ?? 1.0,
+            });
+        }
+    }
+
+    // env DOM — IFC 탭이 활성이면 ifc-*, 아니면 직접입력 탭 input-* 폴백.
+    // 두 세트 모두 DOM에 상존하므로 IFC 우선, 빈 값/없으면 input 사용.
+    const envVal = (ifcId, inputId, fallback) => {
+        const a = document.getElementById(ifcId)?.value;
+        if (a) return a;
+        const b = document.getElementById(inputId)?.value;
+        if (b) return b;
+        return fallback;
+    };
 
     const config = {
-        region: document.getElementById('ifc-region')?.value || '서울',
-        importance: document.getElementById('ifc-importance')?.value || 'II',
+        region: envVal('ifc-region', 'input-region', '서울'),
+        importance: envVal('ifc-importance', 'input-importance', 'II'),
         site_class: 'S3',
         seismic_system: 'ordinary_moment_frame',
         exposure_category: 'B',
         geometric_nonlinearity: 'linear',
         stories: storyConfigs,
         // Seismic method (ELF / RSA)
-        seismic_method: document.getElementById('ifc-seismic-method')?.value || 'ELF',
-        rsa_combination: document.getElementById('ifc-rsa-combination')?.value || 'CQC',
-        rsa_direction: document.getElementById('ifc-rsa-direction')?.value || '30pct',
+        seismic_method: envVal('ifc-seismic-method', 'input-seismic-method', 'ELF'),
+        rsa_combination: envVal('ifc-rsa-combination', 'input-rsa-combination', 'CQC'),
+        rsa_direction: envVal('ifc-rsa-direction', 'input-rsa-direction', '30pct'),
     };
 
     try {
@@ -2195,18 +2224,34 @@ async function runAnalysis(configOverride = null) {
     setStatus('Analyzing...', 'running');
 
     try {
-        const response = await fetch('/api/building/analyze', {
+        // V2 경로 사용: 직접입력/NL도 IFC와 동일하게 full context(model_json +
+        // candidates_by_id)를 캐시해서 Phase B 단면 변경 명령과 추천 탭이
+        // 메인 탭에서도 동작하도록 한다. 백엔드는 body에 model이 없으면
+        // config로부터 StructuralModel을 자동 생성한다.
+        const response = await fetch('/api/v2/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ config }),
         });
 
         if (!response.ok) {
-            const err = await response.json();
+            const err = await response.json().catch(() => ({ detail: response.statusText }));
             throw new Error(err.detail || 'Analysis failed');
         }
 
-        const result = await response.json();
+        const v2Result = await response.json();
+        if (v2Result.status && v2Result.status !== 'success') {
+            throw new Error('V2 해석 실패');
+        }
+
+        // updated_model을 window._v2Model에 저장해서 후속 채팅 명령
+        // (propose_section_change → diff modal Apply)이 동작하도록 한다.
+        if (v2Result.updated_model) {
+            window._v2Model = v2Result.updated_model;
+        }
+
+        // V2 응답을 V1 editor가 기대하는 형식으로 변환 (IFC 경로와 동일)
+        const result = convertV2ResultToV1(v2Result);
         currentJobId = result.job_id;
         _setExportBtnEnabled(true);
         currentResult = result;
@@ -2214,6 +2259,8 @@ async function runAnalysis(configOverride = null) {
         buildScene(result);
         updateResultsPanel(result);
         updateBottomBar(result);
+        if (typeof _refreshNumberLabels === 'function') _refreshNumberLabels();
+        if (typeof _rebuildStoryCheckboxes === 'function') _rebuildStoryCheckboxes();
 
         setStatus('Analysis Complete', 'success');
     } catch (e) {

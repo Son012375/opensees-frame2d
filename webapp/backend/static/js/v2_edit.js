@@ -517,34 +517,23 @@ function editRedo() {
     _refreshAfterUndoRedo('Redo: 모델 복원됨');
 }
 function _refreshAfterUndoRedo(msg) {
-    // 해석 결과 화면에서 undo/redo → 프리뷰 모드로 전환
+    // 해석 결과 화면에서 undo/redo → 모델이 바뀌었으므로 자동 재해석.
+    // (백엔드의 analysis_context_cache는 이전 모델의 design_check/candidates를
+    //  들고 있어서, 재해석 없이 챗봇이 답하면 stale answer를 줌. Apply 흐름과
+    //  대칭으로 자동 재해석한다.)
     if (!window._editingEnabled && typeof currentResult !== 'undefined' && currentResult) {
-        currentResult = null;
-        // 결과 관련 3D 요소 정리
-        if (typeof _clearLoadArrows === 'function') _clearLoadArrows();
-        if (typeof _clearDiagrams === 'function') _clearDiagrams();
-        if (typeof clearAllSelection === 'function') clearAllSelection();
-        // Solid Section 상태 리셋 (편집 모드에서 solid mode가 남아있으면 안 됨)
-        if (typeof removeSolidMeshes === 'function') removeSolidMeshes();
-        window.solidMode = false;
-        var chkSolid = document.getElementById('chk-solid-section');
-        if (chkSolid) chkSolid.checked = false;
-        var chkSolidTop = document.getElementById('chk-solid-section-top');
-        if (chkSolidTop) chkSolidTop.checked = false;
-        // 결과 패널 숨기기
-        var propResults = document.getElementById('prop-results');
-        if (propResults) propResults.style.display = 'none';
-        var propEmpty = document.getElementById('prop-empty');
-        if (propEmpty) propEmpty.style.display = 'block';
-        // Export 버튼 비활성화
-        if (typeof _setExportBtnEnabled === 'function') _setExportBtnEnabled(false);
-        // 3D Model 탭으로 전환
-        if (typeof switchViewerTab === 'function') switchViewerTab('model');
-        // 편집 모드 활성화
-        showEditToolbar();
-        // 프리뷰 재구축
-        refreshEditPreview();
-        if (typeof setStatus === 'function') setStatus(msg + '. 재해석 필요', 'warning');
+        if (typeof setStatus === 'function') {
+            setStatus(msg + ' · 자동 재해석 중...', 'running');
+        }
+        if (typeof runAnalysisV2 === 'function') {
+            // skipUndo:true — editUndo/editRedo가 이미 스택을 적절히 조정했으므로
+            // runAnalysisV2의 기본 pushUndo가 직전 상태를 덮어쓰지 않도록.
+            runAnalysisV2({ rethrow: false, skipUndo: true });
+        } else {
+            // runAnalysisV2 미정의 환경 fallback: 결과를 비우고 편집 모드로
+            refreshEditPreview();
+            if (typeof setStatus === 'function') setStatus(msg + '. 재해석 필요', 'warning');
+        }
     } else {
         refreshEditPreview();
         if (typeof setStatus === 'function') setStatus(msg, 'success');
