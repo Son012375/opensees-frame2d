@@ -481,6 +481,31 @@ def test_chat_preview_endpoint_round_trips(client):
     assert body["diff"]["changed_member_count"] == 1
 
 
+def test_chat_preview_endpoint_mirrors_preview_apply_top_level_shape(client):
+    """Codex P3 regression: applyRecDiff (editor3d_v2.js) reads
+    ``data.candidate_id`` for its 'Applied "X". Re-running…' toast and
+    treats a falsy ``data.applicable`` as a no-go. If chat-preview
+    doesn't surface those keys at the top level, the user sees
+    'Applied "undefined"'. Mirror /preview-apply exactly so the same
+    frontend code path covers both flows."""
+    aid = _seed_full_context()
+    result = propose_section_change(
+        {"member_id": 2, "target_section": "H-400x400"},
+        session={"analysis_id": aid, "history": []},
+    )
+    body = client.get(
+        f"/api/v2/recommendations/chat-preview/{result['preview_id']}"
+    ).json()
+    assert body.get("candidate_id"), (
+        "top-level candidate_id missing — applyRecDiff toast would show "
+        "'Applied \"undefined\"'"
+    )
+    assert body.get("applicable") is True
+    # And the candidate_id should match the nested candidate's id
+    # (they reflect the same RetrofitCandidate).
+    assert body["candidate_id"] == body["candidate"]["candidate_id"]
+
+
 def test_chat_preview_endpoint_404_for_unknown_id(client):
     r = client.get("/api/v2/recommendations/chat-preview/chat_prev_zzzzzzzzzzzz")
     assert r.status_code == 404
@@ -506,11 +531,24 @@ def test_chat_preview_endpoint_404_after_expiry(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("msg", [
+    # Branch A: explicit 단면 keyword
     "5번 부재 단면을 H-400x400으로 변경해줘",
     "12번 부재 단면을 H-350으로 바꿔",
+    # Branch B: 단면 + section name, selection-implied
     "단면을 H-400x400으로 바꿔",
     "단면을 SHS-200x200x6으로 변경",
     "단면 H-500으로 교체",
+    # Branch C: N번 부재 + section name (NO 단면 keyword) — Codex P1
+    # regression. Canonical example "5번 부재를 H-400x400으로 바꿔줘"
+    # was previously misrouted to inspect_selection.
+    "5번 부재를 H-400x400으로 바꿔줘",
+    "5번 부재 H-400x400으로 바꿔",
+    "12번 부재를 SHS-200x200x6으로 변경",
+    "7번 부재 H-350으로 교체",
+    # Branch D: 이/선택한 부재 + section name (NO 단면 keyword)
+    "이 부재를 H-400x400으로 바꿔줘",
+    "선택한 부재 H-300으로 변경해줘",
+    "선택된 부재를 H-350x350으로 교체",
 ])
 def test_force_command_re_positive(msg):
     assert _FORCE_COMMAND_RE.search(msg), f"expected match: {msg!r}"
@@ -520,13 +558,34 @@ def test_force_command_re_positive(msg):
     "5번 부재 안전한가?",
     "5번 부재 정보 보여줘",
     "결과 요약해줘",
-    "단면이 뭐야?",            # question about, no change verb
+    "단면이 뭐야?",                  # question about, no change verb
     "이 부재 정보",
     "NG 몇 개?",
     "안녕",
+    # Section name present but no change verb — must stay in inspect lane
+    "5번 부재 H-400x400 정보 보여줘",
+    "이 부재 H-300인가?",
 ])
 def test_force_command_re_negative(msg):
     assert _FORCE_COMMAND_RE.search(msg) is None, f"false positive: {msg!r}"
+
+
+@pytest.mark.parametrize("msg", [
+    # Codex P1 canonical example — must route to propose_section_change
+    # even though "단면" is absent from the user's phrasing.
+    "5번 부재를 H-400x400으로 바꿔줘",
+    "이 부재를 H-400x400으로 바꿔줘",
+    "선택한 부재 H-300으로 변경해줘",
+])
+def test_pick_forced_tool_routes_command_without_단면_keyword(msg):
+    """Regression: these phrasings also trigger _FORCE_INSPECT_RE (the
+    '\\d+번 부재' / '이 부재' branches), but the command pattern must
+    win because the change verb makes the intent unambiguous."""
+    available = {"inspect_selection", "get_analysis_summary",
+                 "propose_section_change"}
+    assert _pick_forced_tool(msg, available) == "propose_section_change", (
+        f"{msg!r} fell through to inspect_selection"
+    )
 
 
 def test_pick_forced_tool_prefers_command_over_inspect():
@@ -580,6 +639,37 @@ def _phaseb_registry() -> ToolRegistry:
          PROPOSE_SECTION_CHANGE_TOOL],
         enabled_groups=frozenset({"inspect", "summary", "edit"}),
     )
+
+
+def test_orchestrator_force_calls_propose_without_단면_keyword():
+    """End-to-end Codex P1: the canonical example without the '단면'
+    keyword must still hit propose_section_change. Without branch C of
+    _FORCE_COMMAND_RE this would force inspect_selection and the change
+    intent would never reach the tool."""
+    aid = _seed_full_context()
+    # Extend the seeded model so member_id=5 resolves.
+    with _ANALYSIS_CONTEXT_LOCK:
+        model = analysis_context_cache[aid]["model_json"]
+        model["elements"].append({
+            "id": 4, "node_i": 1, "node_j": 2,
+            "elem_type": "column", "section": "H-300x300",
+        })
+        model["elements"].append({
+            "id": 5, "node_i": 2, "node_j": 3,
+            "elem_type": "column", "section": "H-300x300",
+        })
+
+    orch = ChatOrchestrator(NoopProvider(), registry=_phaseb_registry())
+    events = _drain(orch.run_turn(
+        session={"analysis_id": aid, "history": []},
+        user_message="5번 부재를 H-400x400으로 바꿔줘",
+    ))
+    tool_calls = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["tool"] == "propose_section_change"
+    assert tool_calls[0]["arguments"] == {
+        "member_id": 5, "target_section": "H-400x400",
+    }
 
 
 def test_orchestrator_force_calls_propose_section_change_with_extracted_args():

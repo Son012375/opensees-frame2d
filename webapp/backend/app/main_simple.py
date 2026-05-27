@@ -1596,11 +1596,17 @@ async def get_recommendations_chat_preview(preview_id: str):
                 "to repeat the section-change request."
             ),
         )
+    # Mirror /preview-apply's top-level shape so applyRecDiff
+    # (editor3d_v2.js) — which reads ``data.candidate_id`` for its
+    # toast — works without a chat-specific branch. Codex review P3.
+    candidate_dict = entry.get("candidate") or {}
     return {
         "preview_id": preview_id,
         "analysis_id": entry.get("analysis_id"),
+        "candidate_id": candidate_dict.get("candidate_id"),
+        "applicable": True,
         "diff": entry.get("diff") or {},
-        "candidate": entry.get("candidate") or {},
+        "candidate": candidate_dict,
         "preview_meta": entry.get("preview_meta") or {},
         "updated_model": entry.get("updated_model") or {},
     }

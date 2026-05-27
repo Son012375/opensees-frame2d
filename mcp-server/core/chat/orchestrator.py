@@ -79,17 +79,33 @@ _FORCE_SUMMARY_RE = re.compile(
 )
 
 # Phase B — imperative "change member section" pattern. Deliberately
-# narrow: requires either (member id + 단면 + change verb) or (단면 +
-# explicit section name + change verb) so a casual question like
-# "단면이 뭐야?" never triggers it. Vague phrasings ("강하게 해줘") are
-# left for the LLM to route — false-forcing them would produce a worse
+# narrow: every branch requires both an explicit member reference (id
+# or selection pronoun) and a change verb (변경/바꿔/바꾸/교체) and at
+# least one of (단면 keyword | catalog-style section name). Without the
+# verb a casual question like "5번 부재 H-400이야?" or "단면이 뭐야?"
+# stays in inspect/LLM-routing land. Vague phrasings ("강하게 해줘")
+# are also left for the LLM — false-forcing them would produce a worse
 # UX than letting the LLM ask a clarifying question.
+#
+# Codex review feedback (P1, post-merge): the canonical example
+# "5번 부재를 H-400x400으로 바꿔줘" lacks the "단면" keyword and was
+# previously falling through to inspect_selection. Branches C + D
+# close that gap by accepting a catalog-style section name in place of
+# the keyword.
 _FORCE_COMMAND_RE = re.compile(
     r"(?:"
+    # A: "N번 부재 단면을 H-XXX(으)로 변경" — explicit 단면 keyword.
     r"\d+\s*번\s*(?:부재|요소|element)[^\n]{0,30}(?:단면|section)[^\n]{0,15}"
     r"(?:변경|바꿔|바꾸|교체)"
+    # B: "단면을 H-XXX(으)로 변경" — selection-implied, 단면 keyword.
     r"|단면(?:을|이)?[^\n]{0,10}[A-Z]+-?\d+(?:x\d+){0,2}(?:\s*[으]?로)?\s*"
     r"(?:변경|바꿔|바꾸|교체)"
+    # C: "N번 부재(를) H-XXX(으)로 바꿔" — id + section name, no 단면.
+    r"|\d+\s*번\s*(?:부재|요소|element)[^\n]{0,15}[A-Z]+-?\d+(?:x\d+){0,2}"
+    r"(?:\s*[으]?로)?\s*(?:변경|바꿔|바꾸|교체)"
+    # D: "이/선택한 부재(를) H-XXX(으)로 바꿔" — pronoun + section, no 단면.
+    r"|(?:이|선택[된한]?)\s*(?:부재|요소|element)[^\n]{0,15}"
+    r"[A-Z]+-?\d+(?:x\d+){0,2}(?:\s*[으]?로)?\s*(?:변경|바꿔|바꾸|교체)"
     r")",
     re.IGNORECASE,
 )
