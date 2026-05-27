@@ -625,6 +625,29 @@ async def analyze_building_api(input_data: BuildingInput):
         response["recommendation_candidates"] = rec_payload["recommendation_candidates"]
         response["recommendation_summary"] = rec_payload["recommendation_summary"]
 
+        # Cache the compact subset so the chat router's inspect_selection /
+        # get_analysis_summary tools can read this baseline. /api/v2/analyze
+        # does the same on its job_id (see main_simple.py:1077-1108) — without
+        # this block, chat tools returned ``unknown analysis_id`` for legacy
+        # /api/building/analyze jobs, which is the path V2 Editor's main
+        # "Analyze" button actually uses (editor3d_v2.js runAnalysis ->
+        # /api/building/analyze).
+        _purge_expired_analysis_contexts()
+        compact = build_compact_subset(
+            env=env,
+            member_info_list=multi.member_info,
+            member_check=(dc_result or {}).get("member_check"),
+            modal_analysis=multi.modal_analysis,
+            material_name=getattr(multi, "material_name", None),
+            num_stories=getattr(model, "num_stories", 0) or 0,
+            num_elements=len(multi.member_info or []),
+        )
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[job_id] = {
+                **compact,
+                "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
+            }
+
         # Store for re-analysis
         jobs_db[job_id]["config"] = input_data.config
         jobs_db[job_id]["response"] = response
