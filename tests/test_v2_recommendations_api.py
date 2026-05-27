@@ -126,6 +126,31 @@ def _seed_analysis_context():
                 CANDIDATE_B["candidate_id"]: CANDIDATE_B,
                 CANDIDATE_ABSTRACT["candidate_id"]: CANDIDATE_ABSTRACT,
             },
+            # Mirror /api/v2/analyze's marker so the recommendation
+            # endpoints accept this fixture. /api/building/analyze caches
+            # mark themselves "compact" and are explicitly rejected by
+            # ``_assert_full_context_for_recommendations``.
+            "context_kind": "full",
+            "expires_at": time.time() + 600,
+        }
+
+
+def _seed_compact_analysis_context():
+    """Mimic what /api/building/analyze writes — only the compact chat-
+    tool subset, no model_json / candidates_by_id. The recommendation
+    endpoints must reject this with 422 instead of crashing on the
+    missing keys."""
+    with _ANALYSIS_CONTEXT_LOCK:
+        analysis_context_cache[ANALYSIS_ID] = {
+            # Compact subset fields only — what build_compact_subset emits.
+            "analysis_summary": {"ng_count": 1, "num_stories": 3},
+            "envelope": {},
+            "member_info_by_elem_id": {},
+            "member_info_by_member_id": {},
+            "member_ratios_by_elem_id": {},
+            "member_ratios_by_member_id": {},
+            "modal_summary": None,
+            "context_kind": "compact",
             "expires_at": time.time() + 600,
         }
 
@@ -265,6 +290,50 @@ class TestEvaluateEndpoints:
             assert resp.status_code == 400
 
 
+class TestCompactContextRejected:
+    """Codex P2 regression: /api/building/analyze caches only the compact
+    chat-tool subset (no model_json / candidates_by_id), so the recom-
+    mendation endpoints must surface a clear 422 rather than crash on
+    ``ctx['model_json']`` or silently process zero candidates."""
+
+    def test_evaluate_rejects_compact_context_with_422(self):
+        _seed_compact_analysis_context()
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/evaluate",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_ids": [CANDIDATE_A["candidate_id"]]},
+            )
+        assert resp.status_code == 422, resp.text
+        # Message names the actual recovery path
+        assert "/api/building/analyze" in resp.text
+        assert "/api/v2/analyze" in resp.text
+
+    def test_preview_apply_rejects_compact_context_with_422(self):
+        _seed_compact_analysis_context()
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/preview-apply",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 422, resp.text
+        # Must surface BEFORE the candidate_id lookup so the message
+        # tells the user about the baseline, not about a missing candidate.
+        assert "compact" in resp.text
+
+    def test_explain_rejects_compact_context_with_422(self):
+        _seed_compact_analysis_context()
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v2/recommendations/explain",
+                json={"analysis_id": ANALYSIS_ID,
+                      "candidate_id": CANDIDATE_A["candidate_id"]},
+            )
+        assert resp.status_code == 422, resp.text
+        assert "compact" in resp.text
+
+
 class TestEvaluateLifecycle:
     def test_post_returns_queued_then_poll_to_done(self):
         _seed_analysis_context()
@@ -379,6 +448,8 @@ def _seed_with_real_model(*candidates: dict) -> None:
             "building_model": None, "seismic_report": None,
             "design_check": {"overall_status": "OK"},
             "candidates_by_id": {c["candidate_id"]: c for c in candidates},
+            # Full /api/v2/analyze marker — recommendation endpoints accept.
+            "context_kind": "full",
             "expires_at": time.time() + 600,
         }
 

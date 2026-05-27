@@ -169,6 +169,49 @@ from app.services.recommendation_jobs import (
 )
 
 
+# Marker on each ``analysis_context_cache`` entry that tells the
+# recommendation endpoints whether the entry was created with the full
+# baseline (model_json + load_cases + candidates_by_id + design_check)
+# or only the compact chat-tool subset (member_info_by_*, modal_summary,
+# envelope, analysis_summary).
+#
+#   "full"    — written by /api/v2/analyze. Recommendation pipeline OK.
+#   "compact" — written by /api/building/analyze. Chat tools OK but the
+#               recommendation endpoints (evaluate / preview-apply /
+#               explain) must reject this with a clear 422 because
+#               they read ``ctx["model_json"]`` etc. that aren't there.
+#
+# A future change can promote the building endpoint to full context if
+# we decide to support recommendations from the legacy analyze path —
+# at that point the field stays valid as the discriminator and the
+# 422 just stops firing for those entries.
+CONTEXT_KIND_FULL = "full"
+CONTEXT_KIND_COMPACT = "compact"
+
+
+def _assert_full_context_for_recommendations(ctx: dict, analysis_id: str) -> None:
+    """Raise 422 if ``ctx`` lacks the fields the recommendation API needs.
+
+    Called at the entry of every /api/v2/recommendations/* endpoint
+    *after* the 400/410 split on ``ctx is None``. Surfaces the partial-
+    cache state as a discrete, documented failure mode instead of a
+    silent ``candidates_by_id={}`` or a downstream ``KeyError`` on
+    ``ctx["model_json"]`` (which the apply-candidate path hits).
+    """
+    if ctx.get("context_kind") == CONTEXT_KIND_FULL:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"analysis '{analysis_id}' was created via /api/building/"
+            "analyze and only carries the compact chat-tool subset — "
+            "recommendation endpoints require a /api/v2/analyze baseline "
+            "(model_json + candidates_by_id). Re-run the analysis "
+            "through the V2 node-element path to enable recommendations."
+        ),
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Page Routes
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -624,6 +667,33 @@ async def analyze_building_api(input_data: BuildingInput):
         response["issues"] = rec_payload["issues"]
         response["recommendation_candidates"] = rec_payload["recommendation_candidates"]
         response["recommendation_summary"] = rec_payload["recommendation_summary"]
+
+        # Cache the compact subset so the chat router's inspect_selection /
+        # get_analysis_summary tools can read this baseline. /api/v2/analyze
+        # does the same on its job_id (see main_simple.py:1077-1108) — without
+        # this block, chat tools returned ``unknown analysis_id`` for legacy
+        # /api/building/analyze jobs, which is the path V2 Editor's main
+        # "Analyze" button actually uses (editor3d_v2.js runAnalysis ->
+        # /api/building/analyze).
+        _purge_expired_analysis_contexts()
+        compact = build_compact_subset(
+            env=env,
+            member_info_list=multi.member_info,
+            member_check=(dc_result or {}).get("member_check"),
+            modal_analysis=multi.modal_analysis,
+            material_name=getattr(multi, "material_name", None),
+            num_stories=getattr(model, "num_stories", 0) or 0,
+            num_elements=len(multi.member_info or []),
+        )
+        with _ANALYSIS_CONTEXT_LOCK:
+            analysis_context_cache[job_id] = {
+                **compact,
+                # Compact = chat tools can read this entry, recommendation
+                # endpoints will reject it with 422. See
+                # ``_assert_full_context_for_recommendations``.
+                "context_kind": CONTEXT_KIND_COMPACT,
+                "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
+            }
 
         # Store for re-analysis
         jobs_db[job_id]["config"] = input_data.config
@@ -1104,6 +1174,9 @@ async def analyze_v2_api(request: Request):
                 "candidates_by_id": candidates_by_id,
                 # Chat-router lookups (see services.analysis_context.build_compact_subset)
                 **compact,
+                # Full = recommendation endpoints can use this entry.
+                # See ``_assert_full_context_for_recommendations``.
+                "context_kind": CONTEXT_KIND_FULL,
                 "expires_at": time.time() + _ANALYSIS_CONTEXT_TTL_SEC,
             }
 
@@ -1332,6 +1405,8 @@ async def post_recommendations_evaluate(request: Request):
             ),
         )
 
+    _assert_full_context_for_recommendations(ctx, analysis_id)
+
     eval_job_id = f"rec_eval_{uuid.uuid4().hex[:12]}"
     record = _make_eval_job_record(analysis_id, candidate_ids)
     record["job_id"] = eval_job_id
@@ -1439,6 +1514,8 @@ async def post_recommendations_preview_apply(request: Request):
             ),
         )
 
+    _assert_full_context_for_recommendations(ctx, analysis_id)
+
     cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
     if cand_dict is None:
         raise HTTPException(
@@ -1480,6 +1557,58 @@ async def post_recommendations_preview_apply(request: Request):
             "changed_members": diff.changed_members,
         },
         "updated_model": new_model,
+    }
+
+
+@app.get("/api/v2/recommendations/chat-preview/{preview_id}")
+async def get_recommendations_chat_preview(preview_id: str):
+    """Fetch a chat-staged section-change preview.
+
+    The Phase B chat tool ``propose_section_change`` stages the
+    ``updated_model`` server-side and returns only a ``preview_id`` over
+    the chat NDJSON stream (the streaming guard rejects ``updated_model``
+    /``model_json`` keys at any depth — see
+    ``chat/streaming.FORBIDDEN_KEYS``). The frontend bridge fetches the
+    full payload here once before opening the rec-diff modal.
+
+    Response shape matches ``/api/v2/recommendations/preview-apply`` so
+    the existing ``_renderRecDiffPreview`` / ``applyRecDiff`` code path
+    consumes it unchanged.
+
+    Status codes:
+        200 — preview present and unexpired.
+        410 — preview existed but its TTL elapsed (chat tool ran more
+              than 30 minutes ago). Ask the user to repeat the request.
+        404 — preview id unknown (typo / wrong server / cache cleared).
+    """
+    from app.services.chat_preview_cache import get_preview
+
+    entry = get_preview(preview_id)
+    if entry is None:
+        # We don't keep an audit trail of evicted ids, so 404 here may
+        # also mean "expired and already swept". Surface 410 only when
+        # the entry is *currently* still there at TTL-edge timing.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"chat preview '{preview_id}' not found — it may have "
+                "expired (30 min TTL) or never existed. Ask the chatbot "
+                "to repeat the section-change request."
+            ),
+        )
+    # Mirror /preview-apply's top-level shape so applyRecDiff
+    # (editor3d_v2.js) — which reads ``data.candidate_id`` for its
+    # toast — works without a chat-specific branch. Codex review P3.
+    candidate_dict = entry.get("candidate") or {}
+    return {
+        "preview_id": preview_id,
+        "analysis_id": entry.get("analysis_id"),
+        "candidate_id": candidate_dict.get("candidate_id"),
+        "applicable": True,
+        "diff": entry.get("diff") or {},
+        "candidate": candidate_dict,
+        "preview_meta": entry.get("preview_meta") or {},
+        "updated_model": entry.get("updated_model") or {},
     }
 
 
@@ -1555,6 +1684,8 @@ async def post_recommendations_explain(request: Request):
                 "Re-run /api/v2/analyze first."
             ),
         )
+
+    _assert_full_context_for_recommendations(ctx, analysis_id)
 
     cand_dict = (ctx.get("candidates_by_id") or {}).get(candidate_id)
     if cand_dict is None:

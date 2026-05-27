@@ -33,8 +33,15 @@ class NoopProvider(BaseLLMProvider):
         # surface the actual provider init failure ("Ollama 초기화 실패: ...").
         self._message = message if message else self.REPLY
 
-    async def stream_tokens(self, *, messages: list[dict]) -> AsyncIterator[str]:
+    async def stream_tokens(
+        self,
+        *,
+        messages: list[dict],
+        temperature: Optional[float] = None,
+    ) -> AsyncIterator[str]:
         # Single-chunk yield — same contract as a real streaming provider
         # without introducing artificial pseudo-tokens that would confuse
-        # token-count metrics.
+        # token-count metrics. ``temperature`` is accepted to satisfy the
+        # base contract but ignored: there's no sampling here.
+        del temperature
         yield self._message

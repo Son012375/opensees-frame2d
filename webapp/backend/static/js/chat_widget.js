@@ -228,12 +228,63 @@
         scrollToBottom();
     }
 
+    // Phase B — dispatch UI-side actions a tool may request via
+    // ``result.ui_action`` (e.g. open the rec-diff modal for a chat-
+    // staged section change). The chat stream itself can't carry the
+    // heavy payload (streaming.FORBIDDEN_KEYS), so the action receives
+    // an opaque ``ui_payload`` (typically ``{preview_id, source}``)
+    // and the bridge fetches the rest over plain HTTP. Unknown
+    // actions are ignored — forward-compat for future tool tiers.
+    function dispatchUiAction(result) {
+        if (!result || typeof result !== 'object') return;
+        const action = result.ui_action;
+        if (!action) return;
+        const payload = result.ui_payload || {};
+        try {
+            if (action === 'open_diff_preview') {
+                const bridge = window.EditorV2ChatBridge;
+                if (bridge && typeof bridge.openDiffPreview === 'function') {
+                    Promise.resolve(bridge.openDiffPreview(payload))
+                        .catch((e) => {
+                            appendErrorMessage(
+                                `미리보기 모달을 열지 못했습니다: ${e?.message || e}`,
+                            );
+                        });
+                } else {
+                    appendStatusMessage(
+                        '미리보기 모달 브릿지를 찾지 못했습니다 (EditorV2ChatBridge.openDiffPreview).',
+                    );
+                }
+                return;
+            }
+            // Unknown action — log once at debug, ignore for the user.
+            console.debug('[ChatWidget] unknown ui_action:', action);
+        } catch (e) {
+            appendErrorMessage(`ui_action 실행 실패: ${e?.message || e}`);
+        }
+    }
+
     function summariseResult(result) {
         // Compact one-line preview of the tool result. Full payload is in
         // the chat session history; the UI just shows enough to confirm
-        // the call did the right thing.
+        // the call did the right thing — and importantly, to let the user
+        // spot when the LLM's narration disagrees with the actual tool
+        // output (e.g. tool returned story=3 but bot said "1층").
         if (Array.isArray(result.elements)) {
-            return `${result.elements.length} element(s)`;
+            const n = result.elements.length;
+            if (n === 0) return '0 elements';
+            // Surface the first element's identifying fields so a "어느 층?"
+            // mis-answer is visible in the box itself.
+            const e0 = result.elements[0] || {};
+            const info = e0.info || {};
+            const ratios = e0.ratios || {};
+            const parts = [`${n} element(s)`];
+            if (e0.element_id != null) parts.push(`id=${e0.element_id}`);
+            if (info.member_id != null) parts.push(`member=${info.member_id}`);
+            if (info.story != null) parts.push(`story=${info.story}`);
+            if (info.section) parts.push(`sec=${info.section}`);
+            if (ratios.status) parts.push(ratios.status);
+            return parts.join(', ');
         }
         if (result.summary) {
             const s = result.summary;
@@ -306,6 +357,7 @@
             case 'tool_result':
                 removeTypingIndicator();
                 appendToolResult(event);
+                dispatchUiAction(event.result);
                 showTypingIndicator();
                 break;
             case 'token':

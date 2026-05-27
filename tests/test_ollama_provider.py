@@ -387,21 +387,130 @@ def test_env_defaults_applied_when_no_kwargs(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://lab:11434/")  # trailing slash gets stripped
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:32b")
     monkeypatch.setenv("OLLAMA_TIMEOUT_S", "45")
+    monkeypatch.setenv("OLLAMA_TEMPERATURE", "0.15")
 
     provider = OllamaProvider()
     assert provider.base_url == "http://lab:11434"
     assert provider.model == "qwen2.5:32b"
     assert provider.timeout_s == 45.0
+    assert provider.temperature == 0.15
 
 
 def test_kwargs_beat_env(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://env:11434")
     monkeypatch.setenv("OLLAMA_MODEL", "from-env")
+    monkeypatch.setenv("OLLAMA_TEMPERATURE", "0.9")
 
-    provider = OllamaProvider(base_url="http://kw:11434", model="from-kw", timeout_s=10)
+    provider = OllamaProvider(
+        base_url="http://kw:11434", model="from-kw", timeout_s=10, temperature=0.2,
+    )
     assert provider.base_url == "http://kw:11434"
     assert provider.model == "from-kw"
     assert provider.timeout_s == 10.0
+    assert provider.temperature == 0.2
+
+
+def test_temperature_default_is_0_1_when_env_unset(monkeypatch):
+    """Default lowered to 0.1 for factual chat (member story, ratio,
+    drift — JSON-to-Korean translation that doesn't need creativity).
+    Stops qwen2.5 from drifting (e.g. answering "1층" for every member
+    regardless of the actual ``info.story`` value). Future report
+    generation should pass higher temperature per call instead of
+    bumping this default."""
+    monkeypatch.delenv("OLLAMA_TEMPERATURE", raising=False)
+    provider = OllamaProvider()
+    assert provider.temperature == 0.1
+
+
+def test_stream_tokens_per_call_temperature_overrides_default():
+    """Foundation for future report-generation flow: callers can pass a
+    higher temperature without mutating the provider's default. Critical
+    that the per-call value beats self.temperature, not the other way."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=(
+            json.dumps({"message": {"content": "ok"}, "done": True}) + "\n"
+        ).encode("utf-8"))
+
+    provider = _provider_with(handler, temperature=0.1)  # base default
+    _run(_drain(provider.stream_tokens(
+        messages=[{"role": "user", "content": "보고서 써줘"}],
+        temperature=0.6,  # per-call override (e.g. report generation)
+    )))
+    assert captured["body"]["options"]["temperature"] == 0.6
+
+
+def test_stream_tokens_falls_back_to_instance_temperature_when_no_override():
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=(
+            json.dumps({"message": {"content": "ok"}, "done": True}) + "\n"
+        ).encode("utf-8"))
+
+    provider = _provider_with(handler, temperature=0.15)
+    _run(_drain(provider.stream_tokens(
+        messages=[{"role": "user", "content": "x"}],
+        # no temperature= argument → instance default wins
+    )))
+    assert captured["body"]["options"]["temperature"] == 0.15
+
+
+def test_request_tool_call_per_call_temperature_overrides_default():
+    """Symmetric override on the tool-routing call too."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"message": {"tool_calls": []}, "done": True})
+
+    provider = _provider_with(handler, temperature=0.1)
+    _run(provider.request_tool_call(
+        messages=[{"role": "user", "content": "x"}],
+        tools=[{"type": "function", "function": {"name": "x"}}],
+        temperature=0.0,
+    ))
+    assert captured["body"]["options"]["temperature"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Sampler options forwarded on both /api/chat calls
+# ---------------------------------------------------------------------------
+
+def test_request_tool_call_payload_includes_options_temperature():
+    """The tool-routing call must carry the configured temperature so
+    qwen2.5 routes deterministically + stays in Korean."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"message": {"tool_calls": []}, "done": True})
+
+    provider = _provider_with(handler, temperature=0.25)
+    _run(provider.request_tool_call(
+        messages=[{"role": "user", "content": "이 부재"}],
+        tools=[{"type": "function", "function": {"name": "inspect_selection"}}],
+    ))
+    assert captured["body"]["options"]["temperature"] == 0.25
+
+
+def test_stream_tokens_payload_includes_options_temperature():
+    """Same temperature must apply when streaming the final answer —
+    that's where the language-drift symptom actually surfaces."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=(
+            json.dumps({"message": {"content": "안녕하세요"}, "done": True}) + "\n"
+        ).encode("utf-8"))
+
+    provider = _provider_with(handler, temperature=0.4)
+    _run(_drain(provider.stream_tokens(messages=[{"role": "user", "content": "안녕"}])))
+    assert captured["body"]["options"]["temperature"] == 0.4
 
 
 # ---------------------------------------------------------------------------

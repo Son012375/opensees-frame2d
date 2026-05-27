@@ -208,6 +208,18 @@ async def post_message(payload: PostMessageRequest):
     # doesn't expire mid-turn.
     sess["expires_at"] = time.time() + _CHAT_SESSION_TTL_SEC
 
+    # Diagnostic: log the incoming ui_context.analysis_id so we can catch
+    # frontend/bridge anomalies (e.g. malformed UUID, stale stale state)
+    # by tailing uvicorn stdout instead of asking the user to dig through
+    # devtools. Cheap — one log line per chat turn.
+    if payload.ui_context:
+        logger.info(
+            "chat turn: session=%s analysis_id=%r selected=%r",
+            payload.session_id,
+            payload.ui_context.get("analysis_id"),
+            payload.ui_context.get("selected_element_ids"),
+        )
+
     # Per-session busy lock — see docstring above. dict.setdefault is
     # atomic under the GIL, and asyncio.Lock() construction is cheap +
     # lazy so a rare double-create is harmless.

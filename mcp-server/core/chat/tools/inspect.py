@@ -135,14 +135,24 @@ def inspect_selection(arguments: dict, *, session: dict) -> dict:
             "elements": [],
         }
 
-    member_info = ctx.get("member_info_by_elem_id") or {}
-    member_ratios = ctx.get("member_ratios_by_elem_id") or {}
+    # The 3D viewer attaches ``member_id`` to mesh userData, so a click
+    # arrives here as ``selected_element_ids=[member_id]`` (the key is a
+    # legacy name from when only sub-element ids existed). Resolve via
+    # the member_id index FIRST — at num_elements_per_member > 1, member
+    # ids and sub-element ids collide numerically and the elem_id map
+    # would return the wrong member's info. The elem_id map is the
+    # fallback for any caller that does pass a real OpenSees sub-element
+    # id (e.g. an LLM that scraped one from member.element_ids).
+    info_by_member = ctx.get("member_info_by_member_id") or {}
+    ratios_by_member = ctx.get("member_ratios_by_member_id") or {}
+    info_by_elem = ctx.get("member_info_by_elem_id") or {}
+    ratios_by_elem = ctx.get("member_ratios_by_elem_id") or {}
 
     elements: list[dict[str, Any]] = []
     for eid in eids:
         key = str(eid)
-        info = member_info.get(key)
-        ratios = member_ratios.get(key)
+        info = info_by_member.get(key) or info_by_elem.get(key)
+        ratios = ratios_by_member.get(key) or ratios_by_elem.get(key)
         if info is None and ratios is None:
             elements.append({"element_id": eid, "found": False})
             continue
