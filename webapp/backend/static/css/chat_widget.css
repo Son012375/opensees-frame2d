@@ -326,3 +326,45 @@
 .chat-body::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary, #57606a);
 }
+
+/* ----- Collapsible KDS evidence block (Phase D toggle UX) -----
+   Server emits EVENT_COLLAPSIBLE with a deterministic evidence block;
+   widget renders a <details> sibling to the assistant text so the long
+   quote list is one click away rather than dominating every answer. */
+.chat-collapsible {
+    margin: 4px 0 8px 0;
+    padding: 6px 10px;
+    border: 1px solid var(--border-input, #d0d7de);
+    border-radius: 6px;
+    background: var(--bg-secondary, #f6f8fa);
+    font-size: 13px;
+}
+.chat-collapsible > summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    color: var(--text-primary, #1f2328);
+    padding: 2px 0;
+    list-style: none;
+}
+.chat-collapsible > summary::before {
+    content: '▶';
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s ease;
+    font-size: 10px;
+}
+.chat-collapsible[open] > summary::before {
+    transform: rotate(90deg);
+}
+.chat-collapsible > summary::-webkit-details-marker { display: none; }
+.chat-collapsible-body {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-input, #d0d7de);
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-primary, #1f2328);
+}

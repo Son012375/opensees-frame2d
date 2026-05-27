@@ -175,6 +175,15 @@ def make_kds_query(context: dict) -> KDSRetrievalQuery:
     if member_type:
         keywords.append(str(member_type))
 
+    # Current section of the target member (e.g. "H-300x300"). Needed
+    # when the caller only wants to *describe* the member (chat
+    # compliance tool) — there is no proposed_change to carry the
+    # section id, so without this the Voyage index loses the size
+    # signal entirely.
+    target_section = target.get("section")
+    if isinstance(target_section, str) and target_section.strip():
+        keywords.append(target_section.strip())
+
     # proposed_change.from/to may be either:
     #   * a dict (legacy/structured shape): {"section": "H-300x300", ...}
     #   * a plain string (current candidate shape):  "H-300x150"
