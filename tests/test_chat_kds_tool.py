@@ -747,6 +747,116 @@ def test_orchestrator_hybrid_emits_collapsible_event_when_evidence_present(monke
     assert "부재 #5" in token_text
 
 
+def test_assistant_history_excludes_collapsible_evidence(monkeypatch):
+    """Codex P1: the evidence quote body must NOT survive into
+    provider-visible history. It goes out to the user as EVENT_COLLAPSIBLE
+    but if it also lands in the assistant message, a LATER turn's LLM
+    sees the quotes again via _provider_messages and can paraphrase them
+    into fabricated clauses — defeating the kds_evidence strip in
+    _pop_mandatory_response.
+
+    Success criterion (precise): evidence quote/collapsible body absent
+    from EVERY provider-visible message content, not just the last
+    assistant entry. (Code-id hints like "KDS 41 31 00" in the warnings
+    field are out of scope here — see roadmap R3/R4.)
+    """
+    import asyncio
+    import json as _json
+    from typing import AsyncIterator
+    from core.chat.llm.base import BaseLLMProvider
+    from core.chat.orchestrator import ChatOrchestrator
+    from core.chat.tool_registry import ToolRegistry
+    from core.chat.tools import kds_compliance
+    from core.chat.tools.inspect import (
+        GET_ANALYSIS_SUMMARY_TOOL,
+        INSPECT_SELECTION_TOOL,
+    )
+
+    aid = _seed_context(
+        5, status="NG",
+        ratio_interaction=0.4, ratio_shear=1.3,
+        section="H-300x300",
+    )
+    retriever = _RecordingRetriever([_g2_shear_chunk(0), _g2_shear_chunk(1)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+
+    class _QuietProvider(BaseLLMProvider):
+        name = "quiet"
+
+        async def request_tool_call(self, *, messages, tools, temperature=None):
+            return None
+
+        async def stream_tokens(self, *, messages, temperature=None) -> AsyncIterator[str]:
+            yield "5번 부재 NG."
+
+    registry = ToolRegistry(
+        [INSPECT_SELECTION_TOOL, GET_ANALYSIS_SUMMARY_TOOL,
+         EXPLAIN_MEMBER_COMPLIANCE_TOOL],
+        enabled_groups=frozenset({"inspect", "summary", "kds"}),
+    )
+    orch = ChatOrchestrator(_QuietProvider(), registry=registry)
+    session = {"analysis_id": aid, "history": []}
+
+    async def _collect():
+        return [
+            ln async for ln in orch.run_turn(
+                session=session, user_message="5번 부재 왜 NG?",
+            )
+        ]
+
+    events = [_json.loads(ln) for ln in asyncio.run(_collect()) if ln.strip()]
+
+    # The collapsible EVENT still carries the quotes (user sees them).
+    collapsibles = [e for e in events if e["type"] == "collapsible"]
+    assert len(collapsibles) == 1
+    assert "Shear strength provisions" in collapsibles[0]["text"]
+    assert "G2-0" in collapsibles[0]["text"]
+
+    # The last assistant history entry keeps the summary but NOT the quotes.
+    assistant_entries = [h for h in session["history"] if h["role"] == "assistant"]
+    assert assistant_entries, "no assistant entry recorded"
+    last = assistant_entries[-1]["content"]
+    assert "부재 #5" in last
+    assert "Shear strength provisions" not in last
+    assert "G2-0" not in last
+
+    # Strongest assertion: walk EVERY message the provider would see and
+    # confirm the quote body is absent from all of them (not just the
+    # last assistant turn). This is what actually protects later turns.
+    provider_msgs = orch._provider_messages(session["history"])
+    for msg in provider_msgs:
+        content = msg.get("content") or ""
+        assert "Shear strength provisions" not in content, (
+            f"quote body leaked into provider-visible {msg.get('role')} message"
+        )
+        assert "G2-0" not in content, (
+            f"clause id leaked into provider-visible {msg.get('role')} message"
+        )
+
+
+def test_summary_carries_advisory_label(monkeypatch):
+    """Codex P2: when evidence is attached, the always-visible summary
+    must carry the trust-calibration caveat so the user sees it without
+    expanding the toggle."""
+    aid = _seed_context(
+        5, status="NG",
+        ratio_interaction=0.4, ratio_shear=1.3,
+        section="H-300x300",
+    )
+    retriever = _RecordingRetriever([_g2_shear_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    result = explain_member_compliance(
+        {"member_id": 5}, session={"analysis_id": aid, "history": []},
+    )
+    summary = result["mandatory_response_summary"]
+    assert "최종 설계판단은 아닙니다" in summary
+    assert "참고 근거" in summary
+
+
 def test_orchestrator_hybrid_discards_too_long_prefix(monkeypatch):
     """Prefix that exceeds _MAX_PREFIX_CHARS is treated the same as a
     fabrication — the LLM is rambling beyond '1-2 sentences', and

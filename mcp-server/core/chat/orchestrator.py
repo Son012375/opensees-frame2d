@@ -740,7 +740,15 @@ class ChatOrchestrator:
         # The deterministic summary + collapsible are ALWAYS emitted
         # intact regardless of LLM behavior — that's the hard invariant.
         summary_text, collapsible_text = _pop_mandatory_response(history)
-        full_text = ""
+        # ``history_text`` is what we persist to provider-visible history
+        # (read back by ``_provider_messages`` on every later turn). It must
+        # EXCLUDE the collapsible evidence block: ``_pop_mandatory_response``
+        # already strips ``kds_evidence`` from the tool entry precisely so a
+        # later turn's LLM can't paraphrase the quotes into fabricated
+        # clauses — letting the *rendered* quotes survive in the assistant
+        # entry would re-open exactly that hole across turns (Codex P1).
+        # The user still sees the quotes: they go out as EVENT_COLLAPSIBLE.
+        history_text = ""
         token_count = 0
         if summary_text is not None or collapsible_text is not None:
             prefix_raw = ""
@@ -771,17 +779,18 @@ class ChatOrchestrator:
                 visible_parts.append(summary_text)
             payload = "\n\n".join(visible_parts)
             if payload:
-                full_text = payload
+                # prefix + summary are safe to persist — no raw quotes.
+                history_text = payload
                 token_count = 1
                 yield _safe_encode(EVENT_TOKEN, {"text": payload})
             # Emit the collapsible block as its own event so the widget
-            # renders it inside a <details> toggle.
+            # renders it inside a <details> toggle. DELIBERATELY NOT added
+            # to history_text — see the comment above.
             if collapsible_text:
                 yield _safe_encode(EVENT_COLLAPSIBLE, {
                     "summary_label": "📖 KDS/AISC 설계기준 근거 펼치기",
                     "text": collapsible_text,
                 })
-                full_text = (full_text + "\n\n" + collapsible_text) if full_text else collapsible_text
         else:
             try:
                 async for tok in self.llm.stream_tokens(
@@ -790,7 +799,7 @@ class ChatOrchestrator:
                 ):
                     if not tok:
                         continue
-                    full_text += tok
+                    history_text += tok
                     token_count += 1
                     yield _safe_encode(EVENT_TOKEN, {"text": tok})
             except Exception as exc:  # noqa: BLE001
@@ -799,7 +808,7 @@ class ChatOrchestrator:
                     "code": "llm_failure",
                 })
 
-        history.append({"role": "assistant", "content": full_text})
+        history.append({"role": "assistant", "content": history_text})
         self._trim_history(history)
 
         yield _safe_encode(EVENT_DONE, {

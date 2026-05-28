@@ -209,7 +209,13 @@ def _render_compliance_summary(
     if rag_used and evidence_count > 0:
         parts.append(
             f"\n\n📖 KDS/AISC 설계기준 근거 {evidence_count}건이 첨부됐습니다 "
-            "(아래 '근거 자료 펼치기'를 클릭).",
+            "(아래 '근거 자료 펼치기'를 클릭).\n"
+            # Trust-calibration label (Codex P2). Lives in the
+            # always-visible summary so the user sees the advisory caveat
+            # without expanding the toggle — the citations are retrieval
+            # results against the current corpus (which still mixes AISC
+            # temporary references), not an authoritative KDS verdict.
+            "※ 현재 코퍼스 기준 참고 근거이며 최종 설계판단은 아닙니다."
         )
     else:
         parts.append(
