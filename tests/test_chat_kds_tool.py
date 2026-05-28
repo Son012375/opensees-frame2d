@@ -58,6 +58,7 @@ from core.chat.orchestrator import (  # noqa: E402
 from core.chat.tools import kds_compliance  # noqa: E402
 from core.chat.tools.kds_compliance import (  # noqa: E402
     EXPLAIN_MEMBER_COMPLIANCE_TOOL,
+    _aisc_proxy_standards,
     _governing_issue_type,
     explain_member_compliance,
 )
@@ -198,6 +199,24 @@ def _h1_strength_chunk(idx: int = 0) -> KDSChunk:
     )
 
 
+def _aisc_proxy_chunk(idx: int = 0) -> KDSChunk:
+    """An AISC 360 stand-in chunk — its standard_id triggers the
+    aisc_temporary_reference warning + proxy flagging."""
+    return KDSChunk(
+        chunk_id=f"aisc_360_h1_{idx}",
+        standard_id="AISC 360-22",
+        version="2022",
+        clause_id=f"H1-{idx}",
+        title="조합응력 (AISC proxy)",
+        text="Synthetic AISC 360 H1 placeholder. Combined axial + "
+             "bending interaction check.",
+        source_url=f"https://example.invalid/aisc-360#h1-{idx}",
+        topic="steel_member_strength",
+        limit_state="combined_force_interaction",
+        material="steel",
+    )
+
+
 # ---------------------------------------------------------------------------
 # T1 — Voyage hit, shear-dominant
 # ---------------------------------------------------------------------------
@@ -310,6 +329,10 @@ def test_evidence_audit_records_shear_provenance(monkeypatch):
     assert rec["evidence"][0]["clause"] == "G2-0"
     assert "Shear strength provisions" in rec["evidence"][0]["quote"]
     assert rec["evidence"][0]["score"] == pytest.approx(0.9, abs=1e-6)
+    # KDS-grounded evidence → proxy flag is false (negative side of the
+    # AISC-proxy consistency check).
+    assert rec["evidence_provenance"]["has_aisc_proxy"] is False
+    assert rec["evidence_provenance"]["aisc_proxy_standards"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1059,65 @@ def test_summary_carries_advisory_label(monkeypatch):
     summary = result["mandatory_response_summary"]
     assert "최종 설계판단은 아닙니다" in summary
     assert "참고 근거" in summary
+    # KDS-grounded evidence → no AISC-proxy note in the summary.
+    assert "AISC 360 임시 참조" not in summary
+
+
+# ---------------------------------------------------------------------------
+# AISC proxy state — consistent across helper / summary / audit (pre-ingest)
+# ---------------------------------------------------------------------------
+
+def test_aisc_proxy_standards_helper():
+    """Derives the AISC stand-in standards from evidence doc_ids,
+    order-preserving + deduped. KDS doc_ids are not proxies."""
+    assert _aisc_proxy_standards([]) == []
+    assert _aisc_proxy_standards([{"doc_id": "KDS 41 31 00"}]) == []
+    assert _aisc_proxy_standards([
+        {"doc_id": "AISC 360-22"},
+        {"doc_id": "KDS 41 31 00"},
+        {"doc_id": "AISC 360-22"},  # dup
+        {"doc_id": "aisc 341"},     # case-insensitive
+    ]) == ["AISC 360-22", "aisc 341"]
+
+
+def test_aisc_proxy_flagged_consistently_in_summary_and_audit(monkeypatch):
+    """When evidence is an AISC stand-in, the proxy state surfaces on all
+    three surfaces from one derivation:
+      - summary (always visible) carries the proxy note,
+      - audit record carries structured evidence_provenance,
+      - collapsible carries the existing fuller disclaimer.
+    """
+    aid = _seed_context(
+        7, status="NG",
+        ratio_interaction=1.2, ratio_shear=0.3,
+        section="H-400x400",
+    )
+    retriever = _RecordingRetriever([_aisc_proxy_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    session = {
+        "session_id": "chat_proxy_001",
+        "analysis_id": aid,
+        "history": [{"role": "user", "content": "왜 NG?"}],
+    }
+    result = explain_member_compliance({"member_id": 7}, session=session)
+    assert "error" not in result
+
+    # Summary (always visible) signals the proxy.
+    summary = result["mandatory_response_summary"]
+    assert "AISC 360 임시 참조" in summary
+    # Collapsible keeps the fuller disclaimer (consistency).
+    coll = result["mandatory_response_collapsible"]
+    assert "임시 참조" in coll
+    assert "AISC 360-22" in coll
+
+    # Audit record carries the structured proxy flag.
+    rec = query_audit(aid, member_id=7, turn=1)[0]
+    assert rec["evidence_provenance"]["has_aisc_proxy"] is True
+    assert rec["evidence_provenance"]["aisc_proxy_standards"] == ["AISC 360-22"]
+    # The raw warning is still present too (no regression).
+    assert any("aisc_temporary_reference" in w for w in rec["warnings"])
 
 
 def test_orchestrator_hybrid_discards_too_long_prefix(monkeypatch):

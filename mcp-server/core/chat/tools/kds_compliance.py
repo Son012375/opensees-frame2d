@@ -161,6 +161,24 @@ def _governing_issue_type(ratios: dict) -> tuple[str, str]:
     return issue_type, governing
 
 
+def _aisc_proxy_standards(evidence: list[dict]) -> list[str]:
+    """Standard ids in ``evidence`` that are AISC temporary references.
+
+    The corpus uses AISC 360 chunks as stand-ins until KDS 14 31 00 /
+    KDS 41 31 00 are ingested. Deriving the proxy state here — from the
+    same ``doc_id`` strings the collapsible renders — gives the summary
+    note and the audit record ONE source of truth, so all surfaces flag
+    the proxy consistently (and it auto-empties once the real corpus
+    lands, with no code change). Order-preserving dedup.
+    """
+    seen: list[str] = []
+    for ev in evidence:
+        doc = (ev.get("doc_id") or "").strip()
+        if doc.upper().startswith("AISC") and doc not in seen:
+            seen.append(doc)
+    return seen
+
+
 _ETYPE_KOREAN = {
     "column": "기둥",
     "beam_x": "X방향 보",
@@ -225,6 +243,7 @@ def _render_compliance_summary(
     *,
     evidence_count: int,
     rag_used: bool,
+    aisc_proxy_standards: Optional[list[str]] = None,
 ) -> str:
     """The 'always-shown' top half of a compliance response.
 
@@ -235,6 +254,12 @@ def _render_compliance_summary(
     Kept short on purpose: the user said long answers feel noisy, so
     only the diagnostic essentials live here. The verbose evidence
     quote block sits behind the toggle.
+
+    When ``aisc_proxy_standards`` is non-empty, an extra always-visible
+    line flags that some citations are AISC temporary references. The
+    collapsible already carries a fuller AISC disclaimer; surfacing it
+    here too keeps the proxy state consistent for a user who never
+    expands the toggle (and for the audit record — same derivation).
     """
     parts = [_format_member_block(summary)]
     if rag_used and evidence_count > 0:
@@ -248,6 +273,11 @@ def _render_compliance_summary(
             # temporary references), not an authoritative KDS verdict.
             "※ 현재 코퍼스 기준 참고 근거이며 최종 설계판단은 아닙니다."
         )
+        if aisc_proxy_standards:
+            parts.append(
+                "\n※ 인용 근거에 AISC 360 임시 참조가 포함되어 있습니다 "
+                "(KDS 14 31 00 / 41 31 00 원문 확보 후 교체 예정)."
+            )
     else:
         parts.append(
             "\n\n⚠️ KDS 근거 자료가 연결되지 않았습니다 "
@@ -348,6 +378,7 @@ def _write_evidence_audit(
     evidence: list[dict],
     rag_used: bool,
     warnings: list[str],
+    aisc_proxy_standards: list[str],
 ) -> None:
     """Best-effort provenance write outside provider-visible history."""
     try:
@@ -377,6 +408,14 @@ def _write_evidence_audit(
             },
             "query": query,
             "rag_used": rag_used,
+            # Structured proxy state so audit/query can answer "was this
+            # KDS-grounded or an AISC proxy?" without string-matching the
+            # warnings list. Same derivation as the summary note — one
+            # source of truth across surfaces.
+            "evidence_provenance": {
+                "has_aisc_proxy": bool(aisc_proxy_standards),
+                "aisc_proxy_standards": list(aisc_proxy_standards),
+            },
             "evidence": [
                 {
                     "doc_id": ev.get("doc_id"),
@@ -487,6 +526,9 @@ def explain_member_compliance(arguments: dict, *, session: dict) -> dict:
         rag_context, retriever, top_k=top_k,
     )
     evidence = [e.to_dict() for e in evidence_objs]
+    # One AISC-proxy derivation shared by the audit record + summary note
+    # so both surfaces flag the proxy state identically.
+    aisc_proxy_standards = _aisc_proxy_standards(evidence)
     _write_evidence_audit(
         analysis_id=aid,
         member_id=member_id,
@@ -498,6 +540,7 @@ def explain_member_compliance(arguments: dict, *, session: dict) -> dict:
         evidence=evidence,
         rag_used=rag_used,
         warnings=warnings,
+        aisc_proxy_standards=aisc_proxy_standards,
     )
 
     # ---- 5. Always-deterministic response, split into two parts --------
@@ -521,6 +564,7 @@ def explain_member_compliance(arguments: dict, *, session: dict) -> dict:
             member_summary,
             evidence_count=len(evidence),
             rag_used=rag_used,
+            aisc_proxy_standards=aisc_proxy_standards,
         ),
         "mandatory_response_collapsible": _render_compliance_collapsible(
             evidence, warnings, rag_used,
