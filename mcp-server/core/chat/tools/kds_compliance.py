@@ -110,12 +110,28 @@ def _resolve_target_id(arguments: dict, session: dict) -> Optional[int]:
 # reference-only ("이 부재 안전한가") path.
 _OK_REFERENCE_ISSUE_TYPE = "missing_design_check"
 
+# P3 — map the governing strength-side ratio onto its own retrieval
+# bucket instead of collapsing axial/flexure/interaction all into
+# ``strength_exceeded``. Each value is a real key in pipeline.py's
+# ISSUE_TYPE_KEYWORDS / ISSUE_TYPE_TO_TOPIC / ISSUE_TYPE_TO_LIMIT_STATE
+# maps — sending anything outside that vocabulary would strip the query
+# of domain keywords and collapse Voyage rerank scores, so this dict and
+# those maps MUST stay in lockstep.
+_STRENGTH_ISSUE_TYPE_BY_RATIO: dict[str, str] = {
+    "interaction": "strength_exceeded",
+    "axial": "axial_exceeded",
+    "bending": "flexure_exceeded",
+}
+
 
 def _governing_issue_type(ratios: dict) -> tuple[str, str]:
     """Return ``(issue_type, governing_ratio_name)``.
 
-    - shear governs when shear>1.0 AND shear>interaction
-    - otherwise (any NG path) → strength_exceeded
+    - shear governs when shear>1.0 AND shear>interaction → shear_exceeded
+    - otherwise the largest strength-side ratio decides the bucket:
+      interaction → strength_exceeded, axial → axial_exceeded,
+      bending → flexure_exceeded (P3 — finer than the old single
+      ``strength_exceeded`` bucket).
     - all OK → missing_design_check (used as reference-only sentinel)
     """
     status = (ratios.get("status") or "OK").upper()
@@ -133,15 +149,16 @@ def _governing_issue_type(ratios: dict) -> tuple[str, str]:
     if r_shear > 1.0 and r_shear > r_inter:
         return "shear_exceeded", "shear"
     # Pick the largest of the strength-side ratios so the summary can
-    # tell the user *which* limit dominates — but route the query through
-    # the only strength bucket vocabulary supports.
+    # tell the user *which* limit dominates, then route the query through
+    # that ratio's dedicated vocabulary bucket.
     candidates = {
         "interaction": r_inter,
         "axial": r_axial,
         "bending": r_bend,
     }
     governing = max(candidates, key=candidates.get) or "interaction"
-    return "strength_exceeded", governing
+    issue_type = _STRENGTH_ISSUE_TYPE_BY_RATIO.get(governing, "strength_exceeded")
+    return issue_type, governing
 
 
 _ETYPE_KOREAN = {

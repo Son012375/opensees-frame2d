@@ -531,6 +531,84 @@ def test_governing_issue_type_ok_routes_to_missing_design_check():
     assert governing == "ok"
 
 
+def test_governing_issue_type_interaction_stays_strength_exceeded():
+    """P3: interaction-dominant strength NG keeps the combined bucket."""
+    issue_type, governing = _governing_issue_type({
+        "status": "NG", "ratio_interaction": 1.1, "ratio_shear": 0.4,
+        "ratio_axial": 0.6, "ratio_bending": 0.8,
+    })
+    assert issue_type == "strength_exceeded"
+    assert governing == "interaction"
+
+
+def test_governing_issue_type_axial_routes_to_axial_exceeded():
+    """P3: axial-dominant strength NG routes to the dedicated axial bucket
+    instead of the generic strength_exceeded."""
+    issue_type, governing = _governing_issue_type({
+        "status": "NG", "ratio_interaction": 0.5, "ratio_shear": 0.3,
+        "ratio_axial": 1.2, "ratio_bending": 0.4,
+    })
+    assert issue_type == "axial_exceeded"
+    assert governing == "axial"
+
+
+def test_governing_issue_type_bending_routes_to_flexure_exceeded():
+    """P3: bending-dominant strength NG routes to the dedicated flexure
+    bucket."""
+    issue_type, governing = _governing_issue_type({
+        "status": "NG", "ratio_interaction": 0.6, "ratio_shear": 0.2,
+        "ratio_axial": 0.4, "ratio_bending": 1.3,
+    })
+    assert issue_type == "flexure_exceeded"
+    assert governing == "bending"
+
+
+def test_handler_axial_dominant_routes_to_member_axial_topic(monkeypatch):
+    """End-to-end: an axial-dominant NG member produces a query routed to
+    topic=member_axial / limit_state=axial_strength (P3)."""
+    aid = _seed_context(
+        9, status="NG",
+        ratio_interaction=0.5, ratio_shear=0.3,
+        ratio_axial=1.4, ratio_bending=0.4,
+        section="H-400x400",
+    )
+    retriever = _RecordingRetriever([_h1_strength_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    result = explain_member_compliance(
+        {"member_id": 9}, session={"analysis_id": aid, "history": []},
+    )
+    assert result["member_summary"]["governing_ratio"] == "axial"
+    q = retriever.last_query
+    assert q is not None
+    assert q.topic == "member_axial"
+    assert q.limit_state == "axial_strength"
+
+
+def test_handler_bending_dominant_routes_to_member_flexure_topic(monkeypatch):
+    """End-to-end: a bending-dominant NG member routes to
+    topic=member_flexure / limit_state=flexural_strength (P3)."""
+    aid = _seed_context(
+        10, status="NG",
+        ratio_interaction=0.6, ratio_shear=0.2,
+        ratio_axial=0.4, ratio_bending=1.5,
+        section="H-500x200",
+    )
+    retriever = _RecordingRetriever([_h1_strength_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    result = explain_member_compliance(
+        {"member_id": 10}, session={"analysis_id": aid, "history": []},
+    )
+    assert result["member_summary"]["governing_ratio"] == "bending"
+    q = retriever.last_query
+    assert q is not None
+    assert q.topic == "member_flexure"
+    assert q.limit_state == "flexural_strength"
+
+
 def test_tool_spec_is_in_kds_group_and_factual():
     """Defensive: ensure the ToolSpec metadata stays as the orchestrator
     expects (group=kds, creativity=factual)."""

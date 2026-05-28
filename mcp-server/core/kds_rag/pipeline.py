@@ -113,7 +113,14 @@ def _query_for_ref(
 # RAG so query text is never empty even when code_refs are missing.
 # Keep lists short — Voyage rerank scores collapse with noisy queries.
 ISSUE_TYPE_KEYWORDS: dict[str, list[str]] = {
+    # ``strength_exceeded`` is now specifically the *combined* (P+M
+    # interaction) bucket — axial-only and flexure-only NG route to the
+    # dedicated buckets below (P3). The split sharpens query_text so the
+    # Voyage embedding/rerank sees the governing limit state instead of a
+    # generic "member strength" blur.
     "strength_exceeded": ["부재 강도", "조합응력 비", "interaction ratio"],
+    "axial_exceeded": ["축력", "압축강도", "인장강도", "axial strength"],
+    "flexure_exceeded": ["휨강도", "휨모멘트", "flexural strength"],
     "shear_exceeded": ["전단강도", "전단 검토", "shear strength"],
     "drift_exceeded": ["층간변위", "허용 층간변위비", "drift limit", "사용성"],
     "missing_design_check": ["설계 검토", "부재 검정"],
@@ -136,6 +143,8 @@ ACTION_TYPE_KEYWORDS: dict[str, list[str]] = {
 
 ISSUE_TYPE_TO_LIMIT_STATE: dict[str, str] = {
     "strength_exceeded": "strength",
+    "axial_exceeded": "axial_strength",
+    "flexure_exceeded": "flexural_strength",
     "shear_exceeded": "shear_strength",
     "drift_exceeded": "drift_limit",
     "compression_capacity": "compression_strength",
@@ -144,6 +153,8 @@ ISSUE_TYPE_TO_LIMIT_STATE: dict[str, str] = {
 
 ISSUE_TYPE_TO_TOPIC: dict[str, str] = {
     "strength_exceeded": "member_strength",
+    "axial_exceeded": "member_axial",
+    "flexure_exceeded": "member_flexure",
     "shear_exceeded": "member_shear",
     "drift_exceeded": "story_drift",
     "compression_capacity": "member_compression",
