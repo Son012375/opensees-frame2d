@@ -1,37 +1,46 @@
-# KDS RAG Sample Corpus (Phase 3B Smoke)
+# KDS RAG Sample Corpus
 
-This directory holds a **minimal** retrieval corpus used to smoke-test the
-end-to-end Voyage KDS RAG path. The full standards live under
-`C:\Users\youm\Desktop\RAG용\` as PDFs and are NOT ingested here — PDF
-parsing is Phase 4 work.
+This directory holds the retrieval corpus used by the Voyage KDS RAG path
+(`/explain` + the chat `explain_member_compliance` tool). It started as a
+3-file Phase 3B smoke corpus; the steel-member design clauses are now
+ingested from **KDS 14 31 10 강구조 부재 설계기준 (하중저항계수설계법, LRFD)**,
+so the earlier AISC 360-22 stand-ins have been retired.
 
-Each file is a paraphrased clause summary (never the verbatim standard
-text) carrying only the metadata fields needed by
-`core.kds_rag.ingest`:
+Each file is a **curated clause summary** (never the verbatim standard
+text — copyright + UI length) carrying only the metadata fields read by
+`core.kds_rag.ingest`. Equations are transcribed from the official PDF
+(rendered to images, since the source PDF text is mojibake); fabrication
+is forbidden.
 
-| File | Topic | Limit state | Issue type covered | Reference status |
+| File | Topic | Limit state | Issue type covered | Standard / clause |
 |------|-------|-------------|--------------------|-------------------|
-| `kds_41_17_00_drift.json` | `story_drift` | `drift_limit` | `drift_exceeded` | KDS 원문 (`temporary_reference: false`) |
-| `aisc_360_22_ch_f_flexure.json` | `member_strength` | `strength` | `strength_exceeded` | **AISC 임시 참조** (`temporary_reference: true`) |
-| `aisc_360_22_ch_g_shear.json` | `member_shear` | `shear_strength` | `shear_exceeded` | **AISC 임시 참조** (`temporary_reference: true`) |
+| `kds_14_31_10_tension.json` | `member_axial` | `axial_strength` | `axial_exceeded` | KDS 14 31 10 §4.1.3 인장강도 |
+| `kds_14_31_10_compression.json` | `member_axial` | `axial_strength` | `axial_exceeded` | KDS 14 31 10 §4.2.3 압축강도(휨좌굴) |
+| `kds_14_31_10_flexure.json` | `member_flexure` | `flexural_strength` | `flexure_exceeded` | KDS 14 31 10 §4.3.2.1.1 휨강도 |
+| `kds_14_31_10_shear.json` | `member_shear` | `shear_strength` | `shear_exceeded` | KDS 14 31 10 §4.3.2.1.2 전단강도 |
+| `kds_14_31_10_interaction.json` | `member_strength` | `strength` | `strength_exceeded` | KDS 14 31 10 §4.4.1.1 조합력 상관식 |
+| `kds_41_17_00_drift.json` | `story_drift` | `drift_limit` | `drift_exceeded` | KDS 41 17 00 §8.2.3 허용 층간변위비 |
 
-## Why these three
+All six chunks are **real KDS** (`jurisdiction: "KDS"`, `temporary_reference:
+false`), so the `aisc_temporary_reference` proxy warning no longer fires
+for any member design-check query.
 
-The deterministic explainer in `core.recommendation.explainer` builds a
-KDS query per issue. Three of our five `issue_type` values dominate
-production reports:
+## Coverage vs. issue_type buckets
 
-- `drift_exceeded` → KDS 41 17 00 §8.2 (Korean limit on inter-story drift)
-- `strength_exceeded` → AISC 360-22 Chapter F (flexural strength)
-- `shear_exceeded` → AISC 360-22 Chapter G (shear strength)
+The chat tool's `_governing_issue_type` (and the recommendation explainer)
+route a member's governing ratio to one of these `issue_type` buckets;
+each now has a KDS chunk:
 
-This smoke corpus exercises one chunk per query path. It is intentionally
-tiny so the build is cheap and a manual eyeball check of the top-1 result
-is easy.
+- `axial_exceeded` → §4.1 인장 / §4.2 압축
+- `flexure_exceeded` → §4.3.2.1.1 휨
+- `shear_exceeded` → §4.3.2.1.2 전단
+- `strength_exceeded` (조합 P+M) → §4.4.1.1 상관식
+- `drift_exceeded` → KDS 41 17 00 §8.2.3
+
+Retrieval smoke (top-1, voyage-4-large): shear→§4.3.2.1.2, 조합→§4.4.1.1,
+휨→§4.3.2.1.1, drift→§8.2.3, 압축→§4.2.3 — all KDS, zero AISC proxy.
 
 ## How to build the index
-
-See `docs/kds_rag_smoke.md` for the full procedure. Short form:
 
 ```powershell
 $env:VOYAGE_API_KEY = "vo-..."
@@ -40,46 +49,35 @@ python scripts/build_kds_rag_index.py `
   --index-path data/kds_sample_index.jsonl
 ```
 
-## AISC chunks are a TEMPORARY reference (not "KDS-equivalent")
+The index file (`data/kds_sample_index.jsonl`) is gitignored — it is
+regenerable from the source JSONs at any time. Note the free-tier Voyage
+rate limit (3 RPM without a payment method): the batched build is one
+request, but per-query retrieval smokes must be spaced ~20 s apart.
 
-The Korean steel-structure standards (KDS 14 31 00 / KDS 41 31 00) are
-**not yet** in `C:\Users\youm\Desktop\RAG용\`. For Phase 3B the
-flexure / shear chunks cite AISC 360-22 only as a stand-in. Three
-guard-rails enforce that we never claim KDS-equivalence by accident:
+## AISC 360-22 stand-ins — retired (history)
 
-1. The chunk **text body** contains zero "KDS와 동등하다" sentences. The
-   text only describes AISC behavior. (Previous revisions had a closing
-   "KDS 14 31 00 §6/§7 동등" line — removed after GPT cross-review.)
-2. Each AISC JSON carries machine-readable metadata flags:
+Before the KDS PDFs were acquired, `aisc_360_22_ch_f_flexure.json` and
+`aisc_360_22_ch_g_shear.json` cited AISC 360-22 as **temporary references**
+(`temporary_reference: true`, `replacement_target: "KDS 14 31 00 / KDS 41
+31 00"`). They were retired once KDS 14 31 10 was ingested. Notes kept for
+provenance:
 
-   ```json
-   "temporary_reference": true,
-   "replacement_target": "KDS 14 31 00 / KDS 41 31 00",
-   "replacement_note": "강구조 KDS 원문 확보 전까지 AISC 360-22를 임시 참조로 사용한다. KDS와의 동등성은 검증되지 않음."
-   ```
-
-   The current ingester (`core.kds_rag.ingest._doc_from_json`) silently
-   drops unknown fields so these flags do **not** leak into the JSONL
-   index — they exist for a future UI surface to read directly from the
-   source JSON.
-3. When `temporary_reference: true` chunks surface in the Explain modal,
-   the user-facing copy MUST say:
-
-   > 현재 강구조 근거는 KDS 원문이 아닌 AISC 360-22 임시 참조입니다.
-   > KDS 14 31 00 / KDS 41 31 00 원문 확보 후 교체 검증이 필요합니다.
-
-   Wiring this UI string is a follow-up (Phase 4 — alongside LLM
-   provider activation), but the data side is already truthful.
-
-Once a KDS-side PDF is acquired the operator can drop a parallel `.json`
-file in this directory, flip `temporary_reference` to `false` on the
-KDS version, and let dense retrieval rank the KDS chunk above the AISC
-one. No pipeline change needed.
+- Steel design provisions live in **KDS 14 31** (LRFD); the building code
+  KDS 41 directs steel design to KDS 14 31, and KCS 41 31 00 is a
+  *construction* spec (not design) — so KDS 14 31 10 is the authoritative
+  source, not KDS 41 31 00.
+- The ingester (`_doc_from_json`) drops unknown fields, so `temporary_reference`
+  / `replacement_target` never entered the JSONL index — proxy detection
+  keys off `jurisdiction` / `standard_id` (`AISC*`) in
+  `core.recommendation.explainer._retrieve_evidence`.
+- The chat surfaces (summary note + audit `evidence_provenance` flag +
+  collapsible disclaimer) report the AISC-proxy state from one derivation
+  (`kds_compliance._aisc_proxy_standards`); with no AISC chunks left, that
+  derivation is now always empty.
 
 ## Scope guarantees
 
-- All text is paraphrased, never the verbatim clause.
+- All text is a curated summary, never the verbatim clause.
 - Each file ≤ ~2 KB so the smoke build hits Voyage with ≤ 10 chunks.
 - No PDF, no binary, no third-party reproductions.
-- "KDS-equivalent" is never claimed in chunk text. AISC chunks are
-  labelled `temporary_reference: true` in their JSON metadata.
+- "KDS-equivalent" claims are unnecessary now — the chunks ARE KDS.

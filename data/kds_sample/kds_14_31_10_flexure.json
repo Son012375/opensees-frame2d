@@ -1,0 +1,17 @@
+{
+  "doc_id": "kds_14_31_10_flexure",
+  "standard_id": "KDS 14 31 10",
+  "version": "2024-05-03",
+  "effective_date": "2024-05-03",
+  "title": "형강 및 강관 휨부재 단일부재의 휨강도",
+  "clause": "4.3.2.1.1",
+  "topic": "member_flexure",
+  "limit_state": "flexural_strength",
+  "material": "steel",
+  "jurisdiction": "KDS",
+  "source_url": null,
+  "temporary_reference": false,
+  "replacement_target": null,
+  "replacement_note": null,
+  "text": "4.3.2.1.1 휨강도 — 하중이 단면의 주축과 전단중심을 통과하여 비틀림이 발생하지 않는 형강 및 조립부재의 휨강도(4.3.2.1.1.1)\n\n설계휨강도는 공칭휨강도 Mn 에 저항계수 φb = 0.90 을 적용하여 φb·Mn 으로 산정한다. 휨 DCR 은 소요휨모멘트 Mu / (φb·Mn) 이며 1.0 을 초과할 수 없다. 단면 종류는 표 4.3-1(휨부재 단면의 분류), 폭두께비 제한은 표 4.3-2 에 따른다.\n\n공칭강도(웨브·플랜지 모두 조밀단면인 2축대칭 H형강·ㄷ형강, 4.3.2.1.1.2):\n① 소성모멘트: Mn = Mp = Fy·Z (식 4.3-2), Fy: 강재의 항복강도(MPa), Z: 소성단면계수(mm^3)\n② 횡비틀림좌굴(LTB):\n   Lb ≤ Lp 이면 LTB 미고려.\n   Lp < Lb ≤ Lr 이면 Mn = Cb[Mp - (Mp - 0.7·Fy·Sx)((Lb-Lp)/(Lr-Lp))] ≤ Mp (식 4.3-3)\n   Lb > Lr 이면 Mn = Fcr·Sx ≤ Mp (식 4.3-4), Fcr 는 식 4.3-5.\n   Lb: 보의 비지지길이(mm), Cb: 휨비틀림좌굴 보정계수(식 4.3-1, 안전측 1.0 사용 가능), Lp = 1.76·ry·√(E/Fy) (식 4.3-6), Lr 은 식 4.3-7.\n\n[한계상태 구분] 단면 분류(조밀/비조밀/세장)와 표 4.3-1 에 따라 항복(소성휨, Mp), 횡비틀림좌굴(LTB), 플랜지 국부좌굴(FLB, 비조밀 식 4.3-9 / 세장 식 4.3-10), 인장플랜지 항복 등의 한계상태 중 최솟값으로 결정.\n\n초과(Mu/φb·Mn > 1.0) 시 보강:\n1. 소성단면계수 Z(또는 Sx)가 큰 단면으로 교체 → Mp 증가\n2. 중간 횡지지(가새) 추가로 비지지길이 Lb 단축 → LTB 한계상태 강도 증가"
+}

@@ -1,0 +1,17 @@
+{
+  "doc_id": "kds_14_31_10_tension",
+  "standard_id": "KDS 14 31 10",
+  "version": "2024-05-03",
+  "effective_date": "2024-05-03",
+  "title": "인장강도",
+  "clause": "4.1.3",
+  "topic": "member_axial",
+  "limit_state": "axial_strength",
+  "material": "steel",
+  "jurisdiction": "KDS",
+  "source_url": null,
+  "temporary_reference": false,
+  "replacement_target": null,
+  "replacement_note": null,
+  "text": "4.1.3 인장강도 — 중심축 인장을 받는 부재\n\n인장재의 설계인장강도 φt·Pn 은 총단면의 항복한계상태(식 4.1-4)와 유효순단면의 파단한계상태(식 4.1-5)에 대해 산정된 값 중 작은 값으로 한다. 부재의 인장 DCR 은 소요인장력 Pu / (φt·Pn) 이며 1.0 을 초과할 수 없다.\n\n4.1.3.1 총단면의 항복한계상태\nPn = Fy · Ag (식 4.1-4), φt = 0.90\n여기서 Ag : 부재의 총단면적(mm^2), Fy : 항복강도(MPa), Pn : 공칭인장강도(N)\n\n4.1.3.2 유효순단면의 파단한계상태\nPn = Fu · Ae (식 4.1-5), φt = 0.75\n여기서 Ae : 유효순단면적(mm^2), Fu : 인장강도(MPa)\n\n[유효순단면적] Ae = U·An (식 4.1-3), U 는 전단지연계수(표 4.1-1 참조). 순단면적 An 은 정렬배치 시 An = Ag − n·d·t (식 4.1-1), 불규칙(엇모)배치 시 식 4.1-2 로 산정한다.\n\n[세장비 제한 4.1.1] 인장재의 설계 시 최대 세장비 제한은 없으나, 인장력에 기초하여 설계되는 부재의 세장비 L/r 은 가급적 300 을 넘지 않도록 한다(강봉·강대 등 매달린 부재는 제외).\n\n[한계상태 구분] 항복(총단면) / 파단(유효순단면).\n\n초과(Pu/φt·Pn > 1.0) 시 보강:\n1. 더 큰 총단면적 Ag 의 단면으로 교체 → 항복강도 증가\n2. 볼트구멍 배치 개선·접합부 길이 증가로 전단지연계수 U 를 높여 유효순단면적 Ae 증가"
+}
