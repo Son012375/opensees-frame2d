@@ -85,3 +85,27 @@
 - R1 retrieval benchmark + 골든셋
 - R2 usability study
 - KDS 14 31 00 / 41 31 00 원문 코퍼스 ingest → AISC 임시참조 자동 해소
+
+---
+
+## R3 implementation note (2026-05-28)
+
+Status: completed in the Phase D PR #2 follow-up.
+
+- Added a provider-isolated evidence audit store at
+  `webapp/backend/app/services/chat_audit_log.py`.
+- `explain_member_compliance` now writes the provenance chain
+  `member ratios -> issue_type/governing_ratio -> KDS query -> evidence`
+  after retrieval succeeds. Early error paths are not audited.
+- Audit records are queryable through
+  `GET /api/v2/chat/audit/{analysis_id}` and by the
+  `query_audit()` service function.
+- Durable JSONL trail defaults to
+  `data/chat_audit/evidence_audit.jsonl`, overrideable with
+  `CHAT_AUDIT_LOG_PATH`.
+- P1 invariant remains: evidence quote/collapsible body is absent from
+  provider-visible chat history; full quotes live only in the audit store
+  and user-facing `EVENT_COLLAPSIBLE`.
+
+Next follow-up: P3 vocabulary refinement for axial/bending/interaction
+limit-state separation.

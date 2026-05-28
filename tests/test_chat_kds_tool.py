@@ -47,6 +47,10 @@ from app.services.chat_session import (  # noqa: E402
     _CHAT_SESSION_LOCK,
     chat_session_cache,
 )
+from app.services.chat_audit_log import (  # noqa: E402
+    clear_cache as clear_audit_cache,
+    query_audit,
+)
 from core.chat.orchestrator import (  # noqa: E402
     _FORCE_EXPLAIN_RE,
     _pick_forced_tool,
@@ -69,12 +73,15 @@ ANALYSIS_ID = "analysis_phased_001"
 
 
 @pytest.fixture(autouse=True)
-def _clean_state():
+def _clean_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHAT_AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    clear_audit_cache()
     with _CHAT_SESSION_LOCK:
         chat_session_cache.clear()
     with _ANALYSIS_CONTEXT_LOCK:
         analysis_context_cache.clear()
     yield
+    clear_audit_cache()
     with _CHAT_SESSION_LOCK:
         chat_session_cache.clear()
     with _ANALYSIS_CONTEXT_LOCK:
@@ -265,6 +272,46 @@ def test_t1_voyage_hit_shear_returns_evidence_and_governing_shear(monkeypatch):
     assert "column" in q.query_text
 
 
+def test_evidence_audit_records_shear_provenance(monkeypatch):
+    aid = _seed_context(
+        5, status="NG",
+        ratio_interaction=0.5, ratio_shear=1.2,
+        section="H-300x300",
+    )
+    retriever = _RecordingRetriever([_g2_shear_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    session = {
+        "session_id": "chat_audit_001",
+        "analysis_id": aid,
+        "history": [{"role": "user", "content": "why NG?"}],
+    }
+
+    result = explain_member_compliance({"member_id": 5}, session=session)
+    assert "error" not in result
+
+    records = query_audit(aid, member_id=5, turn=1)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["analysis_id"] == aid
+    assert rec["session_id"] == "chat_audit_001"
+    assert rec["member"]["section"] == "H-300x300"
+    assert rec["trigger"]["status"] == "NG"
+    assert rec["trigger"]["issue_type"] == "shear_exceeded"
+    assert rec["trigger"]["governing_ratio"] == "shear"
+    assert rec["trigger"]["ratios"]["shear"] == 1.2
+    assert rec["query"]["topic"] == "member_shear"
+    assert rec["query"]["limit_state"] == "shear_strength"
+    assert "H-300x300" in rec["query"]["query_text"]
+    assert rec["rag_used"] is True
+    assert len(rec["evidence"]) == 1
+    assert rec["evidence"][0]["doc_id"] == "KDS 41 31 00"
+    assert rec["evidence"][0]["clause"] == "G2-0"
+    assert "Shear strength provisions" in rec["evidence"][0]["quote"]
+    assert rec["evidence"][0]["score"] == pytest.approx(0.9, abs=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # T2 — Voyage hit, strength-dominant
 # ---------------------------------------------------------------------------
@@ -364,6 +411,33 @@ def test_t3_noop_fallback_returns_member_summary_only(monkeypatch):
     )
 
 
+def test_evidence_audit_records_noop_lookup_without_evidence(monkeypatch):
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.delenv("VOYAGEAI_API_KEY", raising=False)
+    monkeypatch.delenv("KDS_RAG_INDEX_PATH", raising=False)
+
+    aid = _seed_context(
+        3, status="NG",
+        ratio_interaction=1.05, ratio_shear=0.3,
+        section="H-350x350",
+    )
+    session = {
+        "analysis_id": aid,
+        "history": [{"role": "user", "content": "why NG?"}],
+    }
+    result = explain_member_compliance({"member_id": 3}, session=session)
+    assert result["rag_used"] is False
+
+    records = query_audit(aid, member_id=3, turn=1)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["rag_used"] is False
+    assert rec["evidence"] == []
+    assert rec["trigger"]["issue_type"] == "strength_exceeded"
+    assert rec["query"]["topic"] == "member_strength"
+    assert any("kds_rag_unavailable" in w for w in rec["warnings"])
+
+
 # ---------------------------------------------------------------------------
 # T4 — no selection
 # ---------------------------------------------------------------------------
@@ -376,6 +450,29 @@ def test_t4_no_selection_returns_no_selection_code():
     )
     assert result.get("code") == "no_selection"
     assert "부재" in result.get("error", "")
+
+
+def test_evidence_audit_skips_early_error_paths():
+    aid = _seed_context(1, status="OK")
+
+    no_selection = explain_member_compliance(
+        {}, session={"analysis_id": aid, "history": []},
+    )
+    assert no_selection.get("code") == "no_selection"
+
+    member_missing = explain_member_compliance(
+        {"member_id": 999}, session={"analysis_id": aid, "history": []},
+    )
+    assert member_missing.get("code") == "member_not_found"
+
+    analysis_missing = explain_member_compliance(
+        {"member_id": 1, "analysis_id": "missing"},
+        session={"history": []},
+    )
+    assert analysis_missing.get("code") == "analysis_not_found"
+
+    assert query_audit(aid) == []
+    assert query_audit("missing") == []
 
 
 # ---------------------------------------------------------------------------
@@ -813,6 +910,12 @@ def test_assistant_history_excludes_collapsible_evidence(monkeypatch):
     assert len(collapsibles) == 1
     assert "Shear strength provisions" in collapsibles[0]["text"]
     assert "G2-0" in collapsibles[0]["text"]
+
+    # R3: the same quote is retained only in the provider-isolated audit
+    # store, not in chat history.
+    records = query_audit(aid, member_id=5)
+    assert len(records) == 1
+    assert "Shear strength provisions" in records[0]["evidence"][0]["quote"]
 
     # The last assistant history entry keeps the summary but NOT the quotes.
     assistant_entries = [h for h in session["history"] if h["role"] == "assistant"]

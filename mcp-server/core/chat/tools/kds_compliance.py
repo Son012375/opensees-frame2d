@@ -15,9 +15,13 @@ on the chat path.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from ..tool_registry import ToolSpec
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +41,16 @@ def _get_default_retriever():
 def _retrieve_evidence_fn():
     from core.recommendation.explainer import _retrieve_evidence
     return _retrieve_evidence
+
+
+def _make_kds_query_fn():
+    from core.kds_rag import make_kds_query
+    return make_kds_query
+
+
+def _append_audit_fn():
+    from app.services.chat_audit_log import append_audit
+    return append_audit
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +311,75 @@ def _build_member_summary(
     }
 
 
+def _current_turn(session: dict) -> int:
+    """Return the 1-based chat turn count including the current user turn."""
+    return sum(
+        1 for h in (session.get("history") or [])
+        if h.get("role") == "user"
+    )
+
+
+def _write_evidence_audit(
+    *,
+    analysis_id: str,
+    member_id: int,
+    session: dict,
+    info: dict,
+    member_summary: dict,
+    issue_type: str,
+    rag_context: dict,
+    evidence: list[dict],
+    rag_used: bool,
+    warnings: list[str],
+) -> None:
+    """Best-effort provenance write outside provider-visible history."""
+    try:
+        query = _make_kds_query_fn()(rag_context).to_dict()
+    except Exception as exc:  # noqa: BLE001 - audit is best effort
+        query = {"error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        append_audit = _append_audit_fn()
+        append_audit({
+            "analysis_id": analysis_id,
+            "member_id": member_id,
+            "turn": _current_turn(session),
+            "session_id": session.get("session_id"),
+            "member": {
+                "member_id": member_id,
+                "type": info.get("etype"),
+                "section": info.get("section"),
+                "material": info.get("material"),
+                "story": info.get("story"),
+            },
+            "trigger": {
+                "status": member_summary.get("status"),
+                "governing_ratio": member_summary.get("governing_ratio"),
+                "issue_type": issue_type,
+                "ratios": dict(member_summary.get("ratios") or {}),
+            },
+            "query": query,
+            "rag_used": rag_used,
+            "evidence": [
+                {
+                    "doc_id": ev.get("doc_id"),
+                    "clause": ev.get("clause"),
+                    "title": ev.get("title"),
+                    "quote": ev.get("quote"),
+                    "score": ev.get("score"),
+                }
+                for ev in evidence
+            ],
+            "warnings": list(warnings or []),
+        })
+    except Exception as exc:  # noqa: BLE001 - never break user-facing tool
+        logger.warning(
+            "failed to write KDS chat evidence audit: %s",
+            exc,
+            exc_info=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tool handler
 # ---------------------------------------------------------------------------
@@ -387,6 +470,18 @@ def explain_member_compliance(arguments: dict, *, session: dict) -> dict:
         rag_context, retriever, top_k=top_k,
     )
     evidence = [e.to_dict() for e in evidence_objs]
+    _write_evidence_audit(
+        analysis_id=aid,
+        member_id=member_id,
+        session=session,
+        info=info,
+        member_summary=member_summary,
+        issue_type=issue_type,
+        rag_context=rag_context,
+        evidence=evidence,
+        rag_used=rag_used,
+        warnings=warnings,
+    )
 
     # ---- 5. Always-deterministic response, split into two parts --------
     # The chat widget renders ``mandatory_response_summary`` inline (always

@@ -5,6 +5,7 @@ Mounts two POST endpoints plus a debug GET:
     POST /api/v2/chat/sessions       create a session (optional analysis bind)
     POST /api/v2/chat/messages       send a turn, receive NDJSON stream
     GET  /api/v2/chat/sessions/{id}  inspect history (debug only)
+    GET  /api/v2/chat/audit/{aid}    inspect KDS evidence audit records
 
 Phase A.2 wires the tool registry (``inspect_selection`` +
 ``get_analysis_summary``) and a per-session ``asyncio.Lock`` so two
@@ -50,6 +51,7 @@ from app.services.chat_session import (  # noqa: E402
     _CHAT_SESSION_TTL_SEC,
     chat_session_cache,
 )
+from app.services.chat_audit_log import query_audit  # noqa: E402
 
 
 # Module-level singleton — the registry is stateless and reading
@@ -257,4 +259,19 @@ async def get_session(session_id: str):
             {"role": h["role"], "content": h["content"]}
             for h in sess.get("history", [])
         ],
+    }
+
+
+@router.get("/audit/{analysis_id}")
+async def get_audit(
+    analysis_id: str,
+    member_id: Optional[int] = None,
+    turn: Optional[int] = None,
+):
+    """Debug/provenance view for KDS evidence audit records."""
+    return {
+        "analysis_id": analysis_id,
+        "member_id": member_id,
+        "turn": turn,
+        "records": query_audit(analysis_id, member_id=member_id, turn=turn),
     }
