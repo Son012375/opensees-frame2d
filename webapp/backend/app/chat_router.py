@@ -267,11 +267,32 @@ async def get_audit(
     analysis_id: str,
     member_id: Optional[int] = None,
     turn: Optional[int] = None,
+    include_quotes: bool = False,
 ):
-    """Debug/provenance view for KDS evidence audit records."""
+    """Debug/provenance view for KDS evidence audit records.
+
+    By default the verbatim evidence **quote bodies are redacted** (set to
+    ``None``) — they are the most sensitive field, and this endpoint is
+    reachable with only an ``analysis_id`` (no session/user check). The
+    provenance metadata (member, ratios, issue_type, query, clause/doc_id,
+    score, warnings) is still returned so the audit chain stays queryable.
+    Pass ``?include_quotes=true`` to get the full quotes (intended for the
+    trusted local/operator context). Proper per-session access control is
+    a deployment follow-up — see review P1/P2.
+
+    ``query_audit`` returns deep copies, so redacting here never mutates
+    the underlying store.
+    """
+    records = query_audit(analysis_id, member_id=member_id, turn=turn)
+    if not include_quotes:
+        for rec in records:
+            for ev in rec.get("evidence") or []:
+                if "quote" in ev:
+                    ev["quote"] = None
     return {
         "analysis_id": analysis_id,
         "member_id": member_id,
         "turn": turn,
-        "records": query_audit(analysis_id, member_id=member_id, turn=turn),
+        "include_quotes": include_quotes,
+        "records": records,
     }

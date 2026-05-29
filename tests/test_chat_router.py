@@ -98,7 +98,8 @@ def test_get_audit_endpoint_returns_filtered_records(client):
         },
         "query": {"query_text": "shear", "topic": "member_shear"},
         "rag_used": True,
-        "evidence": [{"quote": "Shear strength provisions."}],
+        "evidence": [{"doc_id": "KDS 14 31 10", "clause": "4.3.2.1.2",
+                      "quote": "Shear strength provisions."}],
         "warnings": [],
     })
     append_audit({
@@ -113,14 +114,37 @@ def test_get_audit_endpoint_returns_filtered_records(client):
         "warnings": [],
     })
 
+    # Default: quote bodies REDACTED (sensitive), provenance metadata kept.
     r = client.get("/api/v2/chat/audit/analysis_audit_001?member_id=5")
     assert r.status_code == 200
     body = r.json()
     assert body["analysis_id"] == "analysis_audit_001"
     assert body["member_id"] == 5
     assert body["turn"] is None
+    assert body["include_quotes"] is False
     assert len(body["records"]) == 1
-    assert body["records"][0]["member_id"] == 5
+    ev = body["records"][0]["evidence"][0]
+    assert ev["quote"] is None, "quote must be redacted by default"
+    assert ev["doc_id"] == "KDS 14 31 10"   # metadata survives redaction
+    assert ev["clause"] == "4.3.2.1.2"
+
+
+def test_get_audit_endpoint_include_quotes_returns_full(client):
+    append_audit({
+        "analysis_id": "analysis_audit_iq",
+        "member_id": 5, "turn": 1,
+        "member": {"member_id": 5}, "trigger": {"ratios": {}},
+        "query": {}, "rag_used": True,
+        "evidence": [{"doc_id": "KDS 14 31 10", "clause": "4.3.2.1.2",
+                      "quote": "Shear strength provisions."}],
+        "warnings": [],
+    })
+    r = client.get(
+        "/api/v2/chat/audit/analysis_audit_iq?include_quotes=true"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["include_quotes"] is True
     assert body["records"][0]["evidence"][0]["quote"] == "Shear strength provisions."
 
 
