@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,8 @@ from app.services.chat_audit_log import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def _isolate_chat_sessions(tmp_path, monkeypatch):
     monkeypatch.setenv("CHAT_AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    # Default to open/operator mode; token-gated tests opt in via setenv.
+    monkeypatch.delenv("DEMO_AUTH_TOKEN", raising=False)
     clear_audit_cache()
     with _CHAT_SESSION_LOCK:
         chat_session_cache.clear()
@@ -149,9 +152,108 @@ def test_get_audit_endpoint_include_quotes_returns_full(client):
 
 
 def test_get_audit_endpoint_empty_records_is_200(client):
+    # No DEMO_AUTH_TOKEN in the test env -> operator/open mode.
     r = client.get("/api/v2/chat/audit/missing_analysis")
     assert r.status_code == 200
     assert r.json()["records"] == []
+    assert r.json()["access_mode"] == "operator"
+
+
+# ---------------------------------------------------------------------------
+# Audit access control (DEMO_AUTH_TOKEN set -> gated)
+# ---------------------------------------------------------------------------
+
+def _audit_record(analysis_id: str, *, session_id: str, quote: str = "Q") -> dict:
+    return {
+        "analysis_id": analysis_id,
+        "member_id": 5,
+        "turn": 1,
+        "session_id": session_id,
+        "member": {"member_id": 5},
+        "trigger": {"status": "NG", "ratios": {"shear": 1.2}},
+        "query": {"query_text": "shear"},
+        "rag_used": True,
+        "evidence": [{"doc_id": "KDS 14 31 10", "clause": "4.3.2.1.2",
+                      "quote": quote}],
+        "warnings": [],
+    }
+
+
+def _live_session(sid: str, analysis_id=None) -> None:
+    now = time.time()
+    with _CHAT_SESSION_LOCK:
+        chat_session_cache[sid] = {
+            "session_id": sid,
+            "analysis_id": analysis_id,
+            "history": [],
+            "provider": "noop",
+            "created_at": now,
+            "expires_at": now + 3600,
+        }
+
+
+def test_audit_token_set_no_credentials_returns_403(client, monkeypatch):
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    append_audit(_audit_record("a_gated", session_id="chat_owner"))
+    r = client.get("/api/v2/chat/audit/a_gated")
+    assert r.status_code == 403
+
+
+def test_audit_operator_token_default_redacts_quotes(client, monkeypatch):
+    """fix #1: operators still get redacted quotes unless include_quotes."""
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    append_audit(_audit_record("a_op", session_id="chat_x"))
+    r = client.get("/api/v2/chat/audit/a_op?token=secret")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_mode"] == "operator"
+    assert body["records"][0]["evidence"][0]["quote"] is None
+
+
+def test_audit_operator_token_include_quotes_returns_full(client, monkeypatch):
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    append_audit(_audit_record("a_op2", session_id="chat_x"))
+    r = client.get("/api/v2/chat/audit/a_op2?token=secret&include_quotes=true")
+    assert r.status_code == 200
+    assert r.json()["records"][0]["evidence"][0]["quote"] == "Q"
+
+
+def test_audit_owning_session_metadata_then_quotes(client, monkeypatch):
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    sid = "chat_owner_ok"
+    _live_session(sid, analysis_id="a_own")
+    append_audit(_audit_record("a_own", session_id=sid))
+
+    r = client.get(f"/api/v2/chat/audit/a_own?session_id={sid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_mode"] == "session"
+    assert body["records"][0]["evidence"][0]["quote"] is None  # default redacts
+    assert body["records"][0]["trigger"]["ratios"] == {"shear": 1.2}  # metadata kept
+
+    r2 = client.get(
+        f"/api/v2/chat/audit/a_own?session_id={sid}&include_quotes=true"
+    )
+    assert r2.json()["records"][0]["evidence"][0]["quote"] == "Q"
+
+
+def test_audit_non_owning_session_returns_403(client, monkeypatch):
+    """fix #2: a live session bound to the analysis is NOT enough — the
+    record's server-stamped session_id must match the requester."""
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    sid = "chat_pretender"
+    _live_session(sid, analysis_id="a_victim")  # bound, but didn't write the record
+    append_audit(_audit_record("a_victim", session_id="chat_real_owner"))
+
+    r = client.get(f"/api/v2/chat/audit/a_victim?session_id={sid}")
+    assert r.status_code == 403
+
+
+def test_audit_unknown_session_returns_403(client, monkeypatch):
+    monkeypatch.setenv("DEMO_AUTH_TOKEN", "secret")
+    append_audit(_audit_record("a_unknown", session_id="chat_real"))
+    r = client.get("/api/v2/chat/audit/a_unknown?session_id=chat_nonexistent")
+    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------
