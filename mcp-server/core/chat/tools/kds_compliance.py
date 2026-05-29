@@ -196,6 +196,31 @@ _GOVERNING_KOREAN = {
 }
 
 
+def _exceeded_ratios(ratios: dict, *, threshold: float = 1.0) -> list[dict]:
+    """Every design-check ratio above ``threshold`` (DCR > 1.0 = NG),
+    sorted by value desc.
+
+    A member can fail several limit states at once; the governing pick
+    (``_governing_issue_type``) names only the dominant one. Surfacing
+    the full list keeps the summary + audit honest for design review —
+    otherwise a second/third exceeded limit state silently drops from
+    the answer and the provenance chain (review P2 — all-violations).
+
+    Operates on the ``member_summary`` ratios dict
+    ({interaction, shear, axial, bending}). Returns ``[{name, value}]``.
+    """
+    out: list[dict] = []
+    for name in ("interaction", "shear", "axial", "bending"):
+        try:
+            v = float(ratios.get(name) or 0.0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > threshold:
+            out.append({"name": name, "value": v})
+    out.sort(key=lambda d: -d["value"])
+    return out
+
+
 def _format_member_block(summary: dict) -> str:
     """Render the fixed top section of every compliance response.
 
@@ -226,9 +251,22 @@ def _format_member_block(summary: dict) -> str:
     )
 
     if status == "NG":
+        exceeded = summary.get("exceeded") or []
+        if exceeded:
+            items = []
+            for e in exceeded:
+                ename = (e.get("name") or "").lower()
+                label = _GOVERNING_KOREAN.get(ename, ename or "미상")
+                mark = " ←지배" if ename == gov else ""
+                items.append(f"{label} {float(e.get('value') or 0.0):.3f}{mark}")
+            ng_line = "1.0 초과 항목: " + ", ".join(items)
+        else:
+            # NG flagged but no ratio strictly > 1.0 (edge / rounding) —
+            # fall back to naming the governing pick.
+            ng_line = f"지배 항목: {gov_ko}"
         verdict = (
             f"부재 #{mid} ({story_part}{etype_ko}, {section}) — **NG (불합격)**.\n"
-            f"지배 항목: {gov_ko} (해당 ratio가 1.0을 초과)"
+            f"{ng_line}"
         )
     else:
         verdict = (
@@ -341,6 +379,12 @@ def _build_member_summary(
     ratios: dict,
     governing_ratio: str,
 ) -> dict:
+    ratio_dict = {
+        "interaction": ratios.get("ratio_interaction", 0),
+        "shear": ratios.get("ratio_shear", 0),
+        "axial": ratios.get("ratio_axial", 0),
+        "bending": ratios.get("ratio_bending", 0),
+    }
     return {
         "member_id": member_id,
         "type": info.get("etype"),
@@ -349,12 +393,10 @@ def _build_member_summary(
         "story": info.get("story"),
         "status": ratios.get("status", "OK"),
         "governing_ratio": governing_ratio,
-        "ratios": {
-            "interaction": ratios.get("ratio_interaction", 0),
-            "shear": ratios.get("ratio_shear", 0),
-            "axial": ratios.get("ratio_axial", 0),
-            "bending": ratios.get("ratio_bending", 0),
-        },
+        "ratios": ratio_dict,
+        # All limit states over 1.0 (not just the governing pick) so the
+        # summary + audit show every NG cause — review P2 (all-violations).
+        "exceeded": _exceeded_ratios(ratio_dict),
     }
 
 
@@ -405,6 +447,9 @@ def _write_evidence_audit(
                 "governing_ratio": member_summary.get("governing_ratio"),
                 "issue_type": issue_type,
                 "ratios": dict(member_summary.get("ratios") or {}),
+                # All limit states > 1.0, not just the governing pick, so
+                # the provenance chain records every NG cause (review P2).
+                "exceeded": list(member_summary.get("exceeded") or []),
             },
             "query": query,
             "rag_used": rag_used,
