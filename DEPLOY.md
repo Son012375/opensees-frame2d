@@ -1,5 +1,18 @@
 # Azure Container Apps 배포 가이드
 
+> ## ⚠️ 운영 필수: `DEMO_AUTH_TOKEN` 반드시 설정
+>
+> **`DEMO_AUTH_TOKEN`을 설정하지 않으면 앱 전체가 인증 없이 열립니다 (auth disabled = open).**
+> 여기에는 KDS 챗봇 **감사 로그 엔드포인트** `GET /api/v2/chat/audit/{analysis_id}`도 포함됩니다 —
+> 토큰 미설정 시 이 엔드포인트는 운영자 모드로 동작하여 **누구나 analysis_id만으로 다른 사용자의
+> 설계 검토 메타데이터(부재 ratio, 위반 항목 등)와, `include_quotes=true` 시 인용 quote까지** 조회할 수 있습니다.
+>
+> - **공유/외부 배포: `DEMO_AUTH_TOKEN`을 반드시 설정하세요.** 설정 시 audit 엔드포인트는
+>   (a) 토큰 보유자(운영자) 또는 (b) 해당 레코드를 작성한 본인 세션(`session_id`)만 조회 가능합니다.
+> - **로컬/단독 dev에서만** 토큰 미설정(open)이 허용됩니다 — 신뢰된 환경 전제.
+> - 감사 로그 파일(`data/chat_audit/`)은 quote·ratio·analysis_id를 포함하는 민감 산출물이며
+>   `.gitignore`로 커밋이 차단됩니다. 저장 위치는 `CHAT_AUDIT_LOG_PATH`로 재지정 가능.
+
 ## 사전 준비
 
 ### 1. Azure for Students 계정 생성
