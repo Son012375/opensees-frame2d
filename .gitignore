@@ -61,6 +61,11 @@ AUX
 # Large data — KDS PDF images (derived from PDFs)
 data/kds_images/
 
+# Runtime KDS evidence audit log (chat_audit_log.py default path).
+# Contains evidence quotes + member ratios + analysis_id — sensitive,
+# never commit. Override location via CHAT_AUDIT_LOG_PATH.
+data/chat_audit/
+
 # Generated test output HTML reports
 mcp-server/test_output/
 mcp-server/*.html

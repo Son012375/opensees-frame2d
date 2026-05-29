@@ -33,6 +33,7 @@ from core.kds_rag import (  # noqa: E402
     chunk_to_code_reference,
     enrich_code_refs_with_kds,
     enrich_recommendation_payload_with_kds,
+    make_kds_query,
     validate_code_reference,
     validate_code_references,
 )
@@ -322,6 +323,51 @@ class TestQueryConstruction:
         # discriminator). Dedup keeps only one.
         queries = build_kds_queries_for_candidate(cand, issue)
         assert len(queries) == 1
+
+    def test_make_kds_query_includes_target_section(self):
+        # When the caller only describes the member (chat compliance
+        # tool — no proposed_change), the current section id must still
+        # land in the query text so Voyage retrieval sees the size.
+        q = make_kds_query({
+            "issue_type": "strength_exceeded",
+            "target": {
+                "member_type": "column",
+                "section": "H-300x300",
+                "material": "steel",
+            },
+        })
+        assert "H-300x300" in q.query_text
+        assert "column" in q.query_text
+
+    def test_make_kds_query_axial_bucket_maps_topic_and_limit_state(self):
+        # P3: axial-only NG routes through its own bucket so topic /
+        # limit_state and the seeded keywords reflect the axial limit
+        # state rather than the generic strength blur.
+        q = make_kds_query({
+            "issue_type": "axial_exceeded",
+            "target": {
+                "member_type": "column",
+                "section": "H-400x400",
+                "material": "steel",
+            },
+        })
+        assert q.topic == "member_axial"
+        assert q.limit_state == "axial_strength"
+        assert any(kw in q.query_text for kw in ("축력", "압축강도", "인장강도"))
+
+    def test_make_kds_query_flexure_bucket_maps_topic_and_limit_state(self):
+        # P3: bending-only NG routes through the flexure bucket.
+        q = make_kds_query({
+            "issue_type": "flexure_exceeded",
+            "target": {
+                "member_type": "beam_y",
+                "section": "H-500x200",
+                "material": "steel",
+            },
+        })
+        assert q.topic == "member_flexure"
+        assert q.limit_state == "flexural_strength"
+        assert any(kw in q.query_text for kw in ("휨강도", "휨모멘트"))
 
 
 # ============================================================

@@ -26,13 +26,20 @@ from app.services.chat_session import (  # noqa: E402
     _CHAT_SESSION_LOCK,
     chat_session_cache,
 )
+from app.services.chat_audit_log import (  # noqa: E402
+    append_audit,
+    clear_cache as clear_audit_cache,
+)
 
 
 @pytest.fixture(autouse=True)
-def _isolate_chat_sessions():
+def _isolate_chat_sessions(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHAT_AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
+    clear_audit_cache()
     with _CHAT_SESSION_LOCK:
         chat_session_cache.clear()
     yield
+    clear_audit_cache()
     with _CHAT_SESSION_LOCK:
         chat_session_cache.clear()
 
@@ -74,6 +81,77 @@ def test_create_session_optional_analysis_id_round_trips(client):
 def test_debug_get_unknown_session_returns_404(client):
     r = client.get("/api/v2/chat/sessions/chat_doesnotexist")
     assert r.status_code == 404
+
+
+def test_get_audit_endpoint_returns_filtered_records(client):
+    append_audit({
+        "analysis_id": "analysis_audit_001",
+        "member_id": 5,
+        "turn": 2,
+        "session_id": "chat_test",
+        "member": {"member_id": 5, "section": "H-300x300"},
+        "trigger": {
+            "status": "NG",
+            "governing_ratio": "shear",
+            "issue_type": "shear_exceeded",
+            "ratios": {"shear": 1.2},
+        },
+        "query": {"query_text": "shear", "topic": "member_shear"},
+        "rag_used": True,
+        "evidence": [{"doc_id": "KDS 14 31 10", "clause": "4.3.2.1.2",
+                      "quote": "Shear strength provisions."}],
+        "warnings": [],
+    })
+    append_audit({
+        "analysis_id": "analysis_audit_001",
+        "member_id": 6,
+        "turn": 2,
+        "member": {"member_id": 6},
+        "trigger": {"status": "OK", "ratios": {}},
+        "query": {},
+        "rag_used": False,
+        "evidence": [],
+        "warnings": [],
+    })
+
+    # Default: quote bodies REDACTED (sensitive), provenance metadata kept.
+    r = client.get("/api/v2/chat/audit/analysis_audit_001?member_id=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["analysis_id"] == "analysis_audit_001"
+    assert body["member_id"] == 5
+    assert body["turn"] is None
+    assert body["include_quotes"] is False
+    assert len(body["records"]) == 1
+    ev = body["records"][0]["evidence"][0]
+    assert ev["quote"] is None, "quote must be redacted by default"
+    assert ev["doc_id"] == "KDS 14 31 10"   # metadata survives redaction
+    assert ev["clause"] == "4.3.2.1.2"
+
+
+def test_get_audit_endpoint_include_quotes_returns_full(client):
+    append_audit({
+        "analysis_id": "analysis_audit_iq",
+        "member_id": 5, "turn": 1,
+        "member": {"member_id": 5}, "trigger": {"ratios": {}},
+        "query": {}, "rag_used": True,
+        "evidence": [{"doc_id": "KDS 14 31 10", "clause": "4.3.2.1.2",
+                      "quote": "Shear strength provisions."}],
+        "warnings": [],
+    })
+    r = client.get(
+        "/api/v2/chat/audit/analysis_audit_iq?include_quotes=true"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["include_quotes"] is True
+    assert body["records"][0]["evidence"][0]["quote"] == "Shear strength provisions."
+
+
+def test_get_audit_endpoint_empty_records_is_200(client):
+    r = client.get("/api/v2/chat/audit/missing_analysis")
+    assert r.status_code == 200
+    assert r.json()["records"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -189,3 +267,4 @@ def test_router_mount_does_not_break_main_simple_imports(client):
     paths = schema["paths"]
     assert "/api/v2/chat/sessions" in paths
     assert "/api/v2/chat/messages" in paths
+    assert "/api/v2/chat/audit/{analysis_id}" in paths

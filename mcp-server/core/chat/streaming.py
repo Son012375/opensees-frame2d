@@ -13,6 +13,12 @@ Event types
 ``tool_result``  Tool execution finished. Payload: ``{round, tool, result, ms}``.
 ``token``        One streamed token of the final natural-language answer.
                  Payload: ``{text}``.
+``collapsible``  Deterministic block attached to the current assistant
+                 message and rendered inside a click-to-expand
+                 ``<details>`` element. Used for KDS/AISC evidence quotes
+                 (kds_compliance tool) so the always-visible answer stays
+                 short while the long citation block is one click away.
+                 Payload: ``{summary_label, text}``.
 ``status``       Transient progress message (e.g. "evaluating 3/12").
                  Payload: ``{message, ...}``.
 ``error``        Recoverable failure surfaced to the chat UI.
@@ -39,6 +45,7 @@ from typing import Any, Iterable, Optional
 EVENT_TOOL_CALL = "tool_call"
 EVENT_TOOL_RESULT = "tool_result"
 EVENT_TOKEN = "token"
+EVENT_COLLAPSIBLE = "collapsible"
 EVENT_STATUS = "status"
 EVENT_ERROR = "error"
 EVENT_DONE = "done"
@@ -47,6 +54,7 @@ ALLOWED_EVENT_TYPES: frozenset[str] = frozenset({
     EVENT_TOOL_CALL,
     EVENT_TOOL_RESULT,
     EVENT_TOKEN,
+    EVENT_COLLAPSIBLE,
     EVENT_STATUS,
     EVENT_ERROR,
     EVENT_DONE,

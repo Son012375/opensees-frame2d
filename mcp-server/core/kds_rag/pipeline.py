@@ -113,7 +113,18 @@ def _query_for_ref(
 # RAG so query text is never empty even when code_refs are missing.
 # Keep lists short — Voyage rerank scores collapse with noisy queries.
 ISSUE_TYPE_KEYWORDS: dict[str, list[str]] = {
+    # ``strength_exceeded`` is now specifically the *combined* (P+M
+    # interaction) bucket — axial-only and flexure-only NG route to the
+    # dedicated buckets below (P3). The split sharpens query_text so the
+    # Voyage embedding/rerank sees the governing limit state instead of a
+    # generic "member strength" blur.
     "strength_exceeded": ["부재 강도", "조합응력 비", "interaction ratio"],
+    # 세장비/유효좌굴길이 are compression-buckling discriminators present in
+    # the §4.2 compression chunk but NOT the §4.4.1.1 interaction chunk —
+    # they pull the axial query embedding toward the pure-compression clause
+    # so it outranks the (also axial-heavy) interaction chunk (R1 finding).
+    "axial_exceeded": ["축력", "압축강도", "인장강도", "세장비", "유효좌굴길이", "axial strength"],
+    "flexure_exceeded": ["휨강도", "휨모멘트", "flexural strength"],
     "shear_exceeded": ["전단강도", "전단 검토", "shear strength"],
     "drift_exceeded": ["층간변위", "허용 층간변위비", "drift limit", "사용성"],
     "missing_design_check": ["설계 검토", "부재 검정"],
@@ -136,6 +147,8 @@ ACTION_TYPE_KEYWORDS: dict[str, list[str]] = {
 
 ISSUE_TYPE_TO_LIMIT_STATE: dict[str, str] = {
     "strength_exceeded": "strength",
+    "axial_exceeded": "axial_strength",
+    "flexure_exceeded": "flexural_strength",
     "shear_exceeded": "shear_strength",
     "drift_exceeded": "drift_limit",
     "compression_capacity": "compression_strength",
@@ -144,6 +157,8 @@ ISSUE_TYPE_TO_LIMIT_STATE: dict[str, str] = {
 
 ISSUE_TYPE_TO_TOPIC: dict[str, str] = {
     "strength_exceeded": "member_strength",
+    "axial_exceeded": "member_axial",
+    "flexure_exceeded": "member_flexure",
     "shear_exceeded": "member_shear",
     "drift_exceeded": "story_drift",
     "compression_capacity": "member_compression",
@@ -174,6 +189,15 @@ def make_kds_query(context: dict) -> KDSRetrievalQuery:
     member_type = target.get("member_type")
     if member_type:
         keywords.append(str(member_type))
+
+    # Current section of the target member (e.g. "H-300x300"). Needed
+    # when the caller only wants to *describe* the member (chat
+    # compliance tool) — there is no proposed_change to carry the
+    # section id, so without this the Voyage index loses the size
+    # signal entirely.
+    target_section = target.get("section")
+    if isinstance(target_section, str) and target_section.strip():
+        keywords.append(target_section.strip())
 
     # proposed_change.from/to may be either:
     #   * a dict (legacy/structured shape): {"section": "H-300x300", ...}

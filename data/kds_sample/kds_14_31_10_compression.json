@@ -1,0 +1,17 @@
+{
+  "doc_id": "kds_14_31_10_compression",
+  "standard_id": "KDS 14 31 10",
+  "version": "2024-05-03",
+  "effective_date": "2024-05-03",
+  "title": "비세장판 단면을 가진 부재의 휨좌굴에 대한 압축강도",
+  "clause": "4.2.3",
+  "topic": "member_axial",
+  "limit_state": "axial_strength",
+  "material": "steel",
+  "jurisdiction": "KDS",
+  "source_url": null,
+  "temporary_reference": false,
+  "replacement_target": null,
+  "replacement_note": null,
+  "text": "4.2.3 압축강도 — 중심축 압축력을 받는 비세장판 단면 부재의 휨좌굴\n\n설계압축강도 φc·Pn 은 공칭압축강도 Pn 에 강도저항계수 φc = 0.90 을 적용하여 산정한다(4.2.1). 부재의 압축 DCR 은 소요압축력 Pu / (φc·Pn) 이며 1.0 을 초과할 수 없다.\n\n공칭압축강도(휨좌굴 한계상태):\nPn = Fcr · Ag (식 4.2-1)\n\n임계좌굴응력 Fcr 은 다음과 같이 산정한다.\n① 비탄성좌굴 — KL/r ≤ 4.71·√(E/Fy) (또는 Fy/Fe ≤ 2.25) 인 경우:\n   Fcr = [0.658^(Fy/Fe)] · Fy (식 4.2-2)\n② 탄성좌굴 — KL/r > 4.71·√(E/Fy) (또는 Fy/Fe > 2.25) 인 경우:\n   Fcr = 0.877 · Fe (식 4.2-3)\n여기서 Fe : 탄성좌굴해석을 통하여 구하는 탄성좌굴응력으로,\n   Fe = π²·E / (KL/r)² (식 4.2-4)\nAg : 부재의 총단면적(mm^2), Fy : 강재의 항복강도(MPa), E : 강재의 탄성계수(MPa), K : 유효길이계수, L : 부재의 휨좌굴에 대한 비지지길이(mm), r : 좌굴축에 대한 단면2차반경(mm)\n\n[세장비 제한 4.2.2] 압축력에 기초하여 설계되는 부재의 유효세장비 KL/r 은 가급적 200 을 넘지 않도록 한다.\n\n[한계상태 구분] 비탄성 휨좌굴(식 4.2-2) / 탄성 휨좌굴(식 4.2-3).\n\n초과(Pu/φc·Pn > 1.0) 시 보강:\n1. 좌굴축 단면2차반경 r 이 큰 단면으로 교체 → 세장비 KL/r 감소, Fcr 증가\n2. 중간 횡지지(가새) 추가로 비지지길이 L 단축 → KL/r 감소"
+}

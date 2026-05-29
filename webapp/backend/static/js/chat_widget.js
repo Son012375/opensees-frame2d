@@ -317,6 +317,46 @@
         scrollToBottom();
     }
 
+    function appendCollapsibleBlock(summaryLabel, bodyText) {
+        // The text-token side of the message lives inside ``assistantTarget``
+        // (a single <div> whose textContent is updated as tokens stream).
+        // The collapsible block is a sibling <details> rendered AFTER that
+        // text — keeping it outside the streaming <div> means later tokens
+        // (rare but possible) don't disturb the toggle's DOM state. We
+        // close the current assistant text target so any subsequent token
+        // event starts a fresh paragraph below the toggle, not inside it.
+        removeTypingIndicator();
+        if (!assistantTarget) {
+            // No prose preceded — synthesise an empty assistant message
+            // wrapper so the toggle still anchors to the chat thread.
+            ensureAssistantTarget();
+        }
+        const details = document.createElement('details');
+        details.className = 'chat-collapsible';
+        const summary = document.createElement('summary');
+        summary.textContent = summaryLabel;
+        const body = document.createElement('div');
+        body.className = 'chat-collapsible-body';
+        // textContent (NOT innerHTML) — the body may contain user-controlled
+        // strings via tool results; an HTML injection in a KDS quote could
+        // break out of the toggle. The CSS keeps newlines visible via
+        // white-space: pre-wrap.
+        body.textContent = bodyText;
+        details.appendChild(summary);
+        details.appendChild(body);
+        // Append to the parent of the current text target so the toggle
+        // sits next to (not inside) the streaming text div.
+        const parent = assistantTarget && assistantTarget.parentNode
+            ? assistantTarget.parentNode
+            : dom.body;
+        parent.appendChild(details);
+        // Reset the text target so any later token event starts a new
+        // assistant text div below the toggle.
+        assistantTarget = null;
+        assistantBuffer = '';
+        scrollToBottom();
+    }
+
     function showTypingIndicator() {
         removeTypingIndicator();
         const el = document.createElement('div');
@@ -363,6 +403,18 @@
             case 'token':
                 removeTypingIndicator();
                 appendToken(event.text || '');
+                break;
+            case 'collapsible':
+                // Server attached a long deterministic block (e.g. KDS
+                // evidence quotes from explain_member_compliance) that
+                // belongs to the current assistant message but should
+                // stay collapsed until the user clicks. Renders as a
+                // native HTML5 <details> so no JS framework dependency.
+                removeTypingIndicator();
+                appendCollapsibleBlock(
+                    event.summary_label || '자세히 보기',
+                    event.text || '',
+                );
                 break;
             case 'error':
                 removeTypingIndicator();

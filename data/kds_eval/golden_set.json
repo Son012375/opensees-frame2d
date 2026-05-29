@@ -1,0 +1,51 @@
+{
+  "description": "R1 lightweight golden set for the KDS-RAG retrieval path. Each case maps a realistic member design-check scenario (the rag_context the chat tool builds from issue_type + member info) to the KDS clause(s) that should be retrieved. Used by tests/test_kds_rag_golden.py (deterministic, InMemory retriever over the real data/kds_sample corpus) and scripts/kds_rag_benchmark.py (live Voyage numbers). expected_clauses lists ALL acceptable clauses; a hit is top-k containing ANY of them (recall), and precision@1 is whether the top-1 is acceptable.",
+  "standard_for_steel": "KDS 14 31 10",
+  "cases": [
+    {
+      "id": "shear",
+      "question": "이 보가 전단 때문에 NG인데 어느 KDS 조항 근거야?",
+      "issue_type": "shear_exceeded",
+      "member_type": "beam_y",
+      "section": "H-500x200",
+      "expected_standard": "KDS 14 31 10",
+      "expected_clauses": ["4.3.2.1.2"]
+    },
+    {
+      "id": "flexure",
+      "question": "보 휨강도 검토 NG, 근거 조항?",
+      "issue_type": "flexure_exceeded",
+      "member_type": "beam_y",
+      "section": "H-500x200",
+      "expected_standard": "KDS 14 31 10",
+      "expected_clauses": ["4.3.2.1.1"]
+    },
+    {
+      "id": "interaction",
+      "question": "기둥이 조합응력(축력+휨)으로 NG, 상관식 근거?",
+      "issue_type": "strength_exceeded",
+      "member_type": "column",
+      "section": "H-400x400",
+      "expected_standard": "KDS 14 31 10",
+      "expected_clauses": ["4.4.1.1"]
+    },
+    {
+      "id": "axial",
+      "question": "기둥 축력(압축) NG, 압축강도 근거 조항?",
+      "issue_type": "axial_exceeded",
+      "member_type": "column",
+      "section": "H-350x350",
+      "expected_standard": "KDS 14 31 10",
+      "expected_clauses": ["4.2.3", "4.1.3"]
+    },
+    {
+      "id": "drift",
+      "question": "층간변위가 허용치를 초과했어, 근거 기준?",
+      "issue_type": "drift_exceeded",
+      "member_type": null,
+      "section": null,
+      "expected_standard": "KDS 41 17 00",
+      "expected_clauses": ["8.2.3"]
+    }
+  ]
+}

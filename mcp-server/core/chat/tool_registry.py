@@ -64,7 +64,7 @@ class ToolDisabledError(PermissionError):
 
 def parse_enabled_groups(raw: Optional[str] = None) -> frozenset[str]:
     raw = raw if raw is not None else os.environ.get(
-        "CHAT_TOOLS_ENABLED", "inspect,summary,edit",
+        "CHAT_TOOLS_ENABLED", "inspect,summary,edit,kds",
     )
     return frozenset(g.strip() for g in raw.split(",") if g.strip())
 
@@ -135,10 +135,12 @@ def default_registry() -> ToolRegistry:
     # Lazy import so this module doesn't pull the tools — and their
     # webapp-side cache imports — at module-load time.
     from .tools.inspect import INSPECT_SELECTION_TOOL, GET_ANALYSIS_SUMMARY_TOOL
+    from .tools.kds_compliance import EXPLAIN_MEMBER_COMPLIANCE_TOOL
     from .tools.section_change import PROPOSE_SECTION_CHANGE_TOOL
 
     return ToolRegistry([
         INSPECT_SELECTION_TOOL,
         GET_ANALYSIS_SUMMARY_TOOL,
         PROPOSE_SECTION_CHANGE_TOOL,
+        EXPLAIN_MEMBER_COMPLIANCE_TOOL,
     ])

@@ -1,0 +1,17 @@
+{
+  "doc_id": "kds_14_31_10_interaction",
+  "standard_id": "KDS 14 31 10",
+  "version": "2024-05-03",
+  "effective_date": "2024-05-03",
+  "title": "압축력과 휨을 받는 1축 및 2축 대칭단면 부재",
+  "clause": "4.4.1.1",
+  "topic": "member_strength",
+  "limit_state": "strength",
+  "material": "steel",
+  "jurisdiction": "KDS",
+  "source_url": null,
+  "temporary_reference": false,
+  "replacement_target": null,
+  "replacement_note": null,
+  "text": "조합력(축력+휨) 상관식 — 1축·2축 대칭단면 부재 (KDS 14 31 10, 4.4.1.1)\n\n축력비 Pr/Pc 값이 0.1 이상 0.9 이하로서 기하축(x축 또는 y축)으로만 휨이 발생하도록 구속된 1축·2축 대칭단면 부재의 압축력과 휨의 조합력은 다음 상관식으로 검토하며, 설계 조합응력비(DCR)는 1.0을 초과할 수 없다.\n\n[Pr/Pc ≥ 0.2 인 경우] 식 (4.4-1):\nPr/Pc + (8/9)·(Mrx/Mcx + Mry/Mcy) ≤ 1.0\n\n[Pr/Pc < 0.2 인 경우] 식 (4.4-2):\nPr/(2·Pc) + (Mrx/Mcx + Mry/Mcy) ≤ 1.0\n\n여기서 Pr=하중조합으로 구한 소요압축강도(N), Pc=φc·Pn 설계압축강도(φc=0.90)(N), Mr=하중조합으로 구한 소요휨강도(N·mm), Mc=φb·Mn 설계휨강도(φb=0.90)(N·mm), 아래첨자 x=강축 휨, y=약축 휨.\n\n초과 시 보강: 1. 단면 증대(Pc·Mc 증가) 2. 횡지지 간격 축소(좌굴강도·Mc 증가) 3. 비가새골조의 경우 횡변위 억제(2차 모멘트 저감) 4. 재질 상향(Fy 증가).\n\n축력 또는 휨 단독 한계상태는 각각 4.2(압축)/4.3(휨)에 따르며, 조합력은 그보다 지배적일 수 있으므로 본 상관식 검토가 필요하다. 비대칭단면·기타 형상은 4.4.2의 응력 기반 상관식을 사용할 수 있다."
+}

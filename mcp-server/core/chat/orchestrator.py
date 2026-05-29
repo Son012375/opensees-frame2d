@@ -78,6 +78,26 @@ _FORCE_SUMMARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Phase D — KDS/AISC compliance explanation pattern.
+# Routes "왜 NG?", "설계기준?", "이 부재 안전한가?" etc. to
+# explain_member_compliance BEFORE inspect_selection's "N번 부재" branch
+# fires — without this ordering, "5번 부재 왜 NG?" would land in
+# inspect_selection (which has no RAG hook) and we'd lose the KDS quote.
+#
+# Note: "안전한가" overlaps with the inspect pattern. Same conscious
+# choice as above — for that phrasing, the user wants the *reasoning*
+# (KDS quote) rather than a ratio dump, so the explain tool wins.
+_FORCE_EXPLAIN_RE = re.compile(
+    r"왜\s*(NG|안전|불합격|불안전)"
+    r"|설계\s*기준|근거(?:가|는|를|에|와)?|조항|어느\s*조항"
+    r"|\bKDS\b|\bAISC\b"
+    # "이 부재 안전한가/안전해/안전해?/안전합니까/안전할까" 등 한국어 어미
+    # 변형 전부 수용. '안전한가'만 잡으면 사용자가 자연스럽게 쓰는 '안전해?'
+    # '안전합니까?'가 모두 inspect_selection으로 흘러가 KDS 근거를 잃음.
+    r"|이\s*부재\s*안전(?:한가|해|하니|합니까|할까)?",
+    re.IGNORECASE,
+)
+
 # Phase B — imperative "change member section" pattern. Deliberately
 # narrow: every branch requires both an explicit member reference (id
 # or selection pronoun) and a change verb (변경/바꿔/바꾸/교체) and at
@@ -161,16 +181,21 @@ def _pick_forced_tool(user_message: str, available: set[str]) -> Optional[str]:
     pick can't reference a tool the registry doesn't know about (defensive
     against a future registry that disables one of them via env flag).
 
-    Priority: command > inspect > summary. A user asking to *change* a
-    member's section ("5번 부재 단면을 H-400으로 변경") also matches the
-    inspect pattern ("\\d+번 부재"), but the change verb makes the
-    intent unambiguous — the LLM-narrated final answer must come from
-    the command tool's preview, not from an inspect dump.
+    Priority: command > explain > inspect > summary. Both command and
+    explain win over inspect for the "N번 부재 …" overlap:
+
+      - command ("5번 부재 단면을 H-400으로 변경") needs the preview, not
+        a ratio dump.
+      - explain ("5번 부재 왜 NG?") needs the KDS quote, not a ratio
+        dump. inspect_selection has no RAG hook so without this branch
+        the user gets numbers but never a citation.
     """
     if not user_message:
         return None
     if "propose_section_change" in available and _FORCE_COMMAND_RE.search(user_message):
         return "propose_section_change"
+    if "explain_member_compliance" in available and _FORCE_EXPLAIN_RE.search(user_message):
+        return "explain_member_compliance"
     if "inspect_selection" in available and _FORCE_INSPECT_RE.search(user_message):
         return "inspect_selection"
     if "get_analysis_summary" in available and _FORCE_SUMMARY_RE.search(user_message):
@@ -226,6 +251,7 @@ def _extract_explicit_element_ids(user_message: str) -> list[int]:
             out.append(n)
     return out
 from .streaming import (
+    EVENT_COLLAPSIBLE,
     EVENT_DONE,
     EVENT_ERROR,
     EVENT_STATUS,
@@ -239,6 +265,110 @@ from .tool_registry import (
     ToolNotFoundError,
     ToolRegistry,
 )
+
+
+# Patterns the LLM is forbidden to emit when paired with a
+# ``mandatory_response`` (deterministic citation block) — see hybrid
+# bypass docstring below. These match the canonical KDS/AISC clause
+# shapes we've seen models fabricate. If the LLM-generated *prefix*
+# contains either, we discard the prefix entirely (the deterministic
+# block already carries the real citation, so the user loses nothing).
+_FABRICATED_CLAUSE_RE = re.compile(
+    r"KDS\s*\d{2}[\s\-]*\d{2}[\s\-]*\d{2}"  # "KDS 41 31 00" / "KDS 41-31-00"
+    r"|AISC\s*\d{3}"                          # "AISC 360"
+    r"|§\s*\d+(?:\.\d+)+",                    # "§8.2-1" / "§7.3.2"
+    re.IGNORECASE,
+)
+
+# Hard cap on the LLM prefix length. Beyond this we treat the prefix as
+# the model ignoring "1-2 sentences only" and discard it.
+_MAX_PREFIX_CHARS = 400
+
+
+def _pop_mandatory_response(
+    history: list[dict],
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(summary, collapsible)`` from the most recent tool result.
+
+    Tools that want to bypass LLM narration return one or both of:
+      * ``mandatory_response_summary``  — short, always-shown text.
+      * ``mandatory_response_collapsible`` — long deterministic block
+        rendered inside a ``<details>`` element on the client.
+      * (legacy) ``mandatory_response`` — treated as summary if neither
+        of the above is present, for backwards compatibility.
+
+    Side effects (only when at least one string was popped):
+
+      * Those fields are removed from the history entry so a follow-up
+        turn doesn't re-emit them.
+      * ``kds_evidence`` is also removed — the LLM that runs next for
+        the prose prefix must not see the raw quotes/clauses, or it'll
+        paraphrase them into adjacent-clause fabrications. ``warnings``
+        stays (the AISC temporary-reference notice carries no clause
+        text and is helpful for the LLM to mention generically).
+
+    Returns ``(None, None)`` to mean "no override — proceed with LLM
+    streaming as usual".
+    """
+    for entry in reversed(history):
+        if entry.get("role") != "tool":
+            continue
+        raw = entry.get("content")
+        if not isinstance(raw, str):
+            return None, None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None, None
+        if not isinstance(data, dict):
+            return None, None
+
+        summary = data.pop("mandatory_response_summary", None)
+        collapsible = data.pop("mandatory_response_collapsible", None)
+        legacy = data.pop("mandatory_response", None)
+
+        # Legacy single field maps to summary when the split form isn't
+        # provided. New code should set the two specific fields.
+        if summary is None and isinstance(legacy, str) and legacy.strip():
+            summary = legacy
+
+        # Normalise to clean strings or None.
+        summary = summary.strip() if isinstance(summary, str) and summary.strip() else None
+        collapsible = (
+            collapsible.strip()
+            if isinstance(collapsible, str) and collapsible.strip()
+            else None
+        )
+
+        if summary is None and collapsible is None:
+            return None, None
+
+        # Strip raw quotes so the LLM-prefix step can't paraphrase them.
+        data.pop("kds_evidence", None)
+        entry["content"] = json.dumps(data, ensure_ascii=False)
+        return summary, collapsible
+    return None, None
+
+
+def _sanitize_llm_prefix(text: str) -> Optional[str]:
+    """Validate the LLM-generated prefix that wraps a deterministic block.
+
+    Returns the cleaned prefix or ``None`` to indicate "discard entirely".
+    Discard triggers:
+      * Empty / whitespace-only.
+      * Contains a fabricated clause pattern.
+      * Too long (> :data:`_MAX_PREFIX_CHARS`).
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if len(stripped) > _MAX_PREFIX_CHARS:
+        return None
+    if _FABRICATED_CLAUSE_RE.search(stripped):
+        return None
+    return stripped
 
 
 def _safe_encode(event_type: str, payload: dict | None = None) -> str:
@@ -298,6 +428,7 @@ DEFAULT_SYSTEM_PROMPT = """LANGUAGE POLICY (highest priority — overrides any o
    - "이 부재", "선택한 부재", "선택된 부재", "부재 정보", "이거", "ratio", "안전한가" → `inspect_selection` 호출 (인자 비워도 됨 — 사용자의 현재 3D 선택을 자동으로 사용)
    - 특정 element 번호 명시 → `inspect_selection({"element_ids":[번호]})`
    - **단면 변경 요청** ("N번 부재 단면을 H-XXX으로 변경/바꿔", "단면 바꿔줘", "단면 교체") → `propose_section_change` 호출. 인자: `member_id`(정수) + `target_section`(문자열). 부재 번호가 명시되지 않으면 호출 시 `member_id` 생략 — 도구가 UI 선택을 자동으로 사용합니다. 단면명이 모호하거나 빠지면 사용자에게 정확한 단면명을 다시 물으세요 (도구를 호출하지 말 것).
+   - **설계 근거/KDS 조항 요청** ("왜 NG?", "왜 안전?", "설계기준", "근거", "KDS", "AISC", "조항", "이 부재 안전한가") → `explain_member_compliance` 호출. 인자: `member_id`(정수, 생략 시 UI 선택). 선택된 부재가 없으면 "먼저 3D 뷰어에서 부재를 클릭해 주세요" 안내.
 
 4. 도구 결과의 `error` 또는 `code` 필드가 있으면 그 내용을 한국어로 사용자에게 그대로 전달하세요. **결과의 error/code를 무시하고 "정상입니다" 같은 답을 만들지 마세요:**
    - `code=analysis_not_found` → "분석이 만료되었거나 찾을 수 없습니다. 좌측 패널에서 분석을 다시 실행해주세요."
@@ -307,6 +438,13 @@ DEFAULT_SYSTEM_PROMPT = """LANGUAGE POLICY (highest priority — overrides any o
 5. 도구 결과에 들어있지 않은 수치/조항 번호는 추측하지 마세요. 모르면 "해당 정보는 가지고 있지 않습니다"라고 답변.
 
 6. 답변은 간결하게. 불필요한 인사말이나 "도움이 되었으면 좋겠습니다" 같은 사족 금지.
+
+7. **explain_member_compliance 결과는 짧은 prefix만 작성하세요 (Hybrid 모드).** 도구가 반환한 결과의 `member_summary`만 보고 1-2 문장으로 사용자에게 결과를 안내하는 자연어 prefix(예: "5번 부재가 전단력 과다로 NG 판정되었습니다. 주요 근거는 다음과 같습니다:")만 작성. 절대 다음을 하지 마세요:
+   - `KDS XX XX XX` 또는 `AISC 360` 같은 조항 번호 작성
+   - `§7.3.2` 같은 절번 작성
+   - quote 내용을 paraphrase하거나 추가 설명
+   - 3문장 이상으로 길어지기
+   왜냐하면 KDS/AISC 근거 quote는 **prefix 뒤에 결정론적 형식으로 자동 표시**되기 때문입니다 — 당신은 그 부분을 절대 생성할 수 없고, 시도하면 시스템이 prefix를 통째로 폐기합니다. 안전한 prefix는 `member_summary`의 `member_id`, `status`, `governing_ratio`, `ratios.shear/interaction` 같은 *숫자/상태*만 사용해 작성.
 
 ## 도구 사용 예시
 - 사용자: "지금 분석 결과 요약해줘"
@@ -447,6 +585,14 @@ class ChatOrchestrator:
             explicit_ids = _extract_explicit_element_ids(latest_user_msg)
             if explicit_ids:
                 forced_args = {"element_ids": explicit_ids}
+        elif forced_tool == "explain_member_compliance":
+            # "5번 부재 왜 NG?" → forward member_id=5 so the tool doesn't
+            # have to guess from a possibly-stale UI selection. If no
+            # explicit number is present the tool falls back to the
+            # latest selection itself.
+            explicit_ids = _extract_explicit_element_ids(latest_user_msg)
+            if explicit_ids:
+                forced_args = {"member_id": explicit_ids[0]}
         elif forced_tool == "propose_section_change":
             # The tool requires target_section. If we can't extract one
             # from the message we drop the force — the LLM is better at
@@ -570,25 +716,99 @@ class ChatOrchestrator:
             yield line
             rounds += delta
 
-        full_text = ""
+        # Hybrid anti-hallucination contract for tools that emit a
+        # deterministic citation block:
+        #
+        #   1. ``_pop_mandatory_response`` pulls the deterministic
+        #      summary + collapsible text AND strips kds_evidence from
+        #      the history entry, so the LLM that runs next sees only
+        #      member_summary — no quotes to paraphrase into adjacent-
+        #      clause fabrications.
+        #   2. The LLM is asked to generate a short Korean PREFIX (rule
+        #      7 in DEFAULT_SYSTEM_PROMPT: 1-2 sentences, no clauses).
+        #      Output is COLLECTED, not streamed — we need the whole
+        #      string to validate before showing it.
+        #   3. If the prefix passes ``_sanitize_llm_prefix`` (no
+        #      clause-shaped tokens, not absurdly long) it goes out
+        #      before the deterministic summary as one token. Otherwise
+        #      we discard the prefix silently.
+        #   4. The collapsible block (long evidence quotes) goes out as
+        #      its own EVENT_COLLAPSIBLE so the widget can render a
+        #      ``<details>`` toggle — keeps the always-visible answer
+        #      short while the citations are one click away.
+        #
+        # The deterministic summary + collapsible are ALWAYS emitted
+        # intact regardless of LLM behavior — that's the hard invariant.
+        summary_text, collapsible_text = _pop_mandatory_response(history)
+        # ``history_text`` is what we persist to provider-visible history
+        # (read back by ``_provider_messages`` on every later turn). It must
+        # EXCLUDE the collapsible evidence block: ``_pop_mandatory_response``
+        # already strips ``kds_evidence`` from the tool entry precisely so a
+        # later turn's LLM can't paraphrase the quotes into fabricated
+        # clauses — letting the *rendered* quotes survive in the assistant
+        # entry would re-open exactly that hole across turns (Codex P1).
+        # The user still sees the quotes: they go out as EVENT_COLLAPSIBLE.
+        history_text = ""
         token_count = 0
-        try:
-            async for tok in self.llm.stream_tokens(
-                messages=self._provider_messages(history),
-                temperature=self._temperature_for_last_tool(),
-            ):
-                if not tok:
-                    continue
-                full_text += tok
-                token_count += 1
-                yield _safe_encode(EVENT_TOKEN, {"text": tok})
-        except Exception as exc:  # noqa: BLE001
-            yield _safe_encode(EVENT_ERROR, {
-                "message": str(exc) or type(exc).__name__,
-                "code": "llm_failure",
-            })
+        if summary_text is not None or collapsible_text is not None:
+            prefix_raw = ""
+            try:
+                async for tok in self.llm.stream_tokens(
+                    messages=self._provider_messages(history),
+                    temperature=self._temperature_for_last_tool(),
+                ):
+                    if tok:
+                        prefix_raw += tok
+            except Exception as exc:  # noqa: BLE001
+                # Prefix is best-effort. Surface the LLM failure but
+                # still emit the deterministic block below — losing the
+                # citation block to a transient LLM error would be a
+                # worse outcome than losing the prose intro.
+                yield _safe_encode(EVENT_ERROR, {
+                    "message": str(exc) or type(exc).__name__,
+                    "code": "llm_failure",
+                })
+                prefix_raw = ""
 
-        history.append({"role": "assistant", "content": full_text})
+            clean_prefix = _sanitize_llm_prefix(prefix_raw)
+            # Compose the always-visible part: optional prefix + summary.
+            visible_parts: list[str] = []
+            if clean_prefix:
+                visible_parts.append(clean_prefix)
+            if summary_text:
+                visible_parts.append(summary_text)
+            payload = "\n\n".join(visible_parts)
+            if payload:
+                # prefix + summary are safe to persist — no raw quotes.
+                history_text = payload
+                token_count = 1
+                yield _safe_encode(EVENT_TOKEN, {"text": payload})
+            # Emit the collapsible block as its own event so the widget
+            # renders it inside a <details> toggle. DELIBERATELY NOT added
+            # to history_text — see the comment above.
+            if collapsible_text:
+                yield _safe_encode(EVENT_COLLAPSIBLE, {
+                    "summary_label": "📖 KDS/AISC 설계기준 근거 펼치기",
+                    "text": collapsible_text,
+                })
+        else:
+            try:
+                async for tok in self.llm.stream_tokens(
+                    messages=self._provider_messages(history),
+                    temperature=self._temperature_for_last_tool(),
+                ):
+                    if not tok:
+                        continue
+                    history_text += tok
+                    token_count += 1
+                    yield _safe_encode(EVENT_TOKEN, {"text": tok})
+            except Exception as exc:  # noqa: BLE001
+                yield _safe_encode(EVENT_ERROR, {
+                    "message": str(exc) or type(exc).__name__,
+                    "code": "llm_failure",
+                })
+
+        history.append({"role": "assistant", "content": history_text})
         self._trim_history(history)
 
         yield _safe_encode(EVENT_DONE, {

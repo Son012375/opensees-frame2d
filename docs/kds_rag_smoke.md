@@ -172,30 +172,32 @@ fake embedder 회귀는 *라우팅* (make_kds_query → cosine 경로의 wiring)
 - LLM provider 는 아직 `NoopExplanationLLMProvider` 만 — 본 스모크에서
   실제 LLM 호출은 없다. 후속 Phase 4 에서 Anthropic / OpenAI 연결.
 
-## AISC 임시 참조 — UI 표시 의무
+## AISC 임시 참조 — 해소됨 (KDS 14 31 10 ingest)
 
-`data/kds_sample/aisc_360_22_ch_*.json` 두 파일은 `temporary_reference:
-true` 로 표기된 임시 참조다. 이 청크가 Explain 모달에 인용될 때, 운영
-측은 다음 한국어 디스클레이머를 반드시 함께 노출해야 한다:
+이전의 `aisc_360_22_ch_f_flexure.json` / `aisc_360_22_ch_g_shear.json`
+임시 참조 두 파일은 **KDS 14 31 10 강구조 부재 설계기준** 청크
+(인장/압축/휨/전단/조합) 5건으로 교체되어 제거됐다. 이제 강구조 근거는
+모두 실제 KDS (`jurisdiction: "KDS"`, `temporary_reference: false`) 이므로
+`aisc_temporary_reference` 경고·디스클레이머가 더 이상 발생하지 않는다.
 
-> 현재 강구조 근거는 KDS 원문이 아닌 AISC 360-22 임시 참조입니다.
-> KDS 14 31 00 / KDS 41 31 00 원문 확보 후 교체 검증이 필요합니다.
+- 강구조 설계조항의 출처는 **KDS 14 31** (LRFD). 건축구조기준 KDS 41 은
+  강구조 설계를 KDS 14 31 로 따르도록 규정하며, KCS 41 31 00 은 *시공*
+  표준시방서(설계조항 아님)이므로 KDS 14 31 10 이 정본이다 (KDS 41 31 00 아님).
+- 소스 PDF 텍스트는 mojibake(커스텀 폰트)라 텍스트 추출 불가 → `fitz` 로
+  페이지를 PNG 렌더 후 Vision 으로 조항·수식 전사(전사값은 이미지와 대조 검증).
+- proxy 상태 표시(summary 노트 + audit `evidence_provenance` + collapsible)
+  는 `kds_compliance._aisc_proxy_standards` 단일 derivation 으로 산출 —
+  AISC 청크가 없으니 항상 빈 값.
 
-ingester (`core.kds_rag.ingest._doc_from_json`) 가 현재 시점에는
-`temporary_reference` / `replacement_*` 필드를 화이트리스트에서 제외해
-JSONL 인덱스에 싣지 않으므로, UI 측은 chunk metadata 가 아닌 **소스
-JSON 을 직접 읽어** 플래그를 확인해야 한다. UI 와이어링은 Phase 4
-작업 (LLM provider 활성화와 함께) 으로 남는다.
-
-`data/kds_sample/kds_41_17_00_drift.json` 은 `temporary_reference:
-false` 이므로 위 디스클레이머가 필요 없다.
+라이브 retrieval 스모크(voyage-4-large, top-1): 전단→§4.3.2.1.2,
+조합→§4.4.1.1, 휨→§4.3.2.1.1, drift→§8.2.3, 압축→§4.2.3 — 전부 KDS,
+AISC proxy 0건.
 
 ## 다음 작업 후보 (Phase 4)
 
-- KDS 14 31 00 PDF 입수 후 `data/kds_sample/` 에 추가, 인덱스 재빌드 →
-  AISC 인용이 KDS 인용으로 전환되는지 확인.
-- PDF → 텍스트 추출 파이프라인 (PyMuPDF/pdfplumber) → `data/kds_full/` 로
-  확장.
+- KDS 14 31 의 나머지 분권(05 일반사항, 25 접합부 등) 보충 — 현재는 부재
+  설계(10) + 내진 층간변위(41 17)만 커버. "아쉬우면 보충" 방침.
+- PDF → 이미지 → Vision 전사 파이프라인을 스크립트화 (현재는 수동 + 병렬 에이전트).
 - LLM provider 연결 — prompt caching + "evidence-only citation" 가드 +
   `validate_code_reference()` post-check.
 - 벡터 백엔드 마이그레이션 (sqlite-vec / Supabase pgvector) — 청크 1000+
