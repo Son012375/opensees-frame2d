@@ -46,30 +46,35 @@ python scripts/kds_rag_benchmark.py --top-k 3 --sleep 42
 
 Deterministic (InMemory): **recall@1 = 5/5, recall@3 = 5/5, precision@1 = 5/5.**
 
-Live (Voyage):
+Live (Voyage), after the axial fix below:
 
 | case | issue_type | top-1 | rank of expected | hit@1 | hit@3 |
 |------|------------|-------|------------------|-------|-------|
 | shear | shear_exceeded | 4.3.2.1.2 | 1 | ✅ | ✅ |
 | flexure | flexure_exceeded | 4.3.2.1.1 | 1 | ✅ | ✅ |
 | interaction | strength_exceeded | 4.4.1.1 | 1 | ✅ | ✅ |
-| axial | axial_exceeded | 4.4.1.1 | 2 (4.2.3) | ❌ | ✅ |
+| axial | axial_exceeded | 4.2.3 | 1 | ✅ | ✅ |
 | drift | drift_exceeded | 8.2.3 (KDS 41 17 00) | 1 | ✅ | ✅ |
 
-**recall@1 = 4/5 (80%), recall@3 = 5/5 (100%), precision@1 = 4/5 (80%),
-MRR = 0.900. AISC temporary-reference proxy: 0/5 (fully eliminated).**
+**recall@1 = 5/5 (100%), recall@3 = 5/5 (100%), precision@1 = 5/5 (100%),
+MRR = 1.000. AISC temporary-reference proxy: 0/5 (fully eliminated).**
 
-### Finding: axial precision@1 miss
+### Finding + fix: axial precision@1 (resolved)
 
-For an axial (compression) scenario the **interaction chunk §4.4.1.1
-ranks #1**, above the compression chunk §4.2.3 (rank 2). The interaction
-clause text is axial-heavy (압축력+휨 상관식), so Voyage embeds it close to
-an axial query. Not blocking: recall@3 still surfaces §4.2.3, and the
-interaction clause is plausibly relevant for an axially-loaded member. The
-deterministic InMemory test ranks §4.2.3 first (topic=member_axial exact
-match), so the gap is a Voyage-embedding effect, not a tagging error.
+*Initial run:* the axial (compression) scenario ranked the **interaction
+chunk §4.4.1.1 at #1**, above compression §4.2.3 (#2). The interaction
+clause text is axial-heavy (압축력+휨 상관식), so Voyage embedded it close
+to an axial query. (The deterministic InMemory test always ranked §4.2.3
+first via topic=member_axial exact match — so this was a Voyage-embedding
+effect, not a tagging error.)
 
-Options if we want axial precision@1 = 100% later: sharpen the compression
-chunk's axial keyword density, split the axial bucket (compression vs
-tension topics), or accept (recall@3 covers it). Deferred — corpus is only
-6 chunks; revisit after expansion (e.g. KDS 14 31 05/25).
+*Fix:* added compression-buckling discriminators **세장비 / 유효좌굴길이**
+to the `axial_exceeded` query seed (`ISSUE_TYPE_KEYWORDS`, pipeline.py).
+These appear in the §4.2 compression chunk but NOT the §4.4.1.1 interaction
+chunk, so they pull the axial query embedding toward the pure-compression
+clause. Query-side only — no chunk edit, no index rebuild. Result: axial
+§4.2.3 → rank 1, interaction → rank 3. Tradeoff: the axial seed now leans
+compression (the dominant axial-NG case for columns); a tension-only query
+still finds §4.1.3 within top-3. Splitting compression/tension into
+separate buckets is deferred (the chat tool only has |ratio_axial|, no
+sign) until corpus expansion warrants it.

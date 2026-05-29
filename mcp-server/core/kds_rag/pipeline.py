@@ -119,7 +119,11 @@ ISSUE_TYPE_KEYWORDS: dict[str, list[str]] = {
     # Voyage embedding/rerank sees the governing limit state instead of a
     # generic "member strength" blur.
     "strength_exceeded": ["부재 강도", "조합응력 비", "interaction ratio"],
-    "axial_exceeded": ["축력", "압축강도", "인장강도", "axial strength"],
+    # 세장비/유효좌굴길이 are compression-buckling discriminators present in
+    # the §4.2 compression chunk but NOT the §4.4.1.1 interaction chunk —
+    # they pull the axial query embedding toward the pure-compression clause
+    # so it outranks the (also axial-heavy) interaction chunk (R1 finding).
+    "axial_exceeded": ["축력", "압축강도", "인장강도", "세장비", "유효좌굴길이", "axial strength"],
     "flexure_exceeded": ["휨강도", "휨모멘트", "flexural strength"],
     "shear_exceeded": ["전단강도", "전단 검토", "shear strength"],
     "drift_exceeded": ["층간변위", "허용 층간변위비", "drift limit", "사용성"],
