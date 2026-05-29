@@ -25,7 +25,7 @@ import time
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -52,6 +52,7 @@ from app.services.chat_session import (  # noqa: E402
     chat_session_cache,
 )
 from app.services.chat_audit_log import query_audit  # noqa: E402
+from app.core.auth import is_operator_token  # noqa: E402
 
 
 # Module-level singleton — the registry is stateless and reading
@@ -264,35 +265,73 @@ async def get_session(session_id: str):
 
 @router.get("/audit/{analysis_id}")
 async def get_audit(
+    request: Request,
     analysis_id: str,
     member_id: Optional[int] = None,
     turn: Optional[int] = None,
     include_quotes: bool = False,
+    session_id: Optional[str] = None,
 ):
-    """Debug/provenance view for KDS evidence audit records.
+    """Provenance view for KDS evidence audit records (access-controlled).
 
-    By default the verbatim evidence **quote bodies are redacted** (set to
-    ``None``) — they are the most sensitive field, and this endpoint is
-    reachable with only an ``analysis_id`` (no session/user check). The
-    provenance metadata (member, ratios, issue_type, query, clause/doc_id,
-    score, warnings) is still returned so the audit chain stays queryable.
-    Pass ``?include_quotes=true`` to get the full quotes (intended for the
-    trusted local/operator context). Proper per-session access control is
-    a deployment follow-up — see review P1/P2.
+    Two access tiers (see ``is_operator_token`` / ``chat_session.py``):
 
-    ``query_audit`` returns deep copies, so redacting here never mutates
-    the underlying store.
+    * **Operator** — ``DEMO_AUTH_TOKEN`` unset (dev/trusted) or the request
+      carries the matching token. Reads any ``analysis_id``. **A shared
+      deployment MUST set ``DEMO_AUTH_TOKEN``** so this tier is the operator's
+      alone.
+    * **Owning session** — a non-operator caller must pass ``session_id`` for a
+      live session that actually *wrote* the records (``record.session_id ==
+      session_id``). The record's ``session_id`` is stamped server-side at write
+      time, so this is genuine ownership; the client-supplied
+      ``ui_context.analysis_id`` is spoofable and is **not** used as proof.
+      Missing/expired session, or no owned records -> ``403``.
+
+    Redaction is **quotes-only**: ``allow_quotes = include_quotes and (operator
+    or session_owned)``. By default (``include_quotes`` false) verbatim quote
+    bodies are redacted (``None``) for everyone, operators included — they are
+    the most sensitive field (copyright + P1). All other provenance metadata is
+    returned on any authorized read so the audit chain stays queryable.
+
+    ``query_audit`` returns deep copies, so redacting here never mutates the
+    underlying store.
     """
+    operator = is_operator_token(request)
     records = query_audit(analysis_id, member_id=member_id, turn=turn)
-    if not include_quotes:
+
+    if operator:
+        access_mode = "operator"
+    else:
+        if not session_id:
+            raise HTTPException(
+                status_code=403,
+                detail="operator token or owning session_id required",
+            )
+        if _get_session(session_id) is None:
+            raise HTTPException(
+                status_code=403,
+                detail="unknown or expired chat session",
+            )
+        records = [r for r in records if r.get("session_id") == session_id]
+        if not records:
+            raise HTTPException(
+                status_code=403,
+                detail="no audit records owned by this session",
+            )
+        access_mode = "session"
+
+    allow_quotes = include_quotes and (operator or access_mode == "session")
+    if not allow_quotes:
         for rec in records:
             for ev in rec.get("evidence") or []:
                 if "quote" in ev:
                     ev["quote"] = None
+
     return {
         "analysis_id": analysis_id,
         "member_id": member_id,
         "turn": turn,
         "include_quotes": include_quotes,
+        "access_mode": access_mode,
         "records": records,
     }

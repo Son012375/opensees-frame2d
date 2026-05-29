@@ -29,6 +29,16 @@ _CHAT_AUDIT_TTL_SEC = 30 * 60
 _CHAT_AUDIT_MAX_PER_ANALYSIS = 200
 _CHAT_AUDIT_LOCK = threading.Lock()
 
+# Durable JSONL bounds. Read once at import; tests monkeypatch the module
+# attribute (same pattern as _CHAT_AUDIT_TTL_SEC).
+#   - MAX_BYTES   <= 0 disables rotation entirely (unbounded single file).
+#   - BACKUP_COUNT <= 0 means "rotate by truncation": drop the live file and
+#     start fresh, keeping no .1/.2 backups.
+#   - RETENTION_DAYS <= 0 disables the aged-backup sweep.
+_CHAT_AUDIT_MAX_BYTES = int(os.environ.get("CHAT_AUDIT_MAX_BYTES", str(50 * 1024 * 1024)))
+_CHAT_AUDIT_BACKUP_COUNT = int(os.environ.get("CHAT_AUDIT_BACKUP_COUNT", "5"))
+_CHAT_AUDIT_RETENTION_DAYS = float(os.environ.get("CHAT_AUDIT_RETENTION_DAYS", "90"))
+
 
 def _default_log_path() -> Path:
     return (
@@ -58,6 +68,70 @@ def _purge_expired_locked(now: Optional[float] = None) -> None:
             chat_audit_log.pop(analysis_id, None)
 
 
+def _rotate_if_needed_locked(path: Path) -> None:
+    """Size-based rollover for the durable JSONL file.
+
+    Caller must hold :data:`_CHAT_AUDIT_LOCK`. Rotates when the live file
+    reaches ``_CHAT_AUDIT_MAX_BYTES``. With ``_CHAT_AUDIT_BACKUP_COUNT`` backups
+    we shift ``.{i} -> .{i+1}`` and move the live file to ``.1`` (standard
+    ``RotatingFileHandler`` algorithm). With a non-positive backup count we drop
+    the live file outright (rotate by truncation). ``max_bytes <= 0`` disables.
+    """
+    max_bytes = _CHAT_AUDIT_MAX_BYTES
+    if max_bytes <= 0 or not path.exists():
+        return
+    if path.stat().st_size < max_bytes:
+        return
+
+    backups = _CHAT_AUDIT_BACKUP_COUNT
+    if backups <= 0:
+        path.unlink()
+        return
+
+    for i in range(backups - 1, 0, -1):
+        src = Path(f"{path}.{i}")
+        dst = Path(f"{path}.{i + 1}")
+        if src.exists():
+            if dst.exists():
+                dst.unlink()
+            src.rename(dst)
+    first = Path(f"{path}.1")
+    if first.exists():
+        first.unlink()
+    path.rename(first)
+
+
+def _sweep_retention_locked(path: Path, now: Optional[float] = None) -> None:
+    """Delete rotated backups older than ``_CHAT_AUDIT_RETENTION_DAYS``.
+
+    Caller must hold :data:`_CHAT_AUDIT_LOCK`. Only numeric-suffix backups
+    (``<base>.1``, ``<base>.2``, ...) are eligible — never the live base file
+    (it is bounded by rotation, not retention) and never unrelated files in the
+    directory. ``retention_days <= 0`` disables the sweep.
+    """
+    retention_days = _CHAT_AUDIT_RETENTION_DAYS
+    if retention_days <= 0:
+        return
+    now = time.time() if now is None else now
+    cutoff = now - retention_days * 86400.0
+    prefix = path.name + "."
+    parent = path.parent
+    if not parent.exists():
+        return
+    for entry in parent.iterdir():
+        name = entry.name
+        if not name.startswith(prefix):
+            continue
+        suffix = name[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            continue
+
+
 def _append_jsonl_locked(record: dict) -> None:
     """Best-effort durable append.
 
@@ -66,8 +140,10 @@ def _append_jsonl_locked(record: dict) -> None:
     try:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_if_needed_locked(path)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _sweep_retention_locked(path)
     except Exception as exc:  # noqa: BLE001 - audit must not break chat
         logger.warning("failed to append chat audit JSONL: %s", exc, exc_info=True)
 

@@ -43,6 +43,30 @@ async def check_demo_auth(request: Request):
     return "unauthorized"
 
 
+def is_operator_token(request: Request) -> bool:
+    """Whether the request carries operator (full-access) privileges.
+
+    Operator privilege is the trusted-context gate for the KDS audit endpoint.
+    Semantics mirror :func:`check_demo_auth`:
+
+      - ``DEMO_AUTH_TOKEN`` **unset** -> ``True``. This is dev / trusted-operator
+        mode (effectively open), consistent with the rest of the app being open
+        when no token is configured. **A shared deployment MUST set
+        ``DEMO_AUTH_TOKEN``** so this returns ``True`` only for the operator.
+      - set -> ``True`` only if the request supplies the matching token
+        (query ``token`` / cookie ``demo_token`` / ``Authorization: Bearer``).
+    """
+    auth_token = _get_token()
+    if not auth_token:
+        return True
+    token = (
+        request.query_params.get("token")
+        or request.cookies.get("demo_token")
+        or _extract_bearer(request)
+    )
+    return token == auth_token
+
+
 def make_auth_response(request: Request) -> HTMLResponse:
     """Create the login page response."""
     return HTMLResponse(content=_login_page(), status_code=401)
