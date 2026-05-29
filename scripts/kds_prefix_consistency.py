@@ -4,10 +4,13 @@ Phase D's anti-hallucination is by-construction: the KDS/AISC citation block
 is rendered deterministically and the LLM only writes a short Korean PREFIX
 (system-prompt rule 7), which the orchestrator sanitizes
 (``_sanitize_llm_prefix`` — discard fabricated-clause or over-long output).
-Observed informally: 14b often returns an EMPTY prefix, so the user just
-sees the deterministic summary with no prose intro. This script quantifies
-that: across diverse question phrasings (member_summary held fixed), how
-often does 14b produce a *kept* prefix vs empty / fabricated / too-long?
+An *earlier* informal observation was that 14b would sometimes return an
+EMPTY prefix (so the user saw only the deterministic summary). This probe
+was built to quantify that and check for regressions — across diverse
+question phrasings (member_summary held fixed), how often does 14b produce
+a *kept* prefix vs empty / fabricated / too-long? NOTE: in the current
+state (AISC proxy removed, warnings=[]) the empty-prefix issue did **not**
+reproduce — see docs/kds_prefix_consistency.md for the measured baseline.
 
 It reproduces the orchestrator's prefix-step inputs directly (system prompt
 + a stripped explain tool result, exactly what ``_pop_mandatory_response``
