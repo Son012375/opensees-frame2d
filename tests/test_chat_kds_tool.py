@@ -59,6 +59,7 @@ from core.chat.tools import kds_compliance  # noqa: E402
 from core.chat.tools.kds_compliance import (  # noqa: E402
     EXPLAIN_MEMBER_COMPLIANCE_TOOL,
     _aisc_proxy_standards,
+    _exceeded_ratios,
     _governing_issue_type,
     explain_member_compliance,
 )
@@ -630,6 +631,63 @@ def test_handler_bending_dominant_routes_to_member_flexure_topic(monkeypatch):
     assert q is not None
     assert q.topic == "member_flexure"
     assert q.limit_state == "flexural_strength"
+
+
+# ---------------------------------------------------------------------------
+# all-violations: surface every limit state over 1.0, not just governing
+# ---------------------------------------------------------------------------
+
+def test_exceeded_ratios_lists_all_over_threshold_desc():
+    out = _exceeded_ratios(
+        {"interaction": 1.1, "shear": 1.3, "axial": 0.5, "bending": 0.9},
+    )
+    assert [e["name"] for e in out] == ["shear", "interaction"]  # sorted desc
+    assert out[0]["value"] == 1.3
+    assert out[1]["value"] == 1.1
+
+
+def test_exceeded_ratios_empty_when_all_pass():
+    assert _exceeded_ratios(
+        {"interaction": 0.4, "shear": 0.3, "axial": 0.0, "bending": 0.99},
+    ) == []
+
+
+def test_multiple_violations_surfaced_in_summary_and_audit(monkeypatch):
+    """A member failing shear AND interaction must show BOTH in the summary
+    (governing marked) and the audit trigger — not just the governing pick
+    (review P2 all-violations)."""
+    aid = _seed_context(
+        8, status="NG",
+        ratio_interaction=1.1, ratio_shear=1.3,
+        ratio_axial=0.5, ratio_bending=0.9,
+        section="H-300x300",
+    )
+    retriever = _RecordingRetriever([_g2_shear_chunk(0)])
+    monkeypatch.setattr(
+        kds_compliance, "_get_default_retriever", lambda: retriever,
+    )
+    session = {
+        "session_id": "chat_allviol",
+        "analysis_id": aid,
+        "history": [{"role": "user", "content": "왜 NG?"}],
+    }
+    result = explain_member_compliance({"member_id": 8}, session=session)
+
+    # member_summary.exceeded carries both, sorted desc; shear governs.
+    ms = result["member_summary"]
+    assert [e["name"] for e in ms["exceeded"]] == ["shear", "interaction"]
+    assert ms["governing_ratio"] == "shear"
+
+    # Always-visible summary lists both, marks the governing one.
+    summ = result["mandatory_response_summary"]
+    assert "1.0 초과 항목" in summ
+    assert "전단(shear) 1.300 ←지배" in summ
+    assert "조합응력(P+M interaction) 1.100" in summ
+
+    # Audit trigger records every violation (not just governing).
+    rec = query_audit(aid, member_id=8, turn=1)[0]
+    assert [e["name"] for e in rec["trigger"]["exceeded"]] == ["shear", "interaction"]
+    assert rec["trigger"]["governing_ratio"] == "shear"
 
 
 def test_tool_spec_is_in_kds_group_and_factual():
