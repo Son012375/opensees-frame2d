@@ -37,6 +37,7 @@ README → 01 → 02 → 03 → 04 → 05 → 06 / 07 (필요할 때 참조)
 | 5 | [05. 모델 빌드 헬퍼](05_model_building.md) | 30분 | 벤치마크 케이스 분해 |
 | 6 | [06. 확장 레시피](06_extending_recipes.md) | 60분 | 직접 새 기능 추가하기 |
 | 7 | [07. 트러블슈팅](07_troubleshooting.md) | 참조용 | FAQ |
+| 8 | [08. 벤치마크 결과](08_benchmark_results.md) | 20분 | OpenSees/ETABS/Midas 3-way 비교 (37/37 OK) |
 
 ## 빠른 참조 표
 

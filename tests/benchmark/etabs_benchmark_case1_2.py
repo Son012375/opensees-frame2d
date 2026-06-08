@@ -398,6 +398,126 @@ def run_case2_etabs(client) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Case 3: 2D 3-Story 1-Bay Frame (vertical extension of Case 2)
+# ─────────────────────────────────────────────────────────────────────────
+
+def run_case3_etabs(client) -> dict:
+    """2D 3-story 1-bay portal frame, fixed base, lateral + gravity loads.
+
+    Layout (X-Z plane, Y=0; coordinates in m):
+        N7(0,0,9) ——B3—— N8(6,0,9)       ← roof (story 3 top)
+          |                  |
+         C3                 C6
+          |                  |
+        N5(0,0,6) ——B2—— N6(6,0,6)       ← story 2 top
+          |                  |
+         C2                 C5
+          |                  |
+        N3(0,0,3) ——B1—— N4(6,0,3)       ← story 1 top
+          |                  |
+         C1                 C4
+          |                  |
+        N1(0,0,0)        N2(6,0,0)        ← base (fixed)
+
+    BC:   fully fixed at N1, N2
+    Loads (at each top node):
+      Story 1 (N3, N4): Fx = +15 kN, Fz = −80 kN
+      Story 2 (N5, N6): Fx = +25 kN, Fz = −80 kN
+      Story 3 (N7, N8): Fx = +35 kN, Fz = −80 kN
+
+    Column: H 400x400x13/21   Beam: H 400x200x8/13  (both SS275, from KS D 3502)
+    """
+    m = client.model
+    _init(m)
+    _material(m)
+    _ks_section(m, "H400x400", "H 400x400x13/21")    # columns
+    _ks_section(m, "H400x200", "H 400x200x8/13")     # beams
+
+    # 8 nodes (m): 2 columns × 4 levels
+    n1 = _pt(m, "N1", 0.0, 0.0, 0.0)
+    n2 = _pt(m, "N2", 6.0, 0.0, 0.0)
+    n3 = _pt(m, "N3", 0.0, 0.0, 3.0)
+    n4 = _pt(m, "N4", 6.0, 0.0, 3.0)
+    n5 = _pt(m, "N5", 0.0, 0.0, 6.0)
+    n6 = _pt(m, "N6", 6.0, 0.0, 6.0)
+    n7 = _pt(m, "N7", 0.0, 0.0, 9.0)
+    n8 = _pt(m, "N8", 6.0, 0.0, 9.0)
+
+    # 6 columns (left stack: C1-C2-C3 / right stack: C4-C5-C6)
+    c1 = _frame(m, "C1", n1, n3, "H400x400")
+    _frame(m, "C2", n3, n5, "H400x400")
+    _frame(m, "C3", n5, n7, "H400x400")
+    c4 = _frame(m, "C4", n2, n4, "H400x400")
+    _frame(m, "C5", n4, n6, "H400x400")
+    _frame(m, "C6", n6, n8, "H400x400")
+
+    # 3 beams
+    _frame(m, "B1", n3, n4, "H400x200")
+    _frame(m, "B2", n5, n6, "H400x200")
+    b3 = _frame(m, "B3", n7, n8, "H400x200")   # roof beam (we read moments)
+
+    _restrain(m, n1, [True] * 6)
+    _restrain(m, n2, [True] * 6)
+
+    _load_pattern(m, "CASE3")
+    # Story 1: Fx = +15 kN | Story 2: +25 kN | Story 3: +35 kN  (all Fz = −80 kN)
+    _joint_load(m, n3, "CASE3", [15.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n4, "CASE3", [15.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n5, "CASE3", [25.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n6, "CASE3", [25.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n7, "CASE3", [35.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n8, "CASE3", [35.0, 0.0, -80.0, 0.0, 0.0, 0.0])
+
+    _run(m)
+    _select_case(m, "CASE3")
+
+    # Lateral displacements at all top nodes (m)
+    u1_N3, _, _, _, _, _ = _displ(m, n3)
+    u1_N4, _, _, _, _, _ = _displ(m, n4)
+    u1_N5, _, _, _, _, _ = _displ(m, n5)
+    u1_N6, _, _, _, _, _ = _displ(m, n6)
+    u1_N7, _, _, _, _, _ = _displ(m, n7)
+    u1_N8, _, _, _, _, _ = _displ(m, n8)
+
+    # Base reactions at N1, N2 (kN, kN·m)
+    f1_N1, _, f3_N1, _, m2_N1, _ = _react(m, n1)
+    f1_N2, _, f3_N2, _, m2_N2, _ = _react(m, n2)
+
+    # Column base moments (M3 at i-end = base, kN·m)
+    m3_c1_base = _m3_at(m, c1, 0.0)
+    m3_c4_base = _m3_at(m, c4, 0.0)
+
+    # Top (roof) beam moments at i (sta=0) and j (sta=6 m)
+    m3_b3_i = _m3_at(m, b3, 0.0)
+    m3_b3_j = _m3_at(m, b3, 6.0)
+
+    # Story drifts: average lateral disp / story height (h = 3 m)
+    avg34 = (u1_N3 + u1_N4) / 2.0
+    avg56 = (u1_N5 + u1_N6) / 2.0
+    avg78 = (u1_N7 + u1_N8) / 2.0
+
+    return {
+        "roof_disp_avg_dx_mm":   avg78 * 1000.0,
+        "roof_disp_N7_dx_mm":    u1_N7 * 1000.0,
+        "roof_disp_N8_dx_mm":    u1_N8 * 1000.0,
+        "story_drift_1":         avg34 / 3.0,
+        "story_drift_2":         (avg56 - avg34) / 3.0,
+        "story_drift_3":         (avg78 - avg56) / 3.0,
+        "base_shear_kN":         f1_N1 + f1_N2,
+        "col1_base_moment_kNm": -m3_c1_base,            # sign-corrected (column i-end)
+        "col2_base_moment_kNm": -m3_c4_base,
+        "top_beam_moment_i_kNm": m3_b3_i,               # beam i-end matches Midas sign
+        "top_beam_moment_j_kNm":-m3_b3_j,               # beam j-end sign-corrected
+        "reaction_N1_Fx_kN":     f1_N1,
+        "reaction_N1_Fy_kN":     f3_N1,
+        "reaction_N1_Mz_kNm":   -m2_N1,                 # sign-corrected
+        "reaction_N2_Fx_kN":     f1_N2,
+        "reaction_N2_Fy_kN":     f3_N2,
+        "reaction_N2_Mz_kNm":   -m2_N2,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Extraction (same metric names as extract.py / Midas JSON keys)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -428,6 +548,28 @@ def _extract_case2(r: dict) -> list[dict]:
         {"metric": "Reaction N2 Fx",      "unit": "kN",   "opensees": r["reaction_N2_Fx_kN"]},
         {"metric": "Reaction N2 Fy",      "unit": "kN",   "opensees": r["reaction_N2_Fy_kN"]},
         {"metric": "Reaction N2 Mz",      "unit": "kN*m", "opensees": r["reaction_N2_Mz_kNm"]},
+    ]
+
+
+def _extract_case3(r: dict) -> list[dict]:
+    return [
+        {"metric": "Roof Disp dx (avg)",   "unit": "mm",   "opensees": r["roof_disp_avg_dx_mm"]},
+        {"metric": "Roof Disp N7 dx",      "unit": "mm",   "opensees": r["roof_disp_N7_dx_mm"]},
+        {"metric": "Roof Disp N8 dx",      "unit": "mm",   "opensees": r["roof_disp_N8_dx_mm"]},
+        {"metric": "Story Drift 1",        "unit": "-",    "opensees": r["story_drift_1"]},
+        {"metric": "Story Drift 2",        "unit": "-",    "opensees": r["story_drift_2"]},
+        {"metric": "Story Drift 3",        "unit": "-",    "opensees": r["story_drift_3"]},
+        {"metric": "Base Shear",           "unit": "kN",   "opensees": r["base_shear_kN"]},
+        {"metric": "Col1 Base Moment",     "unit": "kN*m", "opensees": r["col1_base_moment_kNm"]},
+        {"metric": "Col2 Base Moment",     "unit": "kN*m", "opensees": r["col2_base_moment_kNm"]},
+        {"metric": "Top Beam Moment (i)",  "unit": "kN*m", "opensees": r["top_beam_moment_i_kNm"]},
+        {"metric": "Top Beam Moment (j)",  "unit": "kN*m", "opensees": r["top_beam_moment_j_kNm"]},
+        {"metric": "Reaction N1 Fx",       "unit": "kN",   "opensees": r["reaction_N1_Fx_kN"]},
+        {"metric": "Reaction N1 Fy",       "unit": "kN",   "opensees": r["reaction_N1_Fy_kN"]},
+        {"metric": "Reaction N1 Mz",       "unit": "kN*m", "opensees": r["reaction_N1_Mz_kNm"]},
+        {"metric": "Reaction N2 Fx",       "unit": "kN",   "opensees": r["reaction_N2_Fx_kN"]},
+        {"metric": "Reaction N2 Fy",       "unit": "kN",   "opensees": r["reaction_N2_Fy_kN"]},
+        {"metric": "Reaction N2 Mz",       "unit": "kN*m", "opensees": r["reaction_N2_Mz_kNm"]},
     ]
 
 
@@ -523,8 +665,9 @@ def format_3way(case_name: str, extracted: list[dict],
 # ─────────────────────────────────────────────────────────────────────────
 
 _CASES: dict[str, tuple] = {
-    "case1": ("Case 1: 2D Simple Beam",        run_case1_etabs, _extract_case1),
+    "case1": ("Case 1: 2D Simple Beam",         run_case1_etabs, _extract_case1),
     "case2": ("Case 2: 2D Portal Frame",        run_case2_etabs, _extract_case2),
+    "case3": ("Case 3: 2D 3-Story Frame",       run_case3_etabs, _extract_case3),
 }
 
 
@@ -561,12 +704,12 @@ def _run_case(case_id: str, client) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ETABS 23 benchmark — Case 1 & 2",
+        description="ETABS 23 benchmark — Case 1, 2, 3",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "cases", nargs="*",
-        help="Case IDs to run: case1 case2  (default: both)",
+        help="Case IDs to run: case1 case2 case3  (default: all)",
     )
     parser.add_argument(
         "--launch", action="store_true",
@@ -578,7 +721,7 @@ def main() -> None:
 
     sep = "=" * 80
     print(f"\n{sep}")
-    print("  ETABS 23 Benchmark -- Case 1 & 2")
+    print("  ETABS 23 Benchmark -- Case 1, 2, 3")
     print(f"{sep}")
 
     try:
