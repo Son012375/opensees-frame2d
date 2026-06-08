@@ -11,7 +11,10 @@ Usage (ETABS must be running and licensed):
     .\\opensees-mcp\\Scripts\\python.exe tests/benchmark/etabs_benchmark_case1_2.py case2
 
 Coordinate system: X = span/bay, Y = out-of-plane, Z = vertical (up)
-Units: N, mm  (ETABS N_mm_C = 10)
+Units: kN, m  (ETABS kN_m_C = 6) — matches PropFrame.ImportProp's internal
+       storage of the cm-based KoreanKS21.xml library, so KS sections work
+       without modifiers.  Displacements are converted m→mm only at the
+       output stage to match Midas/OpenSees reporting units.
 
 Sign convention — ETABS local axes vs Midas 2D convention:
   Horizontal beam along +X:  local2 = +Z, local3 = -Y
@@ -41,10 +44,18 @@ MIDAS_DIR = BENCH_DIR / "midas_results"
 ETABS_DIR = BENCH_DIR / "etabs_results"
 
 # ── ETABS enum constants ──────────────────────────────────────────────────
-_N_MM_C   = 10    # eUnits: N, mm, °C  — model working units
+# ETABS runs entirely in kN-m-C (the library's SI base):
+#   - PropFrame.ImportProp stores cm-library values directly as kN-m
+#     regardless of current model units → using kN-m avoids the cm/N-mm
+#     unit-conversion bug observed when running in N-mm-C
+#   - Result extraction returns m / kN / kN·m → only displacements need
+#     a ×1000 conversion to mm at output time; forces and moments already
+#     match Midas/OpenSees reporting units (kN, kN·m)
+_KN_M_C   = 6     # eUnits: kN, m, °C  — model working units
 _STEEL    = 1     # eMatType_Steel
 _LP_OTHER = 8     # eLoadPatternType_Other
 _MAT      = "SS275"
+_KS_LIB   = "KoreanKS21.xml"   # KS D 3502:2021 — ships with ETABS 23
 
 
 
@@ -53,45 +64,47 @@ _MAT      = "SS275"
 # ─────────────────────────────────────────────────────────────────────────
 
 def _init(model) -> None:
-    """Blank model, set N-mm units.
+    """Blank model, set kN-m units.
 
     ETABS API requires InitializeNewModel(units) → File.NewBlank() sequence.
     """
-    model.InitializeNewModel(_N_MM_C)   # eUnits = 10 (N_mm_C)
+    model.InitializeNewModel(_KN_M_C)   # eUnits = 6 (kN_m_C)
     ret = model.File.NewBlank()
     if ret != 0:
         raise RuntimeError(f"File.NewBlank failed (ret={ret})")
 
 
 def _material(model) -> None:
-    """SS275: E = 210 000 N/mm², ν = 0.3, α = 1.2e-5 /°C."""
+    """SS275: E = 2.1×10⁸ kN/m² (≡ 210 GPa ≡ 210 000 N/mm²), ν = 0.3."""
     if model.PropMaterial.SetMaterial(_MAT, _STEEL) != 0:
         raise RuntimeError("SetMaterial SS275 failed")
-    if model.PropMaterial.SetMPIsotropic(_MAT, 210000.0, 0.3, 1.2e-5) != 0:
+    if model.PropMaterial.SetMPIsotropic(_MAT, 210_000_000.0, 0.3, 1.2e-5) != 0:
         raise RuntimeError("SetMPIsotropic SS275 failed")
 
 
-def _isection(model, name: str, h: float, bf: float,
-               tf: float, tw: float,
-               i33_mod: float = 1.0, a_mod: float = 1.0) -> None:
-    """Define a symmetric I-section parametrically.
+def _ks_section(model, name: str, ks_label: str) -> None:
+    """Import a section directly from the KS D 3502:2021 library.
 
-    h, bf, tf, tw : section dimensions in mm.
-    i33_mod, a_mod : multipliers applied via SetModifiers — used to match
-                     KS D 3502 tabulated values, which include the fillet
-                     contribution that ETABS' geometric section calculation
-                     ignores.  Same property modifier concept as the GUI's
-                     'Frame Property Modifiers' tab.
+    ks_label format (matches KoreanKS21.xml <LABEL>):
+        'H 400x200x8/13'    (h × bf × tw / tf)
+        'H 350x350x12/19'
 
-    As2 = As3 = 0  →  Euler-Bernoulli (matches OpenSees elasticBeamColumn
-    and Midas Gen default).
+    Works correctly because the model is in kN-m, which is what
+    PropFrame.ImportProp stores cm-library values in regardless of
+    current units (a quirk verified by scripts/diag_etabs_importprop.py).
+
+    Only modifier applied: As2 = As3 = 0 → Euler-Bernoulli beam theory
+    (matches OpenSees elasticBeamColumn / Midas Gen default).  All other
+    properties (A, I22, I33, J, S, Z, R) are used as KS-tabulated.
     """
-    ret = model.PropFrame.SetISection(name, _MAT, h, bf, tf, tw, bf, tf)
+    ret = model.PropFrame.ImportProp(name, _MAT, _KS_LIB, ks_label)
     if ret != 0:
-        raise RuntimeError(f"SetISection '{name}' failed (ret={ret})")
-    # Modifiers: [A, As2, As3, J, I22, I33, mass, weight]
+        raise RuntimeError(
+            f"ImportProp '{name}' ← '{ks_label}' from {_KS_LIB} failed (ret={ret})"
+        )
+    # Modifiers: [A, As2, As3, J, I22, I33, mass, weight] — zero shear areas.
     *_, ret2 = model.PropFrame.SetModifiers(
-        name, [a_mod, 0.0, 0.0, 1.0, 1.0, i33_mod, 1.0, 1.0]
+        name, [1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     )
     if ret2 != 0:
         raise RuntimeError(f"SetModifiers '{name}' failed (ret={ret2})")
@@ -143,7 +156,7 @@ def _load_pattern(model, lp: str) -> None:
 
 
 def _joint_load(model, node: str, lp: str, forces: list) -> None:
-    """Apply joint load.  forces = [F1, F2, F3, M1, M2, M3] in N / N·mm."""
+    """Apply joint load.  forces = [F1, F2, F3, M1, M2, M3] in kN / kN·m."""
     _, ret = model.PointObj.SetLoadForce(node, lp, forces)
     if ret != 0:
         raise RuntimeError(f"SetLoadForce '{node}' failed (ret={ret})")
@@ -176,7 +189,7 @@ def _select_case(model, case: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────
 
 def _displ(model, node: str) -> tuple:
-    """Return (U1, U2, U3, R1, R2, R3) for the first result row (mm / rad)."""
+    """Return (U1, U2, U3, R1, R2, R3) for the first result row (m / rad)."""
     (n, obj, elm, lc, st, sn,
      u1, u2, u3, r1, r2, r3, ret) = model.Results.JointDispl(
         node, 0, 0, [], [], [], [], [], [], [], [], [], []
@@ -189,7 +202,7 @@ def _displ(model, node: str) -> tuple:
 
 
 def _react(model, node: str) -> tuple:
-    """Return (F1, F2, F3, M1, M2, M3) for the first result row (N / N·mm)."""
+    """Return (F1, F2, F3, M1, M2, M3) for the first result row (kN / kN·m)."""
     (n, obj, elm, lc, st, sn,
      f1, f2, f3, m1, m2, m3, ret) = model.Results.JointReact(
         node, 0, 0, [], [], [], [], [], [], [], [], [], []
@@ -202,11 +215,11 @@ def _react(model, node: str) -> tuple:
 
 
 def _m3_at(model, elem: str, target_sta: float) -> float:
-    """M3 (N·mm) at the nearest output station to target_sta (mm from i-end).
+    """M3 (kN·m) at the nearest output station to target_sta (m from i-end).
 
     ETABS outputs FrameForce at several stations per element; we pick the
     station closest to target_sta.  A warning is printed if the closest
-    station is more than 100 mm away.
+    station is more than 0.1 m away.
     """
     (n, obj, obj_sta, elm, elm_sta, lc, st, sn,
      p, v2, v3, t, m2, m3, ret) = model.Results.FrameForce(
@@ -222,9 +235,9 @@ def _m3_at(model, elem: str, target_sta: float) -> float:
 
     idx  = min(range(len(sta)), key=lambda i: abs(sta[i] - target_sta))
     dist = abs(sta[idx] - target_sta)
-    if dist > 100.0:
-        print(f"  WARNING: '{elem}' nearest station {sta[idx]:.1f} mm is "
-              f"{dist:.1f} mm from target {target_sta:.1f} mm")
+    if dist > 0.1:
+        print(f"  WARNING: '{elem}' nearest station {sta[idx]:.3f} m is "
+              f"{dist:.3f} m from target {target_sta:.3f} m")
     return float(m3l[idx])
 
 
@@ -236,10 +249,10 @@ def run_case1_etabs(client) -> dict:
     """3-node simple beam, 6 m span, 60 kN point load at midspan.
 
     Layout (X-axis, Z=0):
-        N1(0,0,0) —E1— N2(3000,0,0) —E2— N3(6000,0,0)
+        N1(0,0,0) —E1— N2(3,0,0) —E2— N3(6,0,0)         [m]
     BC:   pin at N1  [U1/U2/U3 fixed, R free]
           roller at N3 [U2/U3 fixed, U1/R free]
-    Load: Fz = −60 000 N at N2
+    Load: Fz = −60 kN at N2
 
     Expected (analytical):
         Midspan disp  = −5.425 mm
@@ -249,16 +262,14 @@ def run_case1_etabs(client) -> dict:
     m = client.model
     _init(m)
     _material(m)
-    # H 400x200x8/13.  Modifiers match KS D 3502 tabulated values
-    # (which include fillet area not captured by ETABS' geometric calc):
-    #   A:   8412 / 8192     = 1.027
-    #   I33: 237e6 / 229.65e6 = 1.032
-    _isection(m, "H400x200", 400.0, 200.0, 13.0, 8.0,
-              i33_mod=1.032, a_mod=1.027)
+    # H 400x200x8/13 imported from KS D 3502:2021 library (KoreanKS21.xml) —
+    # exact KS tabulated values, no manual modifier needed.
+    _ks_section(m, "H400x200", "H 400x200x8/13")
 
-    n1 = _pt(m, "N1", 0.0,    0.0, 0.0)
-    n2 = _pt(m, "N2", 3000.0, 0.0, 0.0)
-    n3 = _pt(m, "N3", 6000.0, 0.0, 0.0)
+    # Coordinates in metres (model is in kN-m).
+    n1 = _pt(m, "N1", 0.0, 0.0, 0.0)
+    n2 = _pt(m, "N2", 3.0, 0.0, 0.0)
+    n3 = _pt(m, "N3", 6.0, 0.0, 0.0)
 
     e1 = _frame(m, "E1", n1, n2, "H400x200")
     _frame(m, "E2", n2, n3, "H400x200")
@@ -269,27 +280,28 @@ def run_case1_etabs(client) -> dict:
     _restrain(m, n3, [False, True,  True,  False, False, False])  # roller
 
     _load_pattern(m, "CASE1")
-    _joint_load(m, n2, "CASE1", [0.0, 0.0, -60000.0, 0.0, 0.0, 0.0])
+    # Load in kN: Fz = −60 kN at midspan.
+    _joint_load(m, n2, "CASE1", [0.0, 0.0, -60.0, 0.0, 0.0, 0.0])
 
     _run(m)
     _select_case(m, "CASE1")
 
-    _, _, u3_N2, _, _, _ = _displ(m, n2)
-    f1_N1, _, f3_N1, _, _, _ = _react(m, n1)
-    _, _, f3_N3, _, _, _ = _react(m, n3)
+    _, _, u3_N2, _, _, _ = _displ(m, n2)        # m
+    f1_N1, _, f3_N1, _, _, _ = _react(m, n1)    # kN
+    _, _, f3_N3, _, _, _ = _react(m, n3)        # kN
 
-    # M3 at j-end of E1 (station = 3000 mm from i-end = midspan of full beam)
-    # Expected: −90 000 000 N·mm  (sagging → negative by ETABS local-3 = −Y)
-    m3_mid = _m3_at(m, e1, 3000.0)
+    # M3 at j-end of E1 (station = 3.0 m = midspan of full beam).  kN·m.
+    m3_mid = _m3_at(m, e1, 3.0)
 
     return {
-        "midspan_disp_mm":    u3_N2,
-        # ETABS M3 sign is opposite Midas/OpenSees for horizontal +X beam:
-        # ETABS local-3=-Y convention gives +M3 for sagging; Midas/OPS give -M3.
-        "midspan_moment_kNm": -m3_mid / 1e6,     # N·mm → kN·m, sign-corrected
-        "reaction_N1_Fy_kN":  f3_N1 / 1000.0,   # Fz (global) ≡ Midas Fy
-        "reaction_N3_Fy_kN":  f3_N3 / 1000.0,
-        "reaction_N1_Fx_kN":  f1_N1 / 1000.0,
+        # Displacements in mm: ×1000 from m
+        "midspan_disp_mm":    u3_N2 * 1000.0,
+        # Moments and forces already in kN·m / kN — match Midas/OpenSees report units.
+        # M3 sign flip: ETABS local-3 = −Y for horizontal +X beam → negate to match.
+        "midspan_moment_kNm": -m3_mid,
+        "reaction_N1_Fy_kN":  f3_N1,            # Fz (global) ≡ Midas Fy
+        "reaction_N3_Fy_kN":  f3_N3,
+        "reaction_N1_Fx_kN":  f1_N1,
     }
 
 
@@ -300,40 +312,36 @@ def run_case1_etabs(client) -> dict:
 def run_case2_etabs(client) -> dict:
     """1-story 1-bay portal frame, fixed base, lateral + gravity loads.
 
-    Layout (X-Z plane, Y=0):
-        N3(0,0,3000) ——B1—— N4(6000,0,3000)
-           |                      |
-          C1                     C2
-           |                      |
-        N1(0,0,0)          N2(6000,0,0)
+    Layout (X-Z plane, Y=0; coordinates in m):
+        N3(0,0,3) ——B1—— N4(6,0,3)
+          |                  |
+         C1                 C2
+          |                  |
+        N1(0,0,0)         N2(6,0,0)
 
     BC:   fully fixed at N1 and N2
-    Load: Fx = +25 000 N, Fz = −100 000 N at N3 and N4 (CASE2)
+    Load: Fx = +25 kN, Fz = −100 kN at N3 and N4 (CASE2)
 
-    Column: H350x350x12x19  Beam: H400x200x8x13  (both SS275)
+    Column: H 350x350x12/19  Beam: H 400x200x8/13  (both SS275, from KS D 3502)
 
     Sign convention for X-Z frame:
-      Column (along +Z):  local2=+X, local3=+Y  → M3 in [N·mm], negative at
+      Column (along +Z):  local2=+X, local3=+Y  → M3 in [kN·m], negative at
                           base under +X lateral  ≡  Midas Mz
-      Beam   (along +X):  local2=+Z, local3=−Y  → M3 in [N·mm]  ≡  Midas Mz
+      Beam   (along +X):  local2=+Z, local3=−Y  → M3 in [kN·m]  ≡  Midas Mz
       JointReact M2 (about global +Y) ≡  Midas Mz reaction
     """
     m = client.model
     _init(m)
     _material(m)
-    # Modifiers match KS D 3502 tabulated A and Ix (which include fillet
-    # contribution not captured by ETABS' geometric I-section calculation):
-    #   H 400x200x8/13:  A 8412/8192 = 1.027,  I33 237e6/229.65e6 = 1.032
-    #   H 350x350x12/19: A 17390/17044 = 1.020,  I33 403e6/395.06e6 = 1.020
-    _isection(m, "H400x200", 400.0, 200.0, 13.0,  8.0,
-              i33_mod=1.032, a_mod=1.027)  # beam
-    _isection(m, "H350x350", 350.0, 350.0, 19.0, 12.0,
-              i33_mod=1.020, a_mod=1.020)  # column
+    # Imported from KS D 3502:2021 library — exact tabulated values.
+    _ks_section(m, "H400x200", "H 400x200x8/13")    # beam
+    _ks_section(m, "H350x350", "H 350x350x12/19")   # column
 
-    n1 = _pt(m, "N1", 0.0,    0.0, 0.0)
-    n2 = _pt(m, "N2", 6000.0, 0.0, 0.0)
-    n3 = _pt(m, "N3", 0.0,    0.0, 3000.0)
-    n4 = _pt(m, "N4", 6000.0, 0.0, 3000.0)
+    # Coordinates in metres.
+    n1 = _pt(m, "N1", 0.0, 0.0, 0.0)
+    n2 = _pt(m, "N2", 6.0, 0.0, 0.0)
+    n3 = _pt(m, "N3", 0.0, 0.0, 3.0)
+    n4 = _pt(m, "N4", 6.0, 0.0, 3.0)
 
     c1 = _frame(m, "C1", n1, n3, "H350x350")  # column 1
     c2 = _frame(m, "C2", n2, n4, "H350x350")  # column 2
@@ -343,25 +351,26 @@ def run_case2_etabs(client) -> dict:
     _restrain(m, n2, [True] * 6)
 
     _load_pattern(m, "CASE2")
-    _joint_load(m, n3, "CASE2", [25000.0, 0.0, -100000.0, 0.0, 0.0, 0.0])
-    _joint_load(m, n4, "CASE2", [25000.0, 0.0, -100000.0, 0.0, 0.0, 0.0])
+    # Loads in kN: Fx = +25 kN, Fz = −100 kN at each top node.
+    _joint_load(m, n3, "CASE2", [25.0, 0.0, -100.0, 0.0, 0.0, 0.0])
+    _joint_load(m, n4, "CASE2", [25.0, 0.0, -100.0, 0.0, 0.0, 0.0])
 
     _run(m)
     _select_case(m, "CASE2")
 
-    u1_N3, _, u3_N3, _, _, _ = _displ(m, n3)
-    u1_N4, _, u3_N4, _, _, _ = _displ(m, n4)
+    u1_N3, _, u3_N3, _, _, _ = _displ(m, n3)        # m
+    u1_N4, _, u3_N4, _, _, _ = _displ(m, n4)        # m
 
-    f1_N1, _, f3_N1, _, m2_N1, _ = _react(m, n1)
-    f1_N2, _, f3_N2, _, m2_N2, _ = _react(m, n2)
+    f1_N1, _, f3_N1, _, m2_N1, _ = _react(m, n1)    # kN, kN·m
+    f1_N2, _, f3_N2, _, m2_N2, _ = _react(m, n2)    # kN, kN·m
 
-    # Column base moments: M3 at station 0 (i-end = base)
+    # Column base moments: M3 at station 0 (i-end = base).  kN·m.
     m3_c1_base = _m3_at(m, c1, 0.0)
     m3_c2_base = _m3_at(m, c2, 0.0)
 
-    # Beam end moments: M3 at i-end (sta=0) and j-end (sta=6000 mm)
+    # Beam end moments: M3 at i-end (sta=0) and j-end (sta=6.0 m).
     m3_b1_i = _m3_at(m, b1, 0.0)
-    m3_b1_j = _m3_at(m, b1, 6000.0)
+    m3_b1_j = _m3_at(m, b1, 6.0)
 
     # Sign convention (X-Z plane, Y-out-of-plane):
     #   Column (+Z local axis): ETABS M3 at i-end (base) = -(Midas Mz)  → negate
@@ -369,21 +378,22 @@ def run_case2_etabs(client) -> dict:
     #                           ETABS M3 at j-end = -(Midas Mz)          → negate j
     #   JointReact M2 (about global +Y) = -(Midas Mz)                    → negate
     return {
-        "top_disp_N3_dx_mm":    u1_N3,                    # U1 (Ux) ≡ Midas dx
-        "top_disp_N4_dx_mm":    u1_N4,
-        "top_disp_N3_dy_mm":    u3_N3,                    # U3 (Uz) ≡ Midas dy
-        "top_disp_N4_dy_mm":    u3_N4,
-        "col1_base_moment_kNm": -m3_c1_base / 1e6,        # sign-corrected
-        "col2_base_moment_kNm": -m3_c2_base / 1e6,        # sign-corrected
-        "beam_moment_i_kNm":     m3_b1_i / 1e6,           # same sign as Midas
-        "beam_moment_j_kNm":    -m3_b1_j / 1e6,           # sign-corrected
-        "base_shear_kN":        (f1_N1 + f1_N2) / 1000.0,
-        "reaction_N1_Fx_kN":    f1_N1 / 1000.0,
-        "reaction_N1_Fy_kN":    f3_N1 / 1000.0,           # Fz(global) ≡ Midas Fy
-        "reaction_N1_Mz_kNm":  -m2_N1 / 1e6,              # sign-corrected
-        "reaction_N2_Fx_kN":    f1_N2 / 1000.0,
-        "reaction_N2_Fy_kN":    f3_N2 / 1000.0,
-        "reaction_N2_Mz_kNm":  -m2_N2 / 1e6,              # sign-corrected
+        # Displacements: ×1000 (m → mm).  Forces / moments already kN, kN·m.
+        "top_disp_N3_dx_mm":    u1_N3 * 1000.0,           # U1 (Ux) ≡ Midas dx
+        "top_disp_N4_dx_mm":    u1_N4 * 1000.0,
+        "top_disp_N3_dy_mm":    u3_N3 * 1000.0,           # U3 (Uz) ≡ Midas dy
+        "top_disp_N4_dy_mm":    u3_N4 * 1000.0,
+        "col1_base_moment_kNm": -m3_c1_base,              # sign-corrected
+        "col2_base_moment_kNm": -m3_c2_base,              # sign-corrected
+        "beam_moment_i_kNm":     m3_b1_i,                 # same sign as Midas
+        "beam_moment_j_kNm":    -m3_b1_j,                 # sign-corrected
+        "base_shear_kN":         f1_N1 + f1_N2,
+        "reaction_N1_Fx_kN":    f1_N1,
+        "reaction_N1_Fy_kN":    f3_N1,                    # Fz(global) ≡ Midas Fy
+        "reaction_N1_Mz_kNm":  -m2_N1,                    # sign-corrected
+        "reaction_N2_Fx_kN":    f1_N2,
+        "reaction_N2_Fy_kN":    f3_N2,
+        "reaction_N2_Mz_kNm":  -m2_N2,                    # sign-corrected
     }
 
 
