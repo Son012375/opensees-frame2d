@@ -162,6 +162,33 @@ def _joint_load(model, node: str, lp: str, forces: list) -> None:
         raise RuntimeError(f"SetLoadForce '{node}' failed (ret={ret})")
 
 
+def _pdelta_case(model, pd_case: str, source_lp: str) -> None:
+    """Create a static-nonlinear case with P-Delta geometric nonlinearity.
+
+    Uses the same load pattern as the corresponding linear case, but with
+    `SetGeometricNonlinearity(NLGeomType=1)` to include P-Delta effects.
+
+    Per ETABS COM API docs (cCaseStaticNonlinear.SetGeometricNonlinearity):
+        NLGeomType  0 = None (linear)
+                    1 = P-Delta
+                    2 = P-Delta + Large Displacements
+    """
+    ret = model.LoadCases.StaticNonlinear.SetCase(pd_case)
+    if ret != 0:
+        raise RuntimeError(f"StaticNonlinear.SetCase '{pd_case}' failed (ret={ret})")
+    ret = model.LoadCases.StaticNonlinear.SetGeometricNonlinearity(pd_case, 1)
+    if ret != 0:
+        raise RuntimeError(f"SetGeometricNonlinearity '{pd_case}' failed (ret={ret})")
+    # SetLoads returns [(LoadType_out,), (LoadName_out,), (SF_out,), ret] in
+    # comtypes — list form for nonlinear, tuple for linear.  Use *_, ret = ...
+    # to handle both.
+    *_, ret = model.LoadCases.StaticNonlinear.SetLoads(
+        pd_case, 1, ["Load"], [source_lp], [1.0]
+    )
+    if ret != 0:
+        raise RuntimeError(f"StaticNonlinear.SetLoads '{pd_case}' failed (ret={ret})")
+
+
 def _run(model) -> None:
     """Save to a temp path then run analysis.
 
@@ -666,6 +693,170 @@ def run_case4_etabs(client) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Case 5: 3D 5-Story 1×1-Bay Frame with P-Delta (Linear + Nonlinear)
+# ─────────────────────────────────────────────────────────────────────────
+
+def _extract_case5_one(model, nodes: dict, col_first: str, roof_b_first: str,
+                        n_stories: int, h: float) -> dict:
+    """Pull all metrics from the currently selected load case.
+
+    Returns a dict with the per-story averages, drifts, base reactions, and
+    the column/beam moments needed for the 3-way comparison.  Used twice in
+    run_case5_etabs — once with CASE5 (linear) and once with CASE5_PD selected.
+    """
+    # Per-story average X-displacement (levels 0..n_stories)
+    story_avg_dx = []
+    for level in range(n_stories + 1):
+        dxs = [_displ(model, nodes[(level, ci)])[0] for ci in range(4)]
+        story_avg_dx.append(sum(dxs) / 4.0)
+
+    roof_dx = [_displ(model, nodes[(n_stories, ci)])[0] for ci in range(4)]
+
+    # Story drifts (interstory disp / story height)
+    story_drifts = [
+        (story_avg_dx[s] - story_avg_dx[s - 1]) / h
+        for s in range(1, n_stories + 1)
+    ]
+
+    # Per-node base reactions
+    base_react = {}
+    for ci in range(4):
+        label = f"N{ci + 1}"
+        f1, f2, f3, m1, m2, m3 = _react(model, nodes[(0, ci)])
+        base_react[label] = {
+            "Fx": f1, "Fy": f2, "Fz": f3,
+            "Mxm": m1, "Mym": m2, "Mzm": m3,
+        }
+    base_rx = sum(base_react[k]["Fx"] for k in base_react)
+    base_rz = sum(base_react[k]["Fz"] for k in base_react)
+
+    # Column 1 base moment (M3 = strong-axis bending; negate to match Midas convention)
+    _, m3_c1 = _moments_at(model, col_first, 0.0)
+    # Roof beam 1 i-end moment (M3 = gravity bending; no sign correction at i-end)
+    _, m3_rb1_i = _moments_at(model, roof_b_first, 0.0)
+
+    return {
+        "roof_max_dx_mm":      max(roof_dx) * 1000.0,
+        "roof_avg_dx_mm":      (sum(roof_dx) / 4.0) * 1000.0,
+        "story_avg_dx_mm":     [d * 1000.0 for d in story_avg_dx[1:]],   # exclude base
+        "story_drifts":        story_drifts,
+        "base_reaction_X_kN":  base_rx,
+        "base_reaction_Z_kN":  base_rz,
+        "col1_base_My_kNm":   -m3_c1,           # sign-corrected (same as Case 4)
+        "roof_beam1_My_i_kNm": m3_rb1_i,
+        "base_react":          base_react,
+    }
+
+
+def run_case5_etabs(client) -> dict:
+    """3D 5-story 1×1 bay P-Delta benchmark — two analyses on same model.
+
+    CASE5     : linear static
+    CASE5_PD  : static nonlinear with P-Delta (NLGeomType=1)
+
+    Both apply the same load pattern (story-wise X-lateral + uniform gravity).
+
+    Layout:  4 corners × 6 levels (z = 0, 3, 6, 9, 12, 15 m) = 24 nodes
+             4 corners × 5 stories = 20 columns
+             4 beams × 5 floors    = 20 beams
+    Sections: H 428x407x20/35 (columns), H 400x200x8/13 (beams)
+    Loads per story (at each of 4 corners):
+        S1: Fx=+8 kN, Fz=−70 kN     S4: Fx=+20, Fz=−70
+        S2: Fx=+12,    Fz=−70        S5: Fx=+24, Fz=−70
+        S3: Fx=+16,    Fz=−70
+        Total lateral = 4 × (8+12+16+20+24) = 320 kN
+        Total gravity = 4 × 5 × (−70)        = −1400 kN
+    """
+    m = client.model
+    _init(m)
+    _material(m)
+    _ks_section(m, "H428x407", "H 428x407x20/35")   # columns
+    _ks_section(m, "H400x200", "H 400x200x8/13")    # beams
+
+    # Geometry constants
+    n_stories = 5
+    h         = 3.0
+    corners   = [(0.0, 0.0), (6.0, 0.0), (6.0, 6.0), (0.0, 6.0)]
+
+    # 24 nodes — store by (level, corner_idx) for easy lookup
+    nodes = {}
+    for level in range(n_stories + 1):
+        for ci, (cx, cy) in enumerate(corners):
+            label = f"N{level * 4 + ci + 1}"
+            nodes[(level, ci)] = _pt(m, label, cx, cy, level * h)
+
+    # 20 columns (4 corners × 5 stories).  Capture corner-1 story-1 (C1) for moments.
+    col_first = None
+    for corner in range(4):
+        for story in range(n_stories):
+            label = f"C{corner * n_stories + story + 1}"
+            c = _frame(m, label,
+                       nodes[(story, corner)], nodes[(story + 1, corner)],
+                       "H428x407")
+            if corner == 0 and story == 0:
+                col_first = c
+
+    # 20 beams (4 per floor × 5 floors).  Capture roof X-front beam for moments.
+    roof_b_first = None
+    for level in range(1, n_stories + 1):
+        nA = nodes[(level, 0)]   # (0,0)
+        nB = nodes[(level, 1)]   # (6,0)
+        nC = nodes[(level, 2)]   # (6,6)
+        nD = nodes[(level, 3)]   # (0,6)
+        idx = (level - 1) * 4
+        b_front = _frame(m, f"B{idx+1}", nA, nB, "H400x200")   # X-dir front
+        _frame(m, f"B{idx+2}", nB, nC, "H400x200")             # Y-dir right
+        _frame(m, f"B{idx+3}", nD, nC, "H400x200")             # X-dir back (i = smaller X)
+        _frame(m, f"B{idx+4}", nA, nD, "H400x200")             # Y-dir left
+        if level == n_stories:
+            roof_b_first = b_front
+
+    # Fixed base (all 4 corners at level 0)
+    for ci in range(4):
+        _restrain(m, nodes[(0, ci)], [True] * 6)
+
+    # Loads
+    _load_pattern(m, "CASE5")
+    story_fx = {1: 8.0, 2: 12.0, 3: 16.0, 4: 20.0, 5: 24.0}
+    for story in range(1, n_stories + 1):
+        fx = story_fx[story]
+        for ci in range(4):
+            _joint_load(m, nodes[(story, ci)], "CASE5",
+                        [fx, 0.0, -70.0, 0.0, 0.0, 0.0])
+
+    # P-Delta nonlinear case (same load pattern)
+    _pdelta_case(m, "CASE5_PD", "CASE5")
+
+    _run(m)
+
+    # ── Linear analysis results ──
+    _select_case(m, "CASE5")
+    linear = _extract_case5_one(m, nodes, col_first, roof_b_first, n_stories, h)
+
+    # ── P-Delta analysis results ──
+    _select_case(m, "CASE5_PD")
+    pdelta = _extract_case5_one(m, nodes, col_first, roof_b_first, n_stories, h)
+
+    # Amplification factors (PDelta / Linear)
+    disp_amp = (pdelta["roof_avg_dx_mm"] / linear["roof_avg_dx_mm"]
+                if abs(linear["roof_avg_dx_mm"]) > 1e-12 else 0.0)
+    drift_amps = [
+        (pdelta["story_drifts"][i] / linear["story_drifts"][i]
+         if abs(linear["story_drifts"][i]) > 1e-12 else 0.0)
+        for i in range(n_stories)
+    ]
+
+    return {
+        "linear":  linear,
+        "pdelta":  pdelta,
+        "displacement_amplification": disp_amp,
+        "drift_amplification":         drift_amps,
+        "total_lateral_kN":  4 * sum(story_fx.values()),   # 4 × 80 = 320
+        "total_gravity_kN":  -4 * n_stories * 70.0,        # -1400
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Extraction (same metric names as extract.py / Midas JSON keys)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -740,6 +931,44 @@ def _extract_case4(r: dict) -> list[dict]:
         for comp, val in nd.items():
             unit = "kN*m" if comp.endswith("m") else "kN"
             rows.append({"metric": f"Reaction {nlabel} {comp}", "unit": unit, "opensees": val})
+    return rows
+
+
+def _extract_case5(r: dict) -> list[dict]:
+    L = r["linear"]
+    P = r["pdelta"]
+    rows = [
+        {"metric": "Linear Roof dx",        "unit": "mm",   "opensees": L["roof_avg_dx_mm"]},
+        {"metric": "PDelta Roof dx",        "unit": "mm",   "opensees": P["roof_avg_dx_mm"]},
+        {"metric": "Disp Amplification",    "unit": "-",    "opensees": r["displacement_amplification"]},
+    ]
+    for i in range(5):
+        rows.append({"metric": f"Linear Story Drift {i+1}", "unit": "-",
+                     "opensees": L["story_drifts"][i]})
+    for i in range(5):
+        rows.append({"metric": f"PDelta Story Drift {i+1}", "unit": "-",
+                     "opensees": P["story_drifts"][i]})
+    for i in range(5):
+        rows.append({"metric": f"Drift Amp Story {i+1}",   "unit": "-",
+                     "opensees": r["drift_amplification"][i]})
+    rows += [
+        {"metric": "Base Rx Linear",  "unit": "kN",   "opensees": L["base_reaction_X_kN"]},
+        {"metric": "Base Rx PDelta",  "unit": "kN",   "opensees": P["base_reaction_X_kN"]},
+        {"metric": "Base Rz Linear",  "unit": "kN",   "opensees": L["base_reaction_Z_kN"]},
+        {"metric": "Base Rz PDelta",  "unit": "kN",   "opensees": P["base_reaction_Z_kN"]},
+        {"metric": "Total Lateral",   "unit": "kN",   "opensees": r["total_lateral_kN"]},
+        {"metric": "Total Gravity",   "unit": "kN",   "opensees": r["total_gravity_kN"]},
+        {"metric": "Linear Col1 Base My",        "unit": "kN*m", "opensees": L["col1_base_My_kNm"]},
+        {"metric": "PDelta Col1 Base My",        "unit": "kN*m", "opensees": P["col1_base_My_kNm"]},
+        {"metric": "Linear Roof Beam1 My (i)",   "unit": "kN*m", "opensees": L["roof_beam1_My_i_kNm"]},
+        {"metric": "PDelta Roof Beam1 My (i)",   "unit": "kN*m", "opensees": P["roof_beam1_My_i_kNm"]},
+    ]
+    # Linear per-node reactions (Fx, Fz, Mym only — what Midas reports for Case 5)
+    for nlabel in ("N1", "N2", "N3", "N4"):
+        nd = L["base_react"][nlabel]
+        rows.append({"metric": f"Linear Reaction {nlabel} Fx",  "unit": "kN",   "opensees": nd["Fx"]})
+        rows.append({"metric": f"Linear Reaction {nlabel} Fz",  "unit": "kN",   "opensees": nd["Fz"]})
+        rows.append({"metric": f"Linear Reaction {nlabel} Mym", "unit": "kN*m", "opensees": nd["Mym"]})
     return rows
 
 
@@ -835,10 +1064,11 @@ def format_3way(case_name: str, extracted: list[dict],
 # ─────────────────────────────────────────────────────────────────────────
 
 _CASES: dict[str, tuple] = {
-    "case1": ("Case 1: 2D Simple Beam",         run_case1_etabs, _extract_case1),
-    "case2": ("Case 2: 2D Portal Frame",        run_case2_etabs, _extract_case2),
-    "case3": ("Case 3: 2D 3-Story Frame",       run_case3_etabs, _extract_case3),
-    "case4": ("Case 4: 3D 2-Story 1×1 Bay",     run_case4_etabs, _extract_case4),
+    "case1": ("Case 1: 2D Simple Beam",          run_case1_etabs, _extract_case1),
+    "case2": ("Case 2: 2D Portal Frame",         run_case2_etabs, _extract_case2),
+    "case3": ("Case 3: 2D 3-Story Frame",        run_case3_etabs, _extract_case3),
+    "case4": ("Case 4: 3D 2-Story 1×1 Bay",      run_case4_etabs, _extract_case4),
+    "case5": ("Case 5: 3D 5-Story P-Delta",      run_case5_etabs, _extract_case5),
 }
 
 
@@ -875,12 +1105,12 @@ def _run_case(case_id: str, client) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ETABS 23 benchmark — Case 1, 2, 3, 4",
+        description="ETABS 23 benchmark — Case 1~5",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "cases", nargs="*",
-        help="Case IDs to run: case1 case2 case3 case4  (default: all)",
+        help="Case IDs to run: case1 case2 case3 case4 case5  (default: all)",
     )
     parser.add_argument(
         "--launch", action="store_true",
@@ -892,7 +1122,7 @@ def main() -> None:
 
     sep = "=" * 80
     print(f"\n{sep}")
-    print("  ETABS 23 Benchmark -- Case 1, 2, 3, 4")
+    print("  ETABS 23 Benchmark -- Case 1~5")
     print(f"{sep}")
 
     try:
