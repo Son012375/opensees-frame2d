@@ -13,38 +13,147 @@
     <link rel="stylesheet" href="/static/css/editor_v2.css?v=1">
 </head>
 <body>
-    <!-- Top Bar -->
+    <!-- Application Header -->
     <div class="editor-topbar">
         <div class="topbar-left">
-            <a href="/" class="logo">OpenSees</a>
-            <span class="separator">|</span>
-            <span class="page-title">V2 3D Building Editor</span>
+            <a href="/" class="logo">OpenSees Frame Studio</a>
         </div>
+        <nav class="menu-strip" aria-label="Application menu">
+            <button type="button">File</button>
+            <button type="button">Edit</button>
+            <button type="button">View</button>
+            <button type="button">Model</button>
+            <button type="button">Node/Element</button>
+            <button type="button">Boundary</button>
+            <button type="button">Load</button>
+            <button type="button">Analysis</button>
+            <button type="button">Results</button>
+            <button type="button">Design</button>
+            <button type="button">Tools</button>
+            <button type="button">Help</button>
+        </nav>
         <div class="topbar-center" id="status-bar">
             <span class="status-text">Ready</span>
         </div>
         <div class="topbar-right">
             <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
-            <a href="/" class="nav-link">Home</a>
+            <span class="project-path">Project: academy_tower_v1.opf</span>
+            <span class="user-chip">SON</span>
         </div>
     </div>
 
-    <!-- Main Layout -->
-    <div class="editor-layout">
+    <!-- Ribbon -->
+    <div class="editor-ribbon">
+        <div class="ribbon-tabs">
+            <button class="ribbon-tab active" onclick="switchInputTab('manual')">Model</button>
+            <button class="ribbon-tab">Structure</button>
+            <button class="ribbon-tab">Loads</button>
+            <button class="ribbon-tab">Analysis</button>
+            <button class="ribbon-tab">Results</button>
+            <button class="ribbon-tab">Design</button>
+        </div>
+        <div class="ribbon-command-row">
+            <div class="ribbon-command-group geometry">
+                <button class="ribbon-command" onclick="setEditMode('addNode')"><b>N</b><span>Node</span></button>
+                <button class="ribbon-command" onclick="setEditMode('addElement')"><b>B</b><span>Beam</span></button>
+                <button class="ribbon-command"><b>P</b><span>Plate</span></button>
+                <button class="ribbon-command" onclick="toggleGridSnap()"><b>G</b><span>Grid</span></button>
+                <em>Geometry</em>
+            </div>
+            <div class="ribbon-command-group properties">
+                <button class="ribbon-command"><b>M</b><span>Material</span></button>
+                <button class="ribbon-command" onclick="applyGlobalSection('column')"><b>S</b><span>Section</span></button>
+                <button class="ribbon-command" onclick="setEditMode('release')"><b>R</b><span>Release</span></button>
+                <em>Properties</em>
+            </div>
+            <div class="ribbon-command-group boundary">
+                <button class="ribbon-command" onclick="setEditMode('support')"><b>SP</b><span>Support</span></button>
+                <button class="ribbon-command"><b>K</b><span>Spring</span></button>
+                <button class="ribbon-command"><b>C</b><span>Constraint</span></button>
+                <em>Boundary</em>
+            </div>
+            <div class="ribbon-command-group loadcase">
+                <button class="ribbon-command"><b>D</b><span>Dead</span></button>
+                <button class="ribbon-command"><b>L</b><span>Live</span></button>
+                <button class="ribbon-command"><b>E</b><span>Seismic</span></button>
+                <button class="ribbon-command"><b>W</b><span>Wind</span></button>
+                <em>Load Case</em>
+            </div>
+            <div class="ribbon-command-group solve">
+                <button class="ribbon-command run" onclick="runAnalysis()"><b>▶</b><span>Run</span></button>
+                <button class="ribbon-command" onclick="toggleDesignCheckColors()"><b>✓</b><span>Check</span></button>
+                <button class="ribbon-command"><b>R</b><span>Report</span></button>
+                <em>Solve</em>
+            </div>
+            <div class="ribbon-hint">Editable frame-based layout: dock panels, ribbon commands, split viewports, result/control panels</div>
+        </div>
+    </div>
+
+    <!-- Main Workbench -->
+    <div class="editor-workbench">
+        <aside class="tool-rail" aria-label="Viewport tools">
+            <button class="rail-btn active" onclick="setEditMode('view')" title="Select">SEL</button>
+            <button class="rail-btn" title="Pan">PAN</button>
+            <button class="rail-btn" title="Zoom">ZOOM</button>
+            <button class="rail-btn" onclick="resetCamera()" title="3D">3D</button>
+            <button class="rail-btn" title="XY">XY</button>
+            <button class="rail-btn" title="YZ">YZ</button>
+            <button class="rail-btn" title="XZ">XZ</button>
+            <button class="rail-btn" title="Dimension">DIM</button>
+            <button class="rail-btn" onclick="toggleGridSnap()" title="Snap">SNAP</button>
+            <button class="rail-btn" title="Mesh">MES</button>
+        </aside>
+
+        <div class="editor-layout">
         <!-- Left: Config Panel -->
         <div class="panel panel-left" id="config-panel">
             <div class="panel-header">
-                <h3>Building Config</h3>
+                <h3>Model Explorer</h3>
+            </div>
+            <div class="figma-model-explorer">
+                <div class="dock-tabs">
+                    <button class="dock-tab active" onclick="switchInputTab('manual')">Model</button>
+                    <button class="dock-tab" onclick="toggleDesignCheckColors()">Display</button>
+                    <button class="dock-tab">Tables</button>
+                    <button class="dock-tab">Reports</button>
+                </div>
+                <div class="tree-content">
+                    <div class="tree-row level-0 open">Project</div>
+                    <div class="tree-row level-1 open">Structure</div>
+                    <div class="tree-row level-2">Stories</div>
+                    <div class="tree-row level-2">Grid System</div>
+                    <div class="tree-row level-2 open">Nodes / Elements</div>
+                    <div class="tree-row level-3">Columns <span>128</span></div>
+                    <div class="tree-row level-3">Beams <span>412</span></div>
+                    <div class="tree-row level-3">Slabs <span>24</span></div>
+                    <div class="tree-row level-1 open">Properties</div>
+                    <div class="tree-row level-2">Materials</div>
+                    <div class="tree-row level-2">Sections</div>
+                    <div class="tree-row level-1">Load Cases</div>
+                    <div class="tree-row level-1">Analysis Results</div>
+                </div>
+            </div>
+
+            <div class="figma-object-panel">
+                <div class="panel-header mini">
+                    <h3>Properties of Object</h3>
+                </div>
+                <div class="object-summary">Selected: Beam B-204</div>
+                <div class="figma-prop-row"><span>Section</span><strong>H-400x200x8x13</strong></div>
+                <div class="figma-prop-row"><span>Material</span><strong>SM355</strong></div>
+                <div class="figma-prop-row"><span>Length</span><strong>6.000 m</strong></div>
+                <div class="figma-prop-row"><span>Release</span><strong>Pinned-Fixed</strong></div>
+                <div class="figma-prop-row"><span>Load Group</span><strong>DL + LL</strong></div>
             </div>
 
             <!-- Input Mode Tabs -->
-            <div class="input-tabs">
+            <div class="input-tabs legacy-config-ui">
                 <button class="input-tab active" onclick="switchInputTab('manual')">직접 입력</button>
                 <button class="input-tab" onclick="switchInputTab('nl')">자연어</button>
                 <button class="input-tab" onclick="switchInputTab('ifc')">IFC</button>
             </div>
 
-            <div class="panel-body">
+            <div class="panel-body legacy-config-ui">
                 <!-- ══ Manual Tab ══ -->
                 <div id="tab-manual" class="tab-content active">
                     <!-- Quick Preset -->
@@ -487,21 +596,37 @@
             </div>
         </div>
 
-        <!-- Center: 3D Viewer -->
+        <!-- Center: Split Workspace -->
         <div class="panel panel-center">
-            <div class="panel-header">
-                <h3>3D Viewer</h3>
-                <div class="viewer-controls">
-                    <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
-                    <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
-                    <button class="btn-icon" onclick="toggleAxes()" title="Axes">&#x2725;</button>
-                    <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
-                        <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
-                        <span>DC Colors</span>
-                    </label>
+            <div class="viewport-window plan-window">
+                <div class="viewport-title">
+                    <h3>Plan View - Base : Z = 0</h3>
+                    <span>×</span>
+                </div>
+                <div class="plan-canvas">
+                    <div class="selected-beam"></div>
+                    <span class="node n1"></span><span class="node n2"></span><span class="node n3"></span><span class="node n4"></span>
+                    <span class="node n5"></span><span class="node n6"></span><span class="node n7"></span><span class="node n8"></span>
+                    <span class="node n9"></span><span class="node n10"></span><span class="node n11"></span><span class="node n12"></span>
+                    <span class="node n13"></span><span class="node n14"></span><span class="node n15"></span><span class="node n16"></span>
+                    <span class="axis-x">X</span><span class="axis-y">Y</span>
                 </div>
             </div>
-            <div id="viewer-container">
+
+            <div class="viewport-window three-window">
+                <div class="viewport-title">
+                    <h3>3D View - Deformed Shape : DL + LL</h3>
+                    <div class="viewer-controls">
+                        <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
+                        <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
+                        <button class="btn-icon" onclick="toggleAxes()" title="Axes">&#x2725;</button>
+                        <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
+                            <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
+                            <span>DC Colors</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="viewer-container">
                 <!-- V2 Edit Toolbar -->
                 <div id="edit-toolbar" style="display:none;">
                     <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View">View</button>
@@ -571,15 +696,38 @@
                     </div>
                     <div class="legend-info" id="legend-info"></div>
                 </div>
+                </div>
             </div>
         </div>
 
         <!-- Right: Property Panel -->
         <div class="panel panel-right" id="property-panel">
             <div class="panel-header">
-                <h3>Properties</h3>
+                <h3>Analysis Control</h3>
             </div>
-            <div class="panel-body">
+            <div class="figma-analysis-panel">
+                <div class="workflow-row"><span>Model Check</span><strong class="ok">Ready</strong></div>
+                <div class="workflow-row"><span>Mesh Quality</span><strong>98%</strong></div>
+                <div class="workflow-row"><span>Load Cases</span><strong>12</strong></div>
+                <div class="workflow-row"><span>Combinations</span><strong>48</strong></div>
+                <div class="workflow-row"><span>Solver</span><strong>Linear Static</strong></div>
+                <button class="analysis-btn primary" onclick="runAnalysis()">Run Analysis</button>
+                <button class="analysis-btn">Generate Report</button>
+                <button class="analysis-btn">Export Tables</button>
+            </div>
+
+            <div class="figma-result-panel">
+                <div class="panel-header mini">
+                    <h3>Result Tables</h3>
+                </div>
+                <button class="result-row active"><span>Story Drift</span><strong>8</strong></button>
+                <button class="result-row"><span>Base Reaction</span><strong>16</strong></button>
+                <button class="result-row"><span>Member Force</span><strong>24</strong></button>
+                <button class="result-row"><span>Design Check</span><strong>32</strong></button>
+                <button class="result-row"><span>Modal Period</span><strong>40</strong></button>
+            </div>
+
+            <div class="panel-body legacy-property-ui">
                 <!-- No selection state -->
                 <div id="prop-empty" class="prop-section">
                     <p class="hint">Click a member in the 3D view to inspect properties.</p>
@@ -678,19 +826,20 @@
             </div>
         </div>
     </div>
+    </div>
 
     <!-- Bottom Bar: Quick Results -->
-    <div class="editor-bottombar" id="bottom-bar" style="display:none;">
+    <div class="editor-bottombar" id="bottom-bar">
         <div class="bottom-item">
-            <span class="bottom-label">Max Drift X</span>
+            <span class="bottom-label">X: 24.000 m&nbsp;&nbsp;Y: 18.000 m&nbsp;&nbsp;Z: 0.000 m</span>
             <span class="bottom-value" id="bot-drift-x">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">Max Drift Y</span>
+            <span class="bottom-label">Selected: 1 Beam, 2 Nodes</span>
             <span class="bottom-value" id="bot-drift-y">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">Max Disp X</span>
+            <span class="bottom-label">Last run: 0 warnings, 0 errors</span>
             <span class="bottom-value" id="bot-disp-x">-</span>
         </div>
         <div class="bottom-item">
@@ -702,7 +851,7 @@
             <span class="bottom-value" id="bot-moment">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">Design Check</span>
+            <span class="bottom-label">kN, m, C</span>
             <span class="bottom-value" id="bot-dc">-</span>
         </div>
     </div>
