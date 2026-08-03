@@ -391,6 +391,13 @@
         if (typeof window.runAnalysis !== 'function' || window.runAnalysis._figmaWrapped) return;
         var orig = window.runAnalysis;
         window.runAnalysis = function (configOverride) {
+            // A model load in flight means the imported model is not active
+            // yet; running now would analyse the manual-input defaults and
+            // present the result as if it were the imported model.
+            if (window._modelLoading) {
+                toast('모델을 불러오는 중입니다 · 잠시 후 실행해 주세요');
+                return;
+            }
             var src = '';
             try { src = modelSource || ''; } catch (_) {}
             if (!configOverride && src.indexOf('IFC') === 0 && window._v2Model) {

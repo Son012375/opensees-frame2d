@@ -115,6 +115,17 @@ window.addEventListener('DOMContentLoaded', () => {
     animate();
 });
 
+// Deep link: /editor-figma?demo=ifc loads the bundled example straight away, so
+// a visitor arriving from the landing page never meets an empty file dialog.
+// Runs on `load` (not DOMContentLoaded) so figma_menu.js has already wrapped
+// window.uploadIFC — otherwise the parsed model never reaches the 3D view.
+window.addEventListener('load', () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo') === 'ifc' && typeof loadSampleIFC === 'function') {
+        loadSampleIFC();
+    }
+});
+
 function initThreeJS() {
     const container = document.getElementById('viewer-container');
     const canvas = document.getElementById('three-canvas');
@@ -997,6 +1008,52 @@ function goToIFCStep(step) {
     if (step === 1) {
         clearPreviewScene();
         document.getElementById('preview-badge').style.display = 'none';
+    }
+}
+
+// ─── Sample IFC ─────────────────────────────────────────────────────────
+// A visitor arriving with no file of their own is the common case for a link
+// sent cold. This fetches the bundled example and hands it to the *existing*
+// upload path — no duplicated parsing, snapping or analysis logic.
+const SAMPLE_IFC_URL = '/static/files/ifc_example.ifc';
+
+// While a model is being fetched/parsed/snapped, Run must not fire: the IFC
+// model is not the active one yet, so an early click silently analyses the
+// manual-input default preset instead — a wrong answer that looks right.
+// `?demo=ifc` makes this window reachable, because the load starts by itself
+// the moment the page appears.
+window._modelLoading = false;
+
+function setModelLoading(on) {
+    window._modelLoading = !!on;
+    document.querySelectorAll('.ribbon-command.run, .analysis-btn.primary')
+        .forEach(function (b) {
+            b.disabled = !!on;
+            b.title = on ? '모델을 불러오는 중입니다…' : '';
+        });
+}
+
+async function loadSampleIFC() {
+    const btn = document.getElementById('btn-ifc-sample');
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '예제 불러오는 중...'; }
+    setModelLoading(true);
+
+    try {
+        const resp = await fetch(SAMPLE_IFC_URL, { cache: 'force-cache' });
+        if (!resp.ok) throw new Error('예제 파일을 불러오지 못했습니다 (' + resp.status + ')');
+        const blob = await resp.blob();
+        const file = new File([blob], 'ifc_example.ifc', { type: 'application/octet-stream' });
+
+        handleIFCFile(file);          // sets ifcSelectedFile + enables the button
+        await uploadIFC();            // parse -> auto-snap -> merge -> split
+    } catch (e) {
+        console.error('[sample IFC]', e);
+        setStatus('예제 IFC 로드 실패: ' + e.message, 'error');
+        alert('예제 IFC를 불러오지 못했습니다.\n' + e.message);
+    } finally {
+        setModelLoading(false);
+        if (btn) { btn.disabled = false; btn.textContent = original; }
     }
 }
 

@@ -12,7 +12,7 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231A73E8'/%3E%3Cg stroke='%23fff' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M9 24V10M23 24V10M9 10h14M9 17h14'/%3E%3C/g%3E%3C/svg%3E">
 
     <!-- Editor CSS (V2 copy) -->
-    <link rel="stylesheet" href="/static/css/editor_figma.css?v=13">
+    <link rel="stylesheet" href="/static/css/editor_figma.css?v=14">
 </head>
 <body>
     <!-- Application Header -->
@@ -380,6 +380,21 @@
                                 <input type="file" id="ifc-file-input" accept=".ifc" style="display:none;">
                             </div>
                             <div id="ifc-filename" class="ifc-filename" style="display:none;"></div>
+
+                            <div class="ifc-sample">
+                                <p class="ifc-sample-text">
+                                    IFC 파일이 없으신가요?
+                                </p>
+                                <button class="btn btn-secondary btn-block" id="btn-ifc-sample"
+                                        onclick="loadSampleIFC()">
+                                    예제 IFC로 바로 해보기
+                                </button>
+                                <p class="ifc-sample-hint">
+                                    3층 3&times;2경간 강구조 골조 (기둥 36 · 보 51).
+                                    논문에서 ETABS와 31/31 일치를 확인한 모델입니다.
+                                    <a href="/static/files/ifc_example.ifc" download>파일 내려받기</a>
+                                </p>
+                            </div>
                         </div>
                         <div class="form-actions" style="margin-top:8px;">
                             <button class="btn btn-primary btn-block" id="btn-ifc-upload" onclick="uploadIFC()" disabled>
@@ -855,10 +870,10 @@
         <input type="hidden" id="bulk-release"><input type="hidden" id="bulk-support">
         <span id="selection-count"></span>
     </div>
-    <script src="/static/js/editor3d_figma.js?v=1"></script>
+    <script src="/static/js/editor3d_figma.js?v=3"></script>
     <script src="/static/js/figma_edit.js?v=1"></script>
     <script src="/static/js/figma_tools.js?v=1"></script>
-    <script src="/static/js/figma_menu.js?v=10"></script>
+    <script src="/static/js/figma_menu.js?v=11"></script>
     <script src="/static/js/figma_plan.js?v=8"></script>
     <script src="/static/js/figma_material.js?v=2"></script>
     <script src="/static/js/figma_section.js?v=1"></script>
