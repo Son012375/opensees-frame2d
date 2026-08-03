@@ -1353,6 +1353,15 @@ async def analyze_v2_api(request: Request):
                 status_code=400,
                 detail="model 또는 config 중 하나가 필요합니다.",
             )
+        # Arithmetic gate BEFORE materialising anything. A config is a
+        # description, not a model: measured, a 5.3 KB body of 40 storeys x 4
+        # zones x 12x12 bays expands to 76,960 elements in 4.9 s and 124 MB,
+        # and the element-count check below would only see that number after
+        # paying for it — on the event loop that serves every other visitor.
+        # The uploaded-model branch above needs no equivalent: its elements
+        # arrive already enumerated, so counting them is free.
+        if DEMO_MAX_MEMBERS:
+            _enforce_demo_size(_estimate_member_count(user_config), "요청하신 모델")
         # config-only 진입 시 user_config가 곧 BuildingModel 입력
         model = StructuralModel.from_building_config(user_config)
         config_built = True
