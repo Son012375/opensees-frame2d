@@ -143,6 +143,9 @@
         var o = document.getElementById('figma-input-overlay');
         if (o) o.classList.remove('open');
     }
+    /* 리본/독의 Model 탭과 랜딩 딥링크(figma_deeplink.js)가 같은 드로어를
+     * 열어야 하므로 노출 — switchInputTab()만으론 아무것도 보이지 않는다. */
+    window.figmaOpenInputDrawer = openInputDrawer;
 
     /* ---- item factories ---------------------------------------------------- */
     function action(label, fnName, opts) {
@@ -171,7 +174,7 @@
     var MENUS = {
         'File': [
             { label: '직접 입력 (모델 정의)', hint: 'Manual', run: function () { openInputDrawer('manual'); } },
-            { label: '자연어 입력', hint: 'NL', run: function () { openInputDrawer('nl'); } },
+            soon('자연어 입력', '자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)'),
             { label: 'IFC 가져오기…', hint: 'Import', run: function () { openInputDrawer('ifc'); } },
             SEP,
             { label: '해석 리포트 열기', hint: 'Report', enabled: function () { return !!reportUrl(); },
@@ -207,7 +210,6 @@
             action('단면 정의 (Sections)…', 'figmaOpenSections', { hint: 'KS 738' }),
             SEP,
             action('기둥 단면 지정', 'applyGlobalSection', { args: ['column'] }),
-            action('보 단면 지정', 'applyGlobalSection', { args: ['beam'] }),
             SEP,
             soon('모델 탐색기 새로고침', '트리 렌더 이식 예정 (Tier 1-1)')
         ],
@@ -222,7 +224,7 @@
             soon('구속조건', '엔진 훅 없음 (백로그)')
         ],
         'Load': [
-            { label: '자연어 입력 (모델·하중 자동 생성)', hint: 'NL', run: function () { openInputDrawer('nl'); } },
+            soon('자연어 입력 (모델·하중 자동 생성)', '자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)'),
             SEP,
             action('고정하중 정의 (Dead)…', 'figmaOpenLoads', { args: ['dead'], hint: 'D' }),
             action('활하중 정의 (Live)…', 'figmaOpenLoads', { args: ['live'], hint: 'L' }),

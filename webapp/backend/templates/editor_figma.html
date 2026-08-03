@@ -12,7 +12,7 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231A73E8'/%3E%3Cg stroke='%23fff' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M9 24V10M23 24V10M9 10h14M9 17h14'/%3E%3C/g%3E%3C/svg%3E">
 
     <!-- Editor CSS (V2 copy) -->
-    <link rel="stylesheet" href="/static/css/editor_figma.css?v=14">
+    <link rel="stylesheet" href="/static/css/editor_figma.css?v=15">
 </head>
 <body>
     <!-- Application Header -->
@@ -39,7 +39,9 @@
         </div>
         <div class="topbar-right">
             <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
-            <span class="project-path">Project: academy_tower_v1.opf</span>
+            <!-- 파일명을 걸어두면 File 메뉴에 열기/저장이 있다는 뜻이 되는데 없다.
+                 모델 출처는 editor3d_figma.js가 modelSource로 갱신한다. -->
+            <span class="project-path" id="project-source">Project: 새 모델 (저장 안 됨)</span>
             <span class="user-chip">SON</span>
         </div>
     </div>
@@ -47,7 +49,7 @@
     <!-- Ribbon -->
     <div class="editor-ribbon">
         <div class="ribbon-tabs">
-            <button class="ribbon-tab active" onclick="switchInputTab('manual')">Model</button>
+            <button class="ribbon-tab active" onclick="figmaOpenInputDrawer('manual')">Model</button>
             <button class="ribbon-tab">Structure</button>
             <button class="ribbon-tab">Loads</button>
             <button class="ribbon-tab">Analysis</button>
@@ -58,7 +60,7 @@
             <div class="ribbon-command-group geometry">
                 <button class="ribbon-command" onclick="setEditMode('addNode')"><b>N</b><span>Node</span></button>
                 <button class="ribbon-command" onclick="setEditMode('addElement')"><b>B</b><span>Beam</span></button>
-                <button class="ribbon-command"><b>P</b><span>Plate</span></button>
+                <button class="ribbon-command" disabled title="엔진 훅 없음 (백로그)"><b>P</b><span>Plate</span></button>
                 <button class="ribbon-command" onclick="toggleGridSnap()"><b>G</b><span>Grid</span></button>
                 <em>Geometry</em>
             </div>
@@ -70,8 +72,8 @@
             </div>
             <div class="ribbon-command-group boundary">
                 <button class="ribbon-command" onclick="setEditMode('support')"><b>SP</b><span>Support</span></button>
-                <button class="ribbon-command"><b>K</b><span>Spring</span></button>
-                <button class="ribbon-command"><b>C</b><span>Constraint</span></button>
+                <button class="ribbon-command" disabled title="엔진 훅 없음 (백로그)"><b>K</b><span>Spring</span></button>
+                <button class="ribbon-command" disabled title="엔진 훅 없음 (백로그)"><b>C</b><span>Constraint</span></button>
                 <em>Boundary</em>
             </div>
             <div class="ribbon-command-group loadcase">
@@ -114,14 +116,14 @@
             </div>
             <div class="figma-model-explorer">
                 <div class="dock-tabs">
-                    <button class="dock-tab active" onclick="switchInputTab('manual')">Model</button>
+                    <button class="dock-tab active" onclick="figmaOpenInputDrawer('manual')">Model</button>
                     <button class="dock-tab" onclick="toggleDesignCheckColors()">Display</button>
                     <button class="dock-tab">Tables</button>
                     <button class="dock-tab">Reports</button>
                 </div>
                 <!-- 라이브 트리 — figma_explorer.js가 _v2Model/currentResult에서 채움 -->
                 <div class="tree-content" id="fig-mx-tree">
-                    <div class="tree-hint">모델이 없습니다 — IFC 가져오기, 자연어 입력 또는 해석 실행 후 구조 트리가 여기에 표시됩니다.</div>
+                    <div class="tree-hint">모델이 없습니다 — 직접 입력 또는 IFC 가져오기로 모델을 만들면 구조 트리가 여기에 표시됩니다.</div>
                 </div>
             </div>
 
@@ -150,7 +152,11 @@
                             <option value="3story">3-Story Office</option>
                             <option value="5story">5-Story Office</option>
                             <option value="5story_mixed">5-Story Mixed-Use</option>
+                            {% if not demo_mode %}
+                            {# 400부재 · 실측 피크 RSS 약 6GB. 공개 데모의 DEMO_MAX_MEMBERS(250)에
+                               반드시 걸리므로, 고르면 반드시 실패하는 선택지를 내놓지 않는다. #}
                             <option value="10story">10-Story Office</option>
+                            {% endif %}
                         </select>
                     </div>
 
@@ -171,11 +177,12 @@
                             Bays
                             <label class="toggle-inline" style="margin-left:auto;font-weight:normal;font-size:11px;">
                                 <input type="checkbox" id="irregular-toggle" onchange="toggleIrregular()">
-                                비정형
+                                비정형 (약 90초 소요)
                             </label>
                         </h4>
                         <p id="irregular-hint" class="form-hint" style="display:none;">
                             L자형, T자형, Setback 등 비직교 평면을 존(Zone)으로 정의합니다.
+                            부재 수가 많아 해석에 약 90초가 걸립니다.
                         </p>
                         <!-- Regular bays (default) -->
                         <div id="regular-bays-panel">
@@ -504,13 +511,17 @@
 
                     <!-- Step 3: Supplementary Config -->
                     <div id="ifc-step-3" class="ifc-step-content">
-                        <!-- NL Helper (optional) -->
+                        <!-- NL Helper — 이 공개 데모에서는 비활성. LLM 키 없는 배포에서
+                             누르면 Anthropic 과금 오류 문자열이 alert로 그대로 노출된다
+                             (editor3d_figma.js:1832). ?demo=ifc 경로에서 한 클릭 거리라
+                             메뉴의 자연어 입력과 같은 기준으로 막아 둔다. -->
                         <div class="form-section ifc-nl-helper">
                             <h4>자연어 보조 입력 (선택)</h4>
                             <textarea id="ifc-nl-input" class="nl-textarea" rows="2"
-                                placeholder="예: 1층 근생, 2~5층 오피스, 서울 강남"></textarea>
-                            <button class="btn btn-secondary btn-block" style="margin-top:4px;" onclick="applyNLToIFCForm()">
-                                NL 적용
+                                placeholder="아래 항목을 직접 선택해 주세요" disabled></textarea>
+                            <button class="btn btn-secondary btn-block" style="margin-top:4px;" disabled
+                                    title="자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)">
+                                NL 적용 (데모에서 비활성)
                             </button>
                         </div>
                         <hr>
@@ -837,15 +848,15 @@
     <!-- Bottom Bar: Quick Results -->
     <div class="editor-bottombar" id="bottom-bar">
         <div class="bottom-item">
-            <span class="bottom-label">X: 24.000 m&nbsp;&nbsp;Y: 18.000 m&nbsp;&nbsp;Z: 0.000 m</span>
+            <span class="bottom-label">Max Drift X</span>
             <span class="bottom-value" id="bot-drift-x">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">Selected: 1 Beam, 2 Nodes</span>
+            <span class="bottom-label">Max Drift Y</span>
             <span class="bottom-value" id="bot-drift-y">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">Last run: 0 warnings, 0 errors</span>
+            <span class="bottom-label">Max Disp X</span>
             <span class="bottom-value" id="bot-disp-x">-</span>
         </div>
         <div class="bottom-item">
@@ -857,7 +868,7 @@
             <span class="bottom-value" id="bot-moment">-</span>
         </div>
         <div class="bottom-item">
-            <span class="bottom-label">kN, m, C</span>
+            <span class="bottom-label">Design Check</span>
             <span class="bottom-value" id="bot-dc">-</span>
         </div>
     </div>
@@ -873,11 +884,13 @@
     <script src="/static/js/editor3d_figma.js?v=3"></script>
     <script src="/static/js/figma_edit.js?v=1"></script>
     <script src="/static/js/figma_tools.js?v=1"></script>
-    <script src="/static/js/figma_menu.js?v=11"></script>
+    <script src="/static/js/figma_menu.js?v=12"></script>
     <script src="/static/js/figma_plan.js?v=8"></script>
     <script src="/static/js/figma_material.js?v=2"></script>
     <script src="/static/js/figma_section.js?v=1"></script>
     <script src="/static/js/figma_load.js?v=1"></script>
-    <script src="/static/js/figma_explorer.js?v=1"></script>
+    <script src="/static/js/figma_explorer.js?v=2"></script>
+    <!-- 랜딩 딥링크 진입 — 위 모듈들이 노출한 window.figma* 훅에 의존하므로 마지막 -->
+    <script src="/static/js/figma_deeplink.js?v=1"></script>
 </body>
 </html>

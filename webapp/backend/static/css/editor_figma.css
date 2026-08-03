@@ -1798,6 +1798,18 @@ body {
     border-color: var(--accent);
 }
 
+/* Not-yet-wired commands (Plate / Spring / Constraint). They sit in the same
+   groups as working buttons, so without this they look identical to them and
+   a visitor spends their first click on nothing. The hover reset matters as
+   much as the dimming: a button that lights up on hover reads as alive. */
+.ribbon-command:disabled,
+.ribbon-command:disabled:hover {
+    opacity: .42;
+    cursor: default;
+    background: var(--command-bg);
+    border-color: var(--chrome-border);
+}
+
 .ribbon-command.is-primary {
     background: var(--command-active);
     border-color: var(--accent);
