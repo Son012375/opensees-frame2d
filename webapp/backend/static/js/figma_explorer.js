@@ -284,6 +284,32 @@
 
     /* ---- Result Tables (실카운트 + 경량 테이블 팝업) ----------------------------- */
     function firstCase(r) { return (r.case_names || [])[0] || (r.combo_names || [])[0] || null; }
+    function ratioNum(v) { return (typeof v === 'number' && isFinite(v)) ? v : -1; }
+    function governingCombo(r) {
+        // case_names[0] = DL이라 층간변위는 첫 화면이 전부 0, 부재력은 고정하중으로 열린다.
+        // design_check가 이미 지배조합을 알고 있으므로 그것을 기본값으로 쓴다.
+        var combos = r.combo_names || [];
+        if (!combos.length) return null;
+        var dc = r.design_check || {};
+        var sm = dc.summary || {};
+        var mem = (dc.member_check || {}).members || [];
+        var crit = (dc.drift_check || {}).critical || {};
+        var cand = [sm.member_governing_combo, sm.drift_governing_combo,
+                    mem.length ? mem[0].governing_combo : null, crit.combo];
+        // design_check가 없는 응답(구버전/부분해석)은 member_checks 최대비 부재로 폴백
+        var ch = r.member_checks || {}, top = null, topR = -1;
+        Object.keys(ch).forEach(function (id) {
+            var c = ch[id], v = ratioNum(c.interaction_ratio != null ? c.interaction_ratio : c.ratio);
+            if (v > topR) { topR = v; top = c; }
+        });
+        if (top) cand.push(top.governing_combo, top.governing, top.combo);
+        for (var i = 0; i < cand.length; i++) {
+            // <select> 옵션과 case_data 조회가 어긋나면 빈 표가 되므로 실재하는 이름만 채택
+            if (cand[i] && combos.indexOf(cand[i]) >= 0) return cand[i];
+        }
+        return null;
+    }
+    function defaultCase(r) { return governingCombo(r) || firstCase(r); }
     function tableSpec(kind, r, caseName) {
         // returns {title, rows, caseScoped}
         if (kind === 'drift') {
@@ -301,7 +327,27 @@
             var ch = r.member_checks || {};
             var rows = Object.keys(ch).map(function (id) {
                 var c = ch[id];
-                return { member: '#' + id, status: c.status, ratio: c.interaction_ratio != null ? c.interaction_ratio : c.ratio, governing: c.governing_combo || c.combo || '' };
+                var ratio = c.interaction_ratio != null ? c.interaction_ratio : (c.ratio != null ? c.ratio : null);
+                // 백엔드가 아직 type/story/section을 안 보내는 응답도 빈칸으로 렌더되게 한다
+                return {
+                    member: '#' + id,
+                    type: c.type || '',
+                    story: c.story != null ? c.story : '',
+                    section: c.section || '',
+                    status: c.status || '',
+                    ratio: ratio,
+                    governing: c.governing_combo || c.governing || c.combo || ''
+                };
+            });
+            // NG 부재가 63~87행 중간에 묻히지 않도록 지배부재를 1행으로 (미평가는 뒤로).
+            // status를 1차 키로 쓰는 이유: design_check는 max(상관비, 전단비)>1 이거나
+            // 세장비 NG일 때도 NG를 주는데(design_check.py:1041) 응답에는 상관비만 실린다.
+            // 상관비만으로 정렬하면 전단·세장비로 떨어진 부재가 OK 부재 아래로 내려가고,
+            // 400행 표시 상한(아래 rows.slice)에 걸리면 아예 화면에서 사라진다.
+            rows.sort(function (a, b) {
+                var an = a.status === 'NG' ? 1 : 0, bn = b.status === 'NG' ? 1 : 0;
+                if (an !== bn) return bn - an;
+                return ratioNum(b.ratio) - ratioNum(a.ratio);
             });
             return { title: 'Design Check (' + rows.length + ')', rows: rows, caseScoped: false };
         }
@@ -349,7 +395,7 @@
         win.appendChild(head); win.appendChild(body);
         rtOverlay.appendChild(win);
 
-        var caseName = firstCase(r);
+        var caseName = defaultCase(r);
         function render() {
             body.innerHTML = '';
             var spec = tableSpec(kind, r, caseName);
@@ -394,7 +440,7 @@
     };
     function updateResultCounts() {
         var r = getResult();
-        var c1 = firstCase(r || {});
+        var c1 = defaultCase(r || {});   // 카운트도 팝업이 처음 여는 조합 기준으로
         function cnt(kind) {
             if (!r) return '—';
             try {
