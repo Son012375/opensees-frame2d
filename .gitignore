@@ -66,6 +66,14 @@ data/kds_images/
 # never commit. Override location via CHAT_AUDIT_LOG_PATH.
 data/chat_audit/
 
+# Runtime §10 narration provenance log (narration_audit.py default path).
+# AI-drafted prose + facts snapshot per analysis — override via NARRATION_AUDIT_LOG_PATH.
+data/narration_audit/
+
+# Runtime §10 narration facts-hash cache (narration_cache.py default path, C2′ 결정성).
+# Validated LLM candidates keyed by facts+prompt_hash — override via NARRATION_CACHE_DIR.
+data/narration_cache/
+
 # Generated test output HTML reports
 mcp-server/test_output/
 mcp-server/*.html

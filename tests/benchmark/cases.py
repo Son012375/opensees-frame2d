@@ -1064,6 +1064,10 @@ ALL_CASES = {
 }
 
 # Optional variants (not included in default benchmark suite)
+# Decision-gate cases (Case 6+) are also placed here — opt-in via CLI arg.
+from case6_lshape import run_case6_lshape  # noqa: E402
+
 OPTIONAL_CASES = {
     "case1_udl": ("2D Simple Beam (UDL)", run_case1_udl),
+    "case6_lshape": ("3D L-Shape 5F+3F Setback (Decision-Gate)", run_case6_lshape),
 }

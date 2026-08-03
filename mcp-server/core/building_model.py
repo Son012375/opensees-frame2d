@@ -132,6 +132,7 @@ class BuildingModel:
     # ── 분석 옵션 ──
     num_elements_per_member: int = 4
     auto_combinations: bool = True  # True면 KDS 표준 조합 자동 생성
+    live_load_reduction: bool = False  # True면 등분포활하중 면적저감(KDS 41 12 00 §3.5) opt-in
     rigid_diaphragm: bool = False   # True면 층별 강체 다이어프램 적용
     member_releases: dict = field(default_factory=dict)  # 부재 릴리즈 (힌지)
     geometric_nonlinearity: str = "linear"  # "linear" or "pdelta"
@@ -311,6 +312,7 @@ class BuildingModel:
             exposure_category=config.get("exposure_category", "B"),
             num_elements_per_member=config.get("num_elements_per_member", 4),
             auto_combinations=config.get("auto_combinations", True),
+            live_load_reduction=config.get("live_load_reduction", False),
             rigid_diaphragm=config.get("rigid_diaphragm", False),
             member_releases=config.get("member_releases", {}),
             geometric_nonlinearity=config.get("geometric_nonlinearity", "linear"),
@@ -399,6 +401,8 @@ class BuildingModel:
             "member_releases": self.member_releases or None,
             "geometric_nonlinearity": self.geometric_nonlinearity,
             "slab_distribution": self.slab_distribution,
+            # 모달 질량의 유효지진중량 일관성(창고류 25% 활하중)을 위해 층별 용도 전달.
+            "story_usages": [s.usage for s in self.stories],
         }
         if self.is_irregular:
             kwargs["zones"] = [

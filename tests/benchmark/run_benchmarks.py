@@ -61,9 +61,13 @@ def main():
 
     # Template mode
     if "--template" in args:
+        all_known = {**ALL_CASES, **OPTIONAL_CASES}
+        requested = [a for a in args if a in all_known]
+        if not requested:
+            requested = list(ALL_CASES.keys())  # legacy default
         print("\nCreating Midas Gen result templates...")
-        for case_id in ALL_CASES:
-            name, runner = ALL_CASES[case_id]
+        for case_id in requested:
+            name, runner = all_known[case_id]
             extractor = EXTRACTORS[case_id]
             # Run to get metric names
             results = runner()
@@ -86,6 +90,7 @@ def main():
     all_tables = []
     total_ok = 0
     total_check = 0
+    total_fail = 0
     total_pending = 0
     total_metrics = 0
 
@@ -99,6 +104,8 @@ def main():
                 total_ok += 1
             elif r["status"] == "CHECK":
                 total_check += 1
+            elif r["status"] == "FAIL":
+                total_fail += 1
             else:
                 total_pending += 1
 
@@ -112,13 +119,15 @@ def main():
     print(f"{'='*80}")
     print(f"  Cases run: {len(case_ids)}")
     print(f"  Total metrics: {total_metrics}")
-    print(f"  OK: {total_ok}  |  CHECK: {total_check}  |  PENDING: {total_pending}")
+    print(f"  OK: {total_ok}  |  CHECK: {total_check}  |  FAIL: {total_fail}  |  PENDING: {total_pending}")
 
     if total_pending == total_metrics:
         print(f"\n  All metrics PENDING - Midas Gen results not yet entered.")
         print(f"  Run with --template to create JSON templates.")
+    elif total_fail > 0:
+        print(f"\n  {total_fail} metrics exceed FAIL threshold (>5%) - investigate.")
     elif total_check > 0:
-        print(f"\n  {total_check} metrics exceed tolerance - review needed.")
+        print(f"\n  {total_check} metrics in CHECK band (1-5%) - review needed.")
     else:
         print(f"\n  All compared metrics within tolerance.")
 
@@ -132,6 +141,7 @@ def main():
         "total_metrics": total_metrics,
         "ok": total_ok,
         "check": total_check,
+        "fail": total_fail,
         "pending": total_pending,
     }
     with open(os.path.join(out_dir, "summary.json"), "w") as f:

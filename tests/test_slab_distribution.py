@@ -185,20 +185,38 @@ class TestSlabDistributionIntegration:
             assert r2["RZ_kN"] == pytest.approx(ru["RZ_kN"], abs=0.01)
 
     def test_2way_vs_uniform_rectangular_differ(self):
-        """직사각형: 2-way와 uniform 반력 분포 다름 (총합은 동일)."""
+        """직사각형 단일 패널: 슬래브 분배 차이는 보 모멘트에 나타난다.
+
+        2-way와 uniform의 차이는 각 보에 배분되는 선하중(→ 보 휨모멘트)에 있다.
+        단일 대칭 패널(4코너 대칭)에서는 코너 연직반력이 분배방식과 무관하게
+        총하중/4로 동일하다(대칭성). 과거에는 OpenSees `eleLoad` 반력 오귀속 버그로
+        인해 코너 반력이 분배방식에 따라 다르게 나왔으나(2026-07-01 등가절점하중
+        방식으로 수정), 이는 물리적으로 잘못된 거동이었다. 따라서 이 테스트는
+        (a) 총반력 동일, (b) 대칭 코너 반력 동일, (c) 보 휨모멘트는 상이 를 검증한다.
+        """
         w = 10.0
         bays_x, bays_y = [6.0], [10.0]
         m_2way = self._run_analysis(bays_x, bays_y, w, "2way")
         m_unif = self._run_analysis(bays_x, bays_y, w, "uniform")
         r_2way = m_2way.case_results["DL"].reactions
         r_unif = m_unif.case_results["DL"].reactions
-        # 총합은 동일
+        # (a) 총합 동일
         total_2way = self._total_rz_kN(r_2way)
         total_unif = self._total_rz_kN(r_unif)
         assert total_2way == pytest.approx(total_unif, rel=0.01)
-        # 개별 반력은 다름 (최소 1개 노드에서 차이 존재)
-        diffs = [abs(r2["RZ_kN"] - ru["RZ_kN"]) for r2, ru in zip(r_2way, r_unif)]
-        assert max(diffs) > 0.1  # kN 단위
+        # (b) 대칭 단일 패널: 코너 반력은 분배방식과 무관하게 동일 (correct physics)
+        for r2, ru in zip(r_2way, r_unif):
+            assert r2["RZ_kN"] == pytest.approx(ru["RZ_kN"], abs=0.05)
+        # (c) 보 휨모멘트는 분배방식에 따라 달라야 한다 (슬래브 분배의 물리적 효과)
+        def _beam_max_My(multi):
+            return [
+                max(abs(v) for v in mf["My_kNm"])
+                for mf in multi.member_forces["DL"]
+                if mf["type"] in ("beam_x", "beam_y")
+            ]
+        b2 = _beam_max_My(m_2way)
+        bu = _beam_max_My(m_unif)
+        assert max(abs(a - b) for a, b in zip(b2, bu)) > 0.1  # kN·m
 
     def test_multibay_total_reaction(self):
         """2x2 bay 직사각형: 총 반력 보존."""

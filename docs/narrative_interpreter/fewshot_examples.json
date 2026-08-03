@@ -1,0 +1,194 @@
+{
+  "meta": {
+    "role": "narrative_interpreter (역할 #3) — 설계 결과 해설 LLM",
+    "model": "claude-opus-4-8",
+    "scope_v1": ["summary_ko", "summary_en"],
+    "principle": "explanation-only, not judgment — LLM은 숫자·판정을 만들지 않고 facts를 문장으로만 엮는다",
+    "guide": "docs/narrative_interpreter/fewshot_register_ko.md",
+    "note_numbers": "fewshot[].facts/summary의 숫자는 예시(illustrative). 런타임에서는 입력 facts 문자열을 그대로 복사하며 예시 숫자를 재사용하거나 새 숫자를 만들지 않는다."
+  },
+
+  "register_rules": [
+    "명사형 종결: ~됨/~함/~확인됨/~판단됨/~사료됨/~검토됨/~요구됨 (보고서 문어체)",
+    "판정엔 항상 근거(기준+수치) 병기. 단, 수치는 입력 facts 문자열을 글자 그대로 복사만 — 새 숫자 생성 금지",
+    "무주어 3인칭. 1인칭·감정·과장·이모지 금지",
+    "OK 2단 구조: '…기준을 만족하는 것으로 확인됨' → '…구조적으로 안전한 것으로 판단됨'",
+    "NG 구조: '…기준을 초과하여, …보강/단면증대/시스템변경이 필요한 것으로 검토됨'",
+    "길이: facts가 풍부하면 4~6문장으로 다음 흐름에 엮는다 — 구조개요 → 적용기준·하중(특히 지진 밑면전단 V·Cs·R·Ie·SDS) → 해석방법 → 부재검토 → 층간변위 → 동적(질량참여율) → 종합판정·권고. facts가 적으면 2~3문장으로 짧게.",
+    "facts에 structure_overview/seismic/loads/analysis_method_ko/mass_participation/member_groups가 있으면 적극 활용해 종합검토의견을 충실히 작성한다. 없는 항목은 생략한다(억지로 채우지 않음).",
+    "facts.drift_by_direction이 있으면 방향별 비대칭을 명시한다 — 예: 'X방향은 여유가 있으나 Y방향은 허용기준에 근접/초과'. 방향별 수치는 facts 문자열만 복사한다.",
+    "facts.suggestions(복수 리스트)가 있으면 상위 1~2건을 권고 문장으로 자연스럽게 녹인다(단면명 등 숫자는 facts 문자열만 복사).",
+    "NG(severity moderate/severe)일 때 별도 요청이 있으면 diagnosis_narrative_ko/en로 부적합 원인·메커니즘을 2~3문장 설명한다(facts.diagnosis/member_groups/drift_by_direction 근거, 숫자는 facts만). safe/marginal에는 생성하지 않는다.",
+    "facts.limitations_ko가 있으면 마지막에 해석상 가정·한계를 1문장으로 덧붙인다(숫자 없이). 단, 경고 목록(§10.3)과 중복 서술하지 않는다.",
+    "KDS 조항 번호를 새로 지어내지 않는다. facts.applicable_codes에 들어온 조항만 인용하고 없으면 '적용 설계기준' 총칭",
+    "OK/NG 판정을 뒤집거나 완화하지 않는다",
+    "충실히 작성 불가 시 confidence='low' → 호출부가 _generate_summary() 템플릿으로 폴백"
+  ],
+
+  "severity_tone": {
+    "safe": "단정적 긍정 — '…구조적으로 안전한 것으로 판단됨.'",
+    "marginal": "긍정 + 조건 단서 — '…기준을 만족하나, 하중 조건 변경 시 재검토가 필요한 것으로 판단됨.'",
+    "moderate": "부적합 + 해결책 — '…단면 증대(보강)로 기준을 만족할 수 있는 것으로 판단됨.'",
+    "severe": "부적합 + 시스템 차원 — '…구조시스템 차원의 재검토가 요구됨.'"
+  },
+
+  "facts_schema": {
+    "severity": "safe|marginal|moderate|severe",
+    "severity_label_ko": "string",
+    "structure_overview": "string? (예 '지상 5층, 철골 보통모멘트골조, SS275, 기둥 H-400x400 / 보 H-500x200, 총높이 18.5 m')",
+    "applicable_codes": ["string (예 'KDS 41 17 00')"],
+    "seismic": { "base_shear_V": "string?", "Cs": "string?", "R": "string?", "Ie": "string?", "SDS": "string?", "SD1": "string?", "W_eff": "string?", "T_design": "string?", "Ta": "string?", "formula": "string? (예 'V = Cs·W = 0.0888 × 6892 = 612 kN')", "region": "string?" },
+    "loads": { "gravity": "string?", "wind": "string?", "snow": "string?" },
+    "analysis_method_ko": "string? (예 '3차원 골조해석, 등가정적해석법(ELF), 강체 다이어프램')",
+    "mass_participation": "string? (예 'X 96% / Y 95% (충분조건(≥90%) 만족)')",
+    "max_drift_ratio": "string (허용기준 대비, 예 '0.85 (3층, X방향)')",
+    "drift_by_direction": "string? (방향별 비대칭일 때만, 예 'X방향 0.45 / Y방향 0.88')",
+    "max_interaction_ratio": "string (예 '1.12 (보 #214, 3층)')",
+    "member_groups": { "ng_distribution": "string? (예 'X방향 보 4개')", "max_shear_ratio": "string?" },
+    "governing_member_mode": "string? (NG일 때만, 예 '축력-휨 상관')",
+    "T1_Ta": "string (예 '1.42s / 1.05s (비 1.35)')",
+    "first_mode_direction": "TRAN-X|TRAN-Y|ROTN-Z",
+    "ng_stories": "int",
+    "ng_members": "int",
+    "diagnosis": { "primary_cause_ko": "string?", "contributing_factors_ko": ["string"], "soft_story_ko": "string?", "ng_by_story_ko": "string? (예 '3층 4개, 2층 2개')" },
+    "suggestions": ["string (예 'X방향 보 단면 증대: H-400x200 → H-450x200')"],
+    "limitations_ko": ["string (숫자 없는 한계 라벨, 예 '유효좌굴길이계수는 보수적으로 가정함')"]
+  },
+
+  "fewshot": [
+    {
+      "facts": {
+        "severity": "safe",
+        "structure_overview": "지상 5층, 철골 보통모멘트골조, SS275, 기둥 H-400x400 / 보 H-500x200, 총높이 18.5 m",
+        "applicable_codes": ["KDS 41 10 00", "KDS 41 17 00", "KDS 41 12 00", "KDS 14 31 00"],
+        "seismic": { "base_shear_V": "612 kN", "Cs": "0.0888", "R": "3.5", "Ie": "1.0", "SDS": "0.462 g", "W_eff": "6892 kN", "T_design": "0.62 s", "formula": "V = Cs·W = 0.0888 × 6892 = 612 kN", "region": "서울특별시 강남구" },
+        "loads": { "gravity": "고정하중 5.10 kN/m², 활하중 2.50 kN/m² (office)", "wind": "기본풍속 26 m/s, 총 풍력 180/165 kN", "snow": "지붕적설하중 0.50 kN/m²" },
+        "analysis_method_ko": "3차원 골조해석, 등가정적해석법(ELF), 강체 다이어프램",
+        "mass_participation": "X 96% / Y 95% (충분조건(≥90%) 만족)",
+        "max_interaction_ratio": "0.62 (보 #214, 3층)",
+        "max_drift_ratio": "0.48 (3층, X방향)",
+        "member_groups": { "max_shear_ratio": "0.31" },
+        "T1_Ta": "0.62s / 0.58s (비 1.07)",
+        "first_mode_direction": "TRAN-X",
+        "ng_stories": 0,
+        "ng_members": 0
+      },
+      "summary_ko": "본 구조물은 지상 5층 철골 보통모멘트골조(SS275, 기둥 H-400x400 / 보 H-500x200, 총높이 18.5 m)로, KDS 41 10 00·41 12 00·41 17 00·14 31 00을 적용하여 3차원 골조해석(등가정적해석법, 강체 다이어프램)을 수행함. 서울특별시 강남구 지반에 대해 설계스펙트럼가속도 SDS=0.462 g, 반응수정계수 R=3.5, 중요도계수 Ie=1.0을 적용한 밑면전단력은 V = Cs·W = 0.0888 × 6892 = 612 kN으로 산정됨. 고유치해석 결과 1차 고유주기는 0.62초(경험식 0.58초, 비 1.07)이며, 누적 유효질량 참여율이 X 96%·Y 95%로 충분조건(≥90%)을 만족함. 부재검토 결과 최대 내력비 0.62(보 #214, 3층)·최대 전단비 0.31로 1.0 이하이고, 최대 층간변위비는 허용기준의 0.48 수준으로 KDS 41 17 00 허용층간변위 이내로 확인됨. 따라서 본 구조물은 적용 설계기준이 요구하는 강도·사용성·내진성능을 모두 만족하여 구조적으로 안전한 것으로 판단됨.",
+      "summary_en": "The building is a 5-story steel ordinary moment frame (SS275; columns H-400x400, beams H-500x200; total height 18.5 m), evaluated per KDS 41 10 00, 41 12 00, 41 17 00, and 14 31 00 using 3D frame analysis (equivalent static method, rigid diaphragm). For the Seoul Gangnam-gu site, with SDS=0.462 g, R=3.5, and Ie=1.0, the base shear is V = Cs·W = 0.0888 × 6892 = 612 kN. The fundamental period is 0.62 s (empirical 0.58 s, ratio 1.07), with cumulative effective mass participation of 96% in X and 95% in Y, satisfying the ≥90% requirement. The maximum member demand-to-capacity ratio is 0.62 (beam #214, Story 3) and the maximum shear ratio 0.31, both below 1.0, while the maximum story-drift ratio is 0.48 of the allowable, within the KDS 41 17 00 limit. The structure therefore satisfies the strength, serviceability, and seismic performance required by the applied codes and is judged structurally safe.",
+      "confidence": "high"
+    },
+    {
+      "facts": {
+        "severity": "marginal",
+        "max_interaction_ratio": "0.94 (기둥 #C12, 2층)",
+        "max_drift_ratio": "0.88 (2층, Y방향)",
+        "T1_Ta": "1.40s / 1.05s (비 1.33)",
+        "first_mode_direction": "TRAN-Y",
+        "ng_stories": 0,
+        "ng_members": 0
+      },
+      "summary_ko": "설계검토 결과 전 항목이 허용기준을 만족하나, 최대 내력비가 0.94(기둥 #C12, 2층), 최대 층간변위비가 허용기준의 0.88 수준으로 여유가 크지 않음. 1차 고유주기(1.40초)가 경험식(1.05초) 대비 다소 길어 횡강성 여유가 제한적임. 현 설계는 기준을 만족하나, 하중 조건 변경 시 재검토가 필요한 것으로 판단됨.",
+      "summary_en": "All checks satisfy the allowable limits, but with limited margin: the maximum member ratio is 0.94 (column #C12, Story 2) and the maximum story-drift ratio reaches 0.88 of the allowable. The fundamental period (1.40 s) is somewhat longer than the empirical estimate (1.05 s), leaving restricted lateral-stiffness margin. The current design meets the code but would require re-evaluation if the loading conditions change.",
+      "confidence": "high"
+    },
+    {
+      "facts": {
+        "severity": "moderate",
+        "structure_overview": "지상 3층, 철골 보통모멘트골조, SS275, 기둥 H-300x300 / 보 H-400x200, 총높이 10.5 m",
+        "applicable_codes": ["KDS 41 10 00", "KDS 41 17 00", "KDS 41 12 00", "KDS 14 31 00"],
+        "seismic": { "base_shear_V": "289 kN", "Cs": "0.0888", "R": "3.5", "Ie": "1.0", "SDS": "0.462 g", "W_eff": "3254 kN", "formula": "V = Cs·W = 0.0888 × 3254 = 289 kN", "region": "서울특별시 강남구" },
+        "analysis_method_ko": "3차원 골조해석, 등가정적해석법(ELF)",
+        "max_interaction_ratio": "1.12 (X방향 보 #214, 3층)",
+        "max_drift_ratio": "0.92 (3층, X방향)",
+        "member_groups": { "ng_distribution": "X방향 보 4개", "max_shear_ratio": "0.58" },
+        "governing_member_mode": "축력-휨 상관",
+        "ng_stories": 0,
+        "ng_members": 4,
+        "diagnosis": { "primary_cause_ko": "부재 내력 부족", "ng_by_story_ko": "3층 4개" },
+        "suggestions": ["X방향 보 단면 증대: H-400x200 → H-450x200"],
+        "limitations_ko": ["유효좌굴길이계수는 보수적으로 가정함", "조밀단면 가정으로 횡비틀림좌굴(LTB)은 별도 검토 미반영"]
+      },
+      "summary_ko": "본 구조물은 지상 3층 철골 보통모멘트골조(SS275, 기둥 H-300x300 / 보 H-400x200, 총높이 10.5 m)로, KDS 41 10 00·41 12 00·41 17 00·14 31 00을 적용하여 3차원 골조해석(등가정적해석법)을 수행함. 서울특별시 강남구 지반에 대해 SDS=0.462 g, R=3.5, Ie=1.0을 적용한 밑면전단력은 V = Cs·W = 0.0888 × 3254 = 289 kN으로 산정됨. 층간변위는 허용기준 이내(최대 0.92, 3층 X방향)이나, X방향 보 4개의 내력비가 1.0을 초과하여(최대 1.12, 보 #214, 3층) 부적합으로 검토되며, 주된 원인은 휨-축력 상호작용에 대한 부재 내력 부족임. 해당 X방향 보 단면을 H-400x200에서 H-450x200으로 증대하면 기준을 만족할 수 있는 것으로 판단됨. 다만 본 검토는 유효좌굴길이계수를 보수적으로 가정한 결과임.",
+      "summary_en": "The building is a 3-story steel ordinary moment frame (SS275; columns H-300x300, beams H-400x200; total height 10.5 m), evaluated per KDS 41 10 00, 41 12 00, 41 17 00, and 14 31 00 using 3D frame analysis (equivalent static method). For the Seoul Gangnam-gu site, with SDS=0.462 g, R=3.5, and Ie=1.0, the base shear is V = Cs·W = 0.0888 × 3254 = 289 kN. Story drifts remain within the allowable limit (max 0.92 at Story 3, X-direction), but 4 X-direction beams exceed a demand-to-capacity ratio of 1.0 (max 1.12, beam #214, Story 3) and are found non-compliant, the governing cause being insufficient member capacity under combined flexure-axial interaction. Increasing the affected X-direction beam sections from H-400x200 to H-450x200 is expected to satisfy the criteria. This assessment assumes a conservative effective-length factor.",
+      "diagnosis_narrative_ko": "부적합은 X방향 보 4개(3층 집중)에서 발생하였으며, 휨-축력 상호작용에 대한 부재 내력이 소요강도에 미치지 못한 것이 직접 원인임. 3층 보의 휨 수요가 단면의 설계강도를 상회하여 최대 내력비 1.12로 한계를 초과함. 전단비는 0.58로 여유가 있어, 지배 거동은 전단이 아닌 휨-축력 상호작용임.",
+      "diagnosis_narrative_en": "The non-compliance arises in 4 X-direction beams concentrated at Story 3, with the direct cause being member capacity under flexure-axial interaction falling short of the demand. The Story-3 beam flexural demand exceeds the section design strength, reaching a maximum ratio of 1.12. The shear ratio remains at 0.58 with margin, so the governing behavior is flexure-axial interaction rather than shear.",
+      "confidence": "high"
+    },
+    {
+      "facts": {
+        "severity": "severe",
+        "max_interaction_ratio": "1.28 (기둥 #C03, 1층)",
+        "max_drift_ratio": "1.45 (1층, X방향)",
+        "drift_by_direction": "X방향 1.45 / Y방향 0.72",
+        "governing_member_mode": "축력-휨 상관",
+        "ng_stories": 2,
+        "ng_members": 9,
+        "diagnosis": { "primary_cause_ko": "연약층(1층)", "contributing_factors_ko": ["횡강성 부족"], "soft_story_ko": "1층 연약층(인접 층 대비 변위 집중) 감지", "ng_by_story_ko": "1층 6개, 2층 3개" },
+        "suggestions": ["연약층 횡강성 보강(가새 추가·기둥 단면 증대) 검토", "횡력저항시스템 변경·추가(가새·전단벽 등)"]
+      },
+      "summary_ko": "설계검토 결과 1층 X방향 층간변위비가 허용기준을 크게 초과하고(1.45), 2개 층·9개 부재가 부적합으로 검토됨. 층간변위는 방향별로 비대칭이어서 X방향(1.45)이 Y방향(0.72) 대비 현저히 큰 바, 1층의 X방향 횡강성 부족이 두드러짐. 1층의 층간변위가 인접 층 대비 집중되어 연약층(soft story) 거동이 지배적이며, 횡강성 부족이 주된 원인으로 판단됨. 단면 보강만으로는 해소가 어려워, 횡력저항시스템의 변경 또는 추가(가새·전단벽 등)를 포함한 구조시스템 차원의 재검토가 요구됨.",
+      "summary_en": "The Story-1 X-direction drift ratio substantially exceeds the allowable limit (1.45), and 2 stories and 9 members are non-compliant. The drift is markedly asymmetric, with the X-direction (1.45) far exceeding the Y-direction (0.72), highlighting a Story-1 X-direction lateral-stiffness deficiency. Drift concentrates at Story 1 relative to adjacent stories, indicating a governing soft-story mechanism driven primarily by insufficient lateral stiffness. Section upgrades alone are unlikely to resolve this; a system-level revision adding or changing the lateral-force-resisting system (e.g., braces or shear walls) is required.",
+      "diagnosis_narrative_ko": "부적합의 주된 메커니즘은 1층 연약층 거동임. 1층의 층간변위가 인접 층 대비 집중되며, 특히 X방향(1.45)이 Y방향(0.72) 대비 두 배 가까이 커 X방향 횡강성이 국부적으로 부족함을 나타냄. 부적합 부재도 1층 6개·2층 3개로 하부에 집중되어, 1층 기둥의 횡강성·내력 보강이 핵심 과제로 판단됨.",
+      "diagnosis_narrative_en": "The governing mechanism is a Story-1 soft-story response. Story-1 drift concentrates relative to adjacent stories, and the X-direction (1.45) is nearly double the Y-direction (0.72), indicating a localized X-direction lateral-stiffness deficiency. The non-compliant members also concentrate in the lower stories (6 at Story 1, 3 at Story 2), so reinforcing the Story-1 column lateral stiffness and capacity is the key task.",
+      "confidence": "high"
+    }
+  ],
+
+  "sentence_bank": {
+    "부재내력-OK": [
+      { "text": "검토 결과, 주요 보·기둥 부재의 최대 응력비(소요강도/설계강도)는 1.0 이하로, 전 부재가 KDS 14 31 00의 강도기준을 만족하는 것으로 확인됨.", "kind": "reconstructed", "source": "KDS 14 31 00 용어" },
+      { "text": "각 부재의 설계강도가 소요강도를 상회하여, 강도 측면에서 구조적으로 안전한 것으로 판단됨.", "kind": "reconstructed", "source": "KDS 14 31 05" },
+      { "text": "기둥·보 및 가새 부재의 단면 검토 결과 모두 허용기준 이내로, 부재 안전성에 이상이 없는 것으로 검토됨.", "kind": "reconstructed", "source": "실무 단면응력검토 정형구" }
+    ],
+    "부재내력-NG": [
+      { "text": "1층 기둥하부에서 모멘트가 집중되어 먼저 항복에 도달함.", "kind": "verbatim", "source": "TRKO201400028832" },
+      { "text": "X, Y방향 모두 최대내력 이후에 급격한 내력저하와 더불어 파괴에 이르는 것으로 나타나 내진성능을 만족시키지 못하는 것으로 판정되었다.", "kind": "verbatim", "source": "JAKO201113253030854" },
+      { "text": "일부 부재에서 응력비가 1.0을 초과하여, 해당 부재의 단면 증대 또는 보강이 필요한 것으로 검토됨.", "kind": "reconstructed", "source": "실무 NG 정형구" }
+    ],
+    "층간변위-OK": [
+      { "text": "각 층의 설계층간변위는 KDS 41 17 00에서 규정한 허용층간변위 이내로 검토되어, 횡변위에 대한 사용성 및 내진 요구조건을 만족하는 것으로 판단됨.", "kind": "reconstructed", "source": "KDS 41 17 00" },
+      { "text": "X·Y 양 방향 모두 최대 층간변위비가 허용기준 이내로 나타나, 횡력저항시스템이 충분한 강성을 확보한 것으로 확인됨.", "kind": "reconstructed", "source": "실무 양방향 검토 정형구" }
+    ],
+    "층간변위-NG": [
+      { "text": "정규화된 지진파를 이용한 분석결과 1층에서 층간변위비 1.5% 이상을 나타냄.", "kind": "verbatim", "source": "TRKO201400028832" },
+      { "text": "OO층 X방향 층간변위가 허용층간변위를 초과하여, 횡력저항시스템의 강성 보강이 요구되는 것으로 검토됨.", "kind": "reconstructed", "source": "실무 NG 정형구" }
+    ],
+    "고유주기-동적": [
+      { "text": "각 모멘트골조는 FEMA 356의 소성회전각 허용기준을 상회하는 것으로 나타남.", "kind": "verbatim", "source": "TRKO201400028832" },
+      { "text": "강재 이력댐퍼를 사용한 결과 규준에서 정하고 있는 밑면 지진력 보다 큰 내력을 나타냈으며, 힌지가 건물전체에 고르게 발생하여 연성능력을 향상시키는 것으로 나타났다.", "kind": "verbatim", "source": "JAKO201113253030854" },
+      { "text": "고유치 해석 결과 1차 고유주기는 O.OO초로 산정되었으며, 질량참여율이 양 방향 모두 90% 이상으로 동적해석의 유효성을 만족함.", "kind": "reconstructed", "source": "KDS 41 17 00 질량참여율 요건" },
+      { "text": "고유주기 및 모드형상 검토 결과 비틀림 거동이 지배적이지 않아, 평면 비정형성에 따른 추가 검토는 불필요한 것으로 판단됨.", "kind": "reconstructed", "source": "실무 동적특성 정형구" }
+    ],
+    "종합판정-OK": [
+      { "text": "이상의 검토 결과, 본 건축물은 적용 설계기준(KDS)에서 요구하는 강도·사용성·내진성능을 모두 만족하여 구조적으로 안전한 것으로 판단됨.", "kind": "reconstructed", "source": "실무 종합결론 정형구" },
+      { "text": "검토 결과 본 구조물은 내진등급 OO에 요구되는 내진성능을 확보한 것으로 사료됨.", "kind": "reconstructed", "source": "내진성능평가 판정 어법" },
+      { "text": "따라서 본 구조물은 제반 설계기준을 만족하며, 구조 안전성에 이상이 없는 것으로 판단됨.", "kind": "reconstructed", "source": "실무 마무리 정형구" }
+    ],
+    "종합판정-조건부": [
+      { "text": "현행 기준 대비 일부 항목이 허용기준을 초과하므로, 해당 부위에 대한 보강을 전제로 구조 안전성을 확보할 수 있는 것으로 판단됨.", "kind": "reconstructed", "source": "조건부적정 판정 어법" },
+      { "text": "본 건물은 Y방향은 추가 보강이 불필요하나, X방향은 충분한 내진성능 확보를 위해 추가 보강이 필요한 것으로 검토됨.", "kind": "reconstructed-near-source", "source": "저층 학교건물 내진평가 사례" }
+    ],
+    "종합판정-NG": [
+      { "text": "최종지진피해 판정결과는 X, Y 방향 모두 '대규모 피해'라는 결과를 얻었다.", "kind": "verbatim", "source": "JAKO201113253030854" },
+      { "text": "검토 결과 본 구조물은 요구되는 내진성능을 확보하지 못하는 것으로 판정되어, 내진보강이 필요한 것으로 사료됨.", "kind": "reconstructed", "source": "내진성능평가 NG 어법" }
+    ]
+  },
+
+  "sources": {
+    "verbatim": [
+      { "cn": "JAKO201113253030854", "title": "학교 건축물의 내진성능평가 및 보강설계 사례", "url": "https://scienceon.kisti.re.kr/srch/selectPORSrchArticle.do?cn=JAKO201113253030854" },
+      { "cn": "TRKO201400028832", "title": "내진설계 되지 않은 학교 건물의 내진성능평가 및 보강방법개발", "url": "https://scienceon.kisti.re.kr/srch/selectPORSrchReport.do?cn=TRKO201400028832" }
+    ],
+    "format_standard_free": [
+      "학교시설 내진성능평가 및 보강 매뉴얼(교육부) §4.2.7, §4.2.8",
+      "기존시설물(건축물) 내진성능 평가요령 — CODIL OTKCMA130067",
+      "국토안전관리원 정밀안전점검 표준서식 — data.go.kr 15140381"
+    ],
+    "vocabulary_paid_reference_only": [
+      "예제로 배우는 강구조 설계 (대한건축학회/한국강구조학회/KSEA)",
+      "강구조 접합부 설계예제집"
+    ]
+  },
+
+  "counts": { "total": 24, "verbatim": 9, "reconstructed": 15 }
+}

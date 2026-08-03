@@ -14,10 +14,12 @@ COORDINATE SYSTEM
   Z = 수직 (위, 높이 방향)
 
 SIGN CONVENTION
-  - eleForce(tag) returns 12 values:
-    [N_i, Vy_i, Vz_i, T_i, My_i, Mz_i, N_j, Vy_j, Vz_j, T_j, My_j, Mz_j]
-  - Local coordinates defined by element orientation + geomTransf vecxz
-  - Results stored in OpenSees local convention
+  - ops.eleForce(tag) returns 12 values in GLOBAL coordinates.
+  - For member-design quantities (N, Vy, Vz, T, My, Mz) we need LOCAL coords,
+    so this module uses ops.eleResponse(tag, 'localForce'):
+      [N_i, Vy_i, Vz_i, T_i, My_i, Mz_i, N_j, Vy_j, Vz_j, T_j, My_j, Mz_j]
+  - Local axes defined by element orientation + geomTransf vecxz
+    (column local x = vertical, beam local x = beam axis).
 ===================================================================================
 """
 from __future__ import annotations
@@ -29,6 +31,29 @@ from typing import Literal, Optional
 
 from core.section_3d import get_section_3d, BeamSection3D, DEFAULT_SECTIONS_3D
 from core.simple_beam import get_material_from_db, DEFAULT_MATERIALS
+
+import logging
+_log = logging.getLogger(__name__)
+
+
+# ============================================================
+# Tier2-14: JSON 직렬화 안전 — 비유한값(NaN/Inf) 방어
+# ============================================================
+
+def _safe_round(v, n=6):
+    """유한값이면 round, 아니면 0.0 (NaN/Inf → JSON 직렬화 안전)."""
+    try:
+        return round(v, n) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_extreme(vals, fn, n=4):
+    """유한값만 골라 max/min 후 round. 전부 비유한/빈 리스트면 0.0."""
+    finite = [v for v in vals if isinstance(v, (int, float)) and math.isfinite(v)]
+    if not finite:
+        return 0.0
+    return round(fn(finite), n)
 
 
 # ============================================================
@@ -62,6 +87,9 @@ class Frame3DCaseResult:
     reactions: list[dict] = field(default_factory=list)
     story_drifts: list[dict] = field(default_factory=list)
     story_data: dict = field(default_factory=dict)
+    # Tier2-14(안전): 솔버 ok=0이어도 변위/층간변위가 비유한(NaN/Inf)이면 True →
+    # design_check가 '안전' 대신 해석실패로 게이트.
+    nonfinite_response: bool = False
 
     # 최대값
     max_displacement_x: float = 0.0
@@ -186,6 +214,110 @@ def _get_release_code_3d(elem_type: str, member_releases: dict | None) -> int | 
 # column(Z축): torsion=RZ(6), bending free=RX(4),RY(5)
 _TORSION_DOF = {"beam_x": 4, "beam_y": 5, "column": 6}
 
+# 영길이(zero-length) 요소 판정 좌표 허용오차 (mm) — V1 _degenerate_connections /
+# V2 analyze_from_model 공통 사용(동형 보장).
+_ZERO_LEN_TOL_MM = 1.0
+
+
+# ============================================================
+# Tier-3 견고성/모델링 보조 (특이행렬·None 폴백·근사 가정 명시)
+# ============================================================
+
+def _z_story_map(z_values) -> dict:
+    """고유 z레벨 → 층 인덱스(0=base, 1..N=층) 매핑.
+
+    T3-1: node_grid/story_nodes_map 누락으로 member story가 None일 때, 절점
+    z좌표만으로 층을 복원하는 기하 폴백. 항상 산정 가능하므로 '층 정보 없음'
+    누락 버그를 제거한다.
+    """
+    levels = sorted({round(float(z), 3) for z in z_values})
+    return {z: i for i, z in enumerate(levels)}
+
+
+def _story_from_z(z, z_map) -> "int | None":
+    """z좌표(m)를 _z_story_map으로 층 인덱스 조회 (없으면 None)."""
+    return z_map.get(round(float(z), 3))
+
+
+def _degenerate_connections(nodes, connections, tol_mm: float = _ZERO_LEN_TOL_MM) -> list[int]:
+    """영길이(ni==nj 또는 두 절점 좌표 일치) 연결의 1-based member_id 목록.
+
+    T3-2: 비정형 좌표병합으로 두 절점이 사실상 겹치면 elasticBeamColumn 길이≈0 →
+    강성 특이/발산. V2(analyze_from_model)는 이미 제거하지만 V1 경로엔 없었다.
+    좌표는 m 단위, tol_mm는 mm 허용오차(기본 1mm).
+    """
+    coord = {n.id: (n.x, n.y, n.z) for n in nodes}
+    tol_m = tol_mm / 1000.0
+    tol_sq = tol_m * tol_m
+    bad: list[int] = []
+    for mid, conn in enumerate(connections, start=1):
+        ni, nj = conn[0], conn[1]
+        if ni == nj:
+            bad.append(mid)
+            continue
+        ci, cj = coord.get(ni), coord.get(nj)
+        if ci is not None and cj is not None:
+            d2 = (ci[0] - cj[0]) ** 2 + (ci[1] - cj[1]) ** 2 + (ci[2] - cj[2]) ** 2
+            if d2 <= tol_sq:
+                bad.append(mid)
+    return bad
+
+
+def _diaphragm_rank_warnings(story_nodes_map: dict, rigid_diaphragm: bool) -> list[dict]:
+    """강막(rigidDiaphragm) 절점 수가 부족한 층의 rank 결손 경고 (T3-3).
+
+    강체 다이어프램은 면내 평면을 정의하려면 비공선 절점 ≥3개가 필요하다. 절점이
+    2개면 면내 회전 DOF가 구속되지 못해 rank 결손/특이행렬·허위 0주기 모드 위험.
+    1개(또는 0)면 다이어프램 자체가 형성되지 않는다. 분류·경고만 (해석 자체는
+    빈 결과/솔버게이트가 별도 차단). 층 0(지점)은 제외.
+    """
+    if not rigid_diaphragm or not story_nodes_map:
+        return []
+    warns: list[dict] = []
+    for s in sorted(k for k in story_nodes_map if k is not None and k >= 1):
+        n = len(story_nodes_map[s])
+        if n < 1:
+            continue
+        if n < 2:
+            warns.append({
+                "code": "W07", "story": int(s), "node_count": int(n),
+                "message": (f"{s}층 강막 절점 {n}개(<2) — 강체 다이어프램 미형성"
+                            "(층 수평구속 부족)"),
+            })
+        elif n < 3:
+            warns.append({
+                "code": "W07", "story": int(s), "node_count": int(n),
+                "message": (f"{s}층 강막 절점 {n}개(<3) — 평면 미정의로 면내 회전 "
+                            "rank 결손/특이행렬 위험. 절점 추가 또는 강막 해제 권장"),
+            })
+    return warns
+
+
+def _modeling_assumptions(rigid_diaphragm: bool, has_releases: bool) -> list[dict]:
+    """모델링 근사·가정 명시 (T3-4/T3-8) — 과대주장 방지용 리포트 노트.
+
+    - A06: 바닥을 완전 강체로 가정(유연/반강성 다이어프램 미모델).
+    - A08: 부재 릴리즈는 완전 핀(휨모멘트 0); 반강접(부분강성) 미지원 + 비틀림 DOF는
+      elem_type 라벨 기준 → 실제 방향 불일치 시 특이행렬 위험.
+    """
+    notes: list[dict] = []
+    if rigid_diaphragm:
+        notes.append({
+            "code": "A06",
+            "message": ("바닥 다이어프램을 완전 강체(rigid)로 가정 — 유연/반강성 "
+                        "다이어프램은 미모델링. 장경간 슬래브·데크 등 면내 변형이 큰 "
+                        "경우 층력 분배·비틀림이 달라질 수 있음(KDS 41 17 00)."),
+        })
+    if has_releases:
+        notes.append({
+            "code": "A08",
+            "message": ("부재 릴리즈(힌지)는 완전 핀(휨모멘트 0)으로 모델링 — "
+                        "반강접(부분강성) 미지원. 비틀림 DOF는 부재 elem_type 기준 "
+                        "방향으로 연결되며, 실제 부재 방향이 라벨과 다르면 특이행렬 "
+                        "위험(좌표 기반 분류 권장)."),
+        })
+    return notes
+
 
 # ============================================================
 # 기하 생성
@@ -279,18 +411,30 @@ def _generate_irregular_geometry(
 
     base_nodes = list(story_nodes[0])
 
-    # 2단계: 부재 연결 (중복 방지)
+    # 2단계: 부재 연결 (중복 방지 + 경계 공유부재 패널 합산)
     connections: list[tuple[int, int, str]] = []
     member_metadata: list[dict] = []
-    conn_set: set[tuple[int, int, str]] = set()
+    conn_index: dict[tuple[int, int, str], int] = {}
 
     def _add_conn(ni, nj, etype, meta):
-        nonlocal connections
         key = (min(ni, nj), max(ni, nj), etype)
-        if key not in conn_set:
-            conn_set.add(key)
+        idx = conn_index.get(key)
+        if idx is None:
+            conn_index[key] = len(connections)
             connections.append((ni, nj, etype))
             member_metadata.append(meta)
+        else:
+            # 두 영역이 공유하는 경계 보: 각 영역이 자기쪽 트리뷰터리 패널만 등록하므로
+            # 반대편 영역 등록 시 패널/트리뷰터리를 합산해야 floor_area 하중이 누락되지
+            # 않는다(구버전은 중복키를 통째로 버려 경계 패널 하중이 사라졌다).
+            # 연결(요소)은 한 번만 생성해 강성 중복을 막는다.
+            existing = member_metadata[idx]
+            new_panels = meta.get("adj_panels")
+            if new_panels:
+                existing.setdefault("adj_panels", [])
+                existing["adj_panels"].extend(new_panels)
+            if meta.get("trib_width"):
+                existing["trib_width"] = existing.get("trib_width", 0.0) + meta["trib_width"]
 
     for zone in zones:
         x_crds = _zone_x_coords(zone)
@@ -555,6 +699,9 @@ def _build_frame_3d_model(
         for s, nids in story_nodes_map.items():
             for nid in nids:
                 node_to_story[nid] = s
+    # T3-1: node_grid/story_nodes_map가 모두 없을 때(혹은 일부 절점 누락) member story가
+    # None이 되던 버그. 절점 z좌표로 층을 복원하는 기하 폴백(항상 가용).
+    _z_map = _z_story_map(n.z for n in nodes)
 
     for member_id, (ni, nj, etype) in enumerate(connections, start=1):
         # 단면 물성 및 변환 결정
@@ -592,7 +739,8 @@ def _build_frame_3d_model(
         # 릴리즈 힌지 노드 생성 (equalDOF 방식)
         # 변환(1,2,3) + 비틀림 DOF 연결, 나머지 회전 DOF 자유
         # 비틀림 DOF: beam_x=4(RX), beam_y=5(RY), column=6(RZ)
-        torsion_dof = _TORSION_DOF[etype]
+        # T3-4: 예상 외 etype이어도 KeyError로 죽지 않게 RZ(6) 폴백 (모델링 노트로 별도 명시).
+        torsion_dof = _TORSION_DOF.get(etype, 6)
         actual_ni = ni
         if rel_code in (1, 3):
             hinge_ni = next_node_id
@@ -650,7 +798,15 @@ def _build_frame_3d_model(
         # beams sit at their story — using nj's story gives the floor the
         # member supports (column at story 1 = "1층 기둥", beam_x at story 1
         # = "1층 보"). Falls back to ni for safety.
-        member_story = node_to_story.get(nj) or node_to_story.get(ni)
+        # None-aware 해결: story 0(base)이 falsy로 버려지지 않게 명시적 None 체크
+        # (구 'a or b'는 0을 falsy로 보아 base층 부재를 오매핑 — 적대적 리뷰 confirmed).
+        member_story = node_to_story.get(nj)
+        if member_story is None:
+            member_story = node_to_story.get(ni)
+        if member_story is None:  # T3-1: 매핑 누락 → z좌표 기반 폴백
+            member_story = _story_from_z(nj_node.z, _z_map)
+            if member_story is None:
+                member_story = _story_from_z(ni_node.z, _z_map)
         member_info_list.append({
             "member_id": member_id,
             "type": etype,
@@ -704,6 +860,79 @@ def _panel_beam_contribution(w: float, panel_x: float, panel_y: float,
 # 하중 적용
 # ============================================================
 
+# ============================================================
+# 분포하중 적용 — 등가절점하중 방식 (eleLoad recovery 버그 회피)
+# ============================================================
+#
+# 배경(2026-07-01, G3/E2 ETABS 교차검증에서 발견): OpenSees `eleLoad -beamUniform`을
+# 모멘트접합(프레임) 보에 적용하면 고정단력을 절점에 비대칭(i-end 편향)으로 오귀속하여,
+# 전 보가 i→j 동일방향인 정형골조에서 중력해가 최대 ~42% 비대칭이 된다(정정 단순보/절점
+# 하중은 무영향 → 벤치마크 case1~5는 미영향). 상용(ETABS)은 대칭 정답.
+#
+# 해결: 분포하중을 **등가(consistent) 절점하중**으로 적용하면 변위/반력이 대칭·정확해진다
+# (ETABS와 <1%). 단 등가절점하중만으로는 요소 내부력이 고정단항(q0)만큼 어긋나므로,
+# 요소력 추출 시 q0를 더해 복원한다(_localforce_with_q0). q0 보정은 아래 캘리브레이션값:
+#   Vz_i += wL/2,  My_i += -wL²/12,  Vz_j += wL/2,  My_j += +wL²/12  (local, N·mm)
+# beam_x/beam_y 동일(둘 다 local z ≡ global Z). 결과적으로 (등가절점해 + q0) = eleLoad의
+# 올바른 요소력이며, 프레임에서는 등가절점해가 정확하므로 요소력도 정확해진다.
+#
+# _ELEM_UDL: {elem_id: w_Nmm(local-z UDL 크기, +아래방향)} — 케이스마다 초기화.
+
+_ELEM_UDL: dict[int, float] = {}
+
+
+def _apply_beam_udl(eid: int, w_Nmm: float, etype: str) -> None:
+    """보 등분포하중을 등가절점하중으로 적용하고 q0 복원용으로 등록.
+
+    w_Nmm: local-z 방향 하중 크기(양수, 아래방향). etype: 'beam_x'/'beam_y'.
+    """
+    if not w_Nmm:
+        return
+    ni, nj = ops.eleNodes(eid)
+    ci = ops.nodeCoord(ni)
+    cj = ops.nodeCoord(nj)
+    L = ((cj[0] - ci[0]) ** 2 + (cj[1] - ci[1]) ** 2 + (cj[2] - ci[2]) ** 2) ** 0.5
+    S = w_Nmm * L / 2.0           # 등가 절점 전단(N, 아래방향)
+    m0 = w_Nmm * L * L / 12.0     # 고정단 모멘트(N·mm)
+    # 방향-강건화: 등가 고정단모멘트의 전역-축 부호는 부재의 물리 위치(좌/우단)에
+    # 묶여야 하며 i/j 라벨링에 의존해선 안 된다. V1 격자 빌더는 보를 항상 i→j = +X/+Y로
+    # 생성하므로 sgn=+1(무변경)이지만, V2(임의 노드-요소 그래프: IFC/웹 에디터)는 보가
+    # -X/-Y로 정렬될 수 있어 sgn 없이는 반대편 모멘트가 적용돼 대칭이 깨진다.
+    # (등가절점해가 아닌 전역 모멘트 적용이므로 좌표차 부호로 결정. localForce/q0는
+    #  국부좌표라 방향-불변 → _localforce_with_q0는 수정 불필요.)
+    if etype == "beam_x":         # global Y축 휨(DOF 5)
+        sgn = 1.0 if (cj[0] - ci[0]) >= 0 else -1.0
+        ops.load(ni, 0.0, 0.0, -S, 0.0, +m0 * sgn, 0.0)
+        ops.load(nj, 0.0, 0.0, -S, 0.0, -m0 * sgn, 0.0)
+    else:                          # beam_y: global X축 휨(DOF 4)
+        sgn = 1.0 if (cj[1] - ci[1]) >= 0 else -1.0
+        ops.load(ni, 0.0, 0.0, -S, +m0 * sgn, 0.0, 0.0)
+        ops.load(nj, 0.0, 0.0, -S, -m0 * sgn, 0.0, 0.0)
+    _ELEM_UDL[eid] = w_Nmm
+
+
+def _localforce_with_q0(eid: int) -> list:
+    """요소 localForce(12성분) + 등분포하중 고정단항(q0) 복원.
+
+    등가절점하중으로 적용된 요소는 K·v만 리포트(q0 누락)하므로, 등록된 하중으로
+    q0를 더해 실제 분포하중 내부력을 복원한다. eleLoad 미사용 요소(기둥·비등록)는 원본 반환.
+    """
+    forces = list(ops.eleResponse(eid, 'localForce'))
+    w = _ELEM_UDL.get(eid)
+    if w and len(forces) >= 12:
+        ni, nj = ops.eleNodes(eid)
+        ci = ops.nodeCoord(ni)
+        cj = ops.nodeCoord(nj)
+        L = ((cj[0] - ci[0]) ** 2 + (cj[1] - ci[1]) ** 2 + (cj[2] - ci[2]) ** 2) ** 0.5
+        S = w * L / 2.0
+        m0 = w * L * L / 12.0
+        forces[2] += S        # Vz_i
+        forces[4] += -m0      # My_i
+        forces[8] += S        # Vz_j
+        forces[10] += m0      # My_j
+    return forces
+
+
 def _apply_loads_3d(
     loads: list[dict],
     n_stories: int,
@@ -717,6 +946,7 @@ def _apply_loads_3d(
     slab_distribution: str = "2way",
 ):
     """3D 하중 적용."""
+    _ELEM_UDL.clear()
     ops.timeSeries('Linear', 1)
     ops.pattern('Plain', 1, 1)
 
@@ -730,7 +960,10 @@ def _apply_loads_3d(
         if ld_type == "floor":
             # 보에 선하중 (kN/m) - story의 모든 보에 중력방향
             w_kNm = ld.get("value", 0.0)
-            w_Nmm = w_kNm * 1000.0 / 1000.0  # kN/m → N/mm
+            # kN/m → N/mm (모델 단위계 N·mm): 1 kN/m = 1000 N / 1000 mm = 1 N/mm →
+            # 환산계수 = 1000(N/kN)/1000(mm/m) = 1.0 (수치 동일·항등). ×1000.0/1000.0은
+            # 의도된 단위 명시이므로 '불필요'로 단순화하지 말 것.
+            w_Nmm = w_kNm * 1000.0 / 1000.0
 
             # 해당 story의 beam_x, beam_y 부재 찾기
             _apply_floor_load(story, w_Nmm, n_stories, n_cols_x, n_cols_y,
@@ -795,15 +1028,14 @@ def _apply_floor_load(story, w_Nmm, n_stories, n_cols_x, n_cols_y,
         mid = beam_x_start + i + 1  # 1-based member_id
         if mid in member_to_elements:
             for eid in member_to_elements[mid]:
-                # beam_x: 로컬 z ~ global Z → wz = -w (하향)
-                ops.eleLoad('-ele', eid, '-type', '-beamUniform', 0.0, -w_Nmm, 0.0)
+                # 등가절점하중 방식(eleLoad recovery 버그 회피). beam_x: local z ~ global Z.
+                _apply_beam_udl(eid, w_Nmm, "beam_x")
 
     for i in range(beam_y_per_story):
         mid = beam_y_start + i + 1
         if mid in member_to_elements:
             for eid in member_to_elements[mid]:
-                # beam_y: 로컬 z ~ global Z → wz = -w (하향)
-                ops.eleLoad('-ele', eid, '-type', '-beamUniform', 0.0, -w_Nmm, 0.0)
+                _apply_beam_udl(eid, w_Nmm, "beam_y")
 
 
 def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
@@ -850,11 +1082,11 @@ def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
                     trib_y = bays_y[0] if bays_y else 1.0
                 w_line = w_area_kNm2 * 0.5 * trib_y
 
-            w_Nmm = w_line  # kN/m = N/mm
+            w_Nmm = w_line  # kN/m = N/mm (단위계 N·mm: 환산계수 1.0 항등 — 위 floor 참조)
             mid = beam_x_start + bx_idx + 1
             if mid in member_to_elements:
                 for eid in member_to_elements[mid]:
-                    ops.eleLoad('-ele', eid, '-type', '-beamUniform', 0.0, -w_Nmm, 0.0)
+                    _apply_beam_udl(eid, w_Nmm, "beam_x")
             bx_idx += 1
 
     # Beam_Y: 각 보에 인접 패널 기여 합산
@@ -883,11 +1115,11 @@ def _apply_floor_area_load(story, w_area_kNm2, n_stories, n_cols_x, n_cols_y,
                     trib_x = bays_x[0] if bays_x else 1.0
                 w_line = w_area_kNm2 * 0.5 * trib_x
 
-            w_Nmm = w_line
+            w_Nmm = w_line  # kN/m = N/mm (단위계 N·mm: 환산계수 1.0 항등 — 위 floor 참조)
             mid = beam_y_start + by_idx + 1
             if mid in member_to_elements:
                 for eid in member_to_elements[mid]:
-                    ops.eleLoad('-ele', eid, '-type', '-beamUniform', 0.0, -w_Nmm, 0.0)
+                    _apply_beam_udl(eid, w_Nmm, "beam_y")
             by_idx += 1
 
 
@@ -900,6 +1132,7 @@ def _apply_loads_3d_irregular(
     slab_distribution: str = "2way",
 ):
     """비정형 건물 하중 적용 (story_nodes + member_metadata 기반)."""
+    _ELEM_UDL.clear()
     ops.timeSeries('Linear', 1)
     ops.pattern('Plain', 1, 1)
 
@@ -909,7 +1142,8 @@ def _apply_loads_3d_irregular(
 
         if ld_type == "floor":
             w_kNm = ld.get("value", 0.0)
-            w_Nmm = w_kNm  # kN/m → N/mm (×1000/1000)
+            # kN/m → N/mm: 환산계수 = 1000(N/kN)/1000(mm/m) = 1.0 (단위계 N·mm, 수치 항등).
+            w_Nmm = w_kNm
             for mid_0, meta in enumerate(member_metadata):
                 mid = mid_0 + 1
                 if meta["story"] != story:
@@ -919,8 +1153,7 @@ def _apply_loads_3d_irregular(
                     continue
                 if mid in member_to_elements:
                     for eid in member_to_elements[mid]:
-                        ops.eleLoad('-ele', eid, '-type', '-beamUniform',
-                                    0.0, -w_Nmm, 0.0)
+                        _apply_beam_udl(eid, w_Nmm, etype)
 
         elif ld_type == "floor_area":
             w_area = ld.get("value", 0.0)  # kN/m²
@@ -949,8 +1182,7 @@ def _apply_loads_3d_irregular(
                     continue
                 if mid in member_to_elements:
                     for eid in member_to_elements[mid]:
-                        ops.eleLoad('-ele', eid, '-type', '-beamUniform',
-                                    0.0, -w_line_Nmm, 0.0)
+                        _apply_beam_udl(eid, w_line_Nmm, etype)
 
         elif ld_type == "lateral_x":
             fx_N = ld.get("value", ld.get("fx", 0.0)) * 1000.0
@@ -1084,9 +1316,10 @@ def _extract_case_results_3d(
             result.max_displacement_z = round(dz, 4)
             result.max_displacement_z_node = node.id
 
-    # 2. 요소력 (12성분)
+    # 2. 요소력 (12성분, LOCAL coords — eleForce는 global이므로 localForce 사용)
+    #    분포하중 요소는 q0(고정단항) 복원 포함 (등가절점하중 방식 보정).
     for elem in elements_info:
-        forces = ops.eleForce(elem.id)
+        forces = _localforce_with_q0(elem.id)
         N_i = forces[0] / 1000       # N → kN
         Vy_i = forces[1] / 1000
         Vz_i = forces[2] / 1000
@@ -1167,22 +1400,34 @@ def _extract_case_results_3d(
         if not lower_nodes or not upper_nodes:
             continue
 
+        ux_up = [ops.nodeDisp(n, 1) for n in upper_nodes]
+        uy_up = [ops.nodeDisp(n, 2) for n in upper_nodes]
         lower_dx = sum(ops.nodeDisp(n, 1) for n in lower_nodes) / len(lower_nodes)
-        upper_dx = sum(ops.nodeDisp(n, 1) for n in upper_nodes) / len(upper_nodes)
+        upper_dx = sum(ux_up) / len(ux_up)
         drift_x = (upper_dx - lower_dx) / story_height_mm if story_height_mm > 0 else 0
 
         lower_dy = sum(ops.nodeDisp(n, 2) for n in lower_nodes) / len(lower_nodes)
-        upper_dy = sum(ops.nodeDisp(n, 2) for n in upper_nodes) / len(upper_nodes)
+        upper_dy = sum(uy_up) / len(uy_up)
         drift_y = (upper_dy - lower_dy) / story_height_mm if story_height_mm > 0 else 0
 
         drift_r = math.sqrt(drift_x ** 2 + drift_y ** 2)
 
+        # Tier2-14(안전): 솔버가 ok=0이어도 변위/층간변위가 비유한이면 해석 신뢰불가 →
+        # 플래그(아래 _safe_*는 JSON 위해 0으로 정리하지만, design_check 게이트가 작동하도록 표시).
+        if not all(math.isfinite(v) for v in
+                   (drift_x, drift_y, drift_r, *ux_up, *uy_up)):
+            result.nonfinite_response = True
+
         result.story_drifts.append({
             "story": s,
             "height_m": stories[s - 1],
-            "drift_x": round(abs(drift_x), 6),
-            "drift_y": round(abs(drift_y), 6),
-            "drift_resultant": round(drift_r, 6),
+            "drift_x": _safe_round(abs(drift_x), 6),
+            "drift_y": _safe_round(abs(drift_y), 6),
+            "drift_resultant": _safe_round(drift_r, 6),
+            # C2: 다이어프램 절점 변위 극값 (비틀림 비정형 δmax/δavg 산정용).
+            # Tier2-14: NaN/Inf 방어 (비수렴 시 0 → JSON 직렬화 안전).
+            "disp_x_max": _safe_extreme(ux_up, max), "disp_x_min": _safe_extreme(ux_up, min),
+            "disp_y_max": _safe_extreme(uy_up, max), "disp_y_min": _safe_extreme(uy_up, min),
         })
 
         if abs(drift_x) > abs(result.max_drift_x):
@@ -1221,27 +1466,32 @@ def _extract_member_forces_3d(
         N_vals, Vy_vals, Vz_vals, T_vals, My_vals, Mz_vals = [], [], [], [], [], []
 
         for k, eid in enumerate(elem_ids):
-            forces = ops.eleForce(eid)
+            # 부재 설계용 12성분은 LOCAL 좌표여야 함 — eleForce는 global이라
+            # 컬럼에서 Vz가 축력으로 오인되는 등 부재력 라벨이 뒤바뀜.
+            # 분포하중 요소는 q0(고정단항) 복원 포함.
+            forces = _localforce_with_q0(eid)
             s_start = k * sub_len
 
+            # Tier2-14: _safe_round로 NaN/Inf(비수렴) → 0 정리 (raw member_forces도
+            # 웹앱 응답에 그대로 직렬화되므로 비표준 JSON 토큰 방지).
             if k == 0:
-                s_vals.append(round(s_start, 4))
-                N_vals.append(round(forces[0] / 1000, 4))
-                Vy_vals.append(round(forces[1] / 1000, 4))
-                Vz_vals.append(round(forces[2] / 1000, 4))
-                T_vals.append(round(forces[3] / 1e6, 4))
-                My_vals.append(round(forces[4] / 1e6, 4))
-                Mz_vals.append(round(forces[5] / 1e6, 4))
+                s_vals.append(_safe_round(s_start, 4))
+                N_vals.append(_safe_round(forces[0] / 1000, 4))
+                Vy_vals.append(_safe_round(forces[1] / 1000, 4))
+                Vz_vals.append(_safe_round(forces[2] / 1000, 4))
+                T_vals.append(_safe_round(forces[3] / 1e6, 4))
+                My_vals.append(_safe_round(forces[4] / 1e6, 4))
+                Mz_vals.append(_safe_round(forces[5] / 1e6, 4))
 
             # j-end: 내력 = -반력
             s_end = (k + 1) * sub_len
-            s_vals.append(round(s_end, 4))
-            N_vals.append(round(-forces[6] / 1000, 4))
-            Vy_vals.append(round(-forces[7] / 1000, 4))
-            Vz_vals.append(round(-forces[8] / 1000, 4))
-            T_vals.append(round(-forces[9] / 1e6, 4))
-            My_vals.append(round(-forces[10] / 1e6, 4))
-            Mz_vals.append(round(-forces[11] / 1e6, 4))
+            s_vals.append(_safe_round(s_end, 4))
+            N_vals.append(_safe_round(-forces[6] / 1000, 4))
+            Vy_vals.append(_safe_round(-forces[7] / 1000, 4))
+            Vz_vals.append(_safe_round(-forces[8] / 1000, 4))
+            T_vals.append(_safe_round(-forces[9] / 1e6, 4))
+            My_vals.append(_safe_round(-forces[10] / 1e6, 4))
+            Mz_vals.append(_safe_round(-forces[11] / 1e6, 4))
 
         member_forces.append({
             "member_id": mid,
@@ -1394,18 +1644,28 @@ def _superpose_case_results_3d(
         if not lower_nids or not upper_nids:
             continue
 
+        ux_up = [node_disp_map.get(n, {}).get("dx_mm", 0) for n in upper_nids]
+        uy_up = [node_disp_map.get(n, {}).get("dy_mm", 0) for n in upper_nids]
         lower_dx = sum(node_disp_map.get(n, {}).get("dx_mm", 0) for n in lower_nids) / len(lower_nids)
-        upper_dx = sum(node_disp_map.get(n, {}).get("dx_mm", 0) for n in upper_nids) / len(upper_nids)
+        upper_dx = sum(ux_up) / len(ux_up)
         drift_x = abs(upper_dx - lower_dx) / story_height_mm if story_height_mm > 0 else 0
 
         lower_dy = sum(node_disp_map.get(n, {}).get("dy_mm", 0) for n in lower_nids) / len(lower_nids)
-        upper_dy = sum(node_disp_map.get(n, {}).get("dy_mm", 0) for n in upper_nids) / len(upper_nids)
+        upper_dy = sum(uy_up) / len(uy_up)
         drift_y = abs(upper_dy - lower_dy) / story_height_mm if story_height_mm > 0 else 0
+
+        # Tier2-14(안전): 비유한 응답 → 게이트 플래그 (ok=0이어도 신뢰불가).
+        if not all(math.isfinite(v) for v in (drift_x, drift_y, *ux_up, *uy_up)):
+            combo.nonfinite_response = True
 
         combo.story_drifts.append({
             "story": s, "height_m": stories[s - 1],
-            "drift_x": round(drift_x, 6), "drift_y": round(drift_y, 6),
-            "drift_resultant": round(math.sqrt(drift_x ** 2 + drift_y ** 2), 6),
+            "drift_x": _safe_round(drift_x, 6), "drift_y": _safe_round(drift_y, 6),
+            "drift_resultant": _safe_round(math.sqrt(drift_x ** 2 + drift_y ** 2), 6),
+            # C2: 다이어프램 절점 변위 극값 (비틀림 비정형 δmax/δavg 산정용).
+            # Tier2-14: NaN/Inf 방어 (비수렴 시 0 → JSON 직렬화 안전).
+            "disp_x_max": _safe_extreme(ux_up, max), "disp_x_min": _safe_extreme(ux_up, min),
+            "disp_y_max": _safe_extreme(uy_up, max), "disp_y_min": _safe_extreme(uy_up, min),
         })
 
         if drift_x > abs(combo.max_drift_x):
@@ -1462,17 +1722,25 @@ def _estimate_story_weights(
     load_cases: dict, num_stories: int,
     bays_x: list[float], bays_y: list[float],
     n_cols_x: int, n_cols_y: int,
+    usages: list[str] | None = None,
 ) -> list[float]:
     """DL 하중케이스에서 층별 중력하중(kN) 추정.
+
+    usages(층별 용도, 1층→상층 순)가 주어지면 창고류 층은 유효지진중량 일관성을
+    위해 활하중의 25%를 추가한다(KDS 41 17 00, load_generator.seismic_live_load_fraction
+    과 동일 규칙). usages 미제공 시 DL만 사용(하위호환).
 
     Returns:
         story_weights_kN (길이 = num_stories). 빈 리스트 = 추정 불가.
     """
     dl_loads = None
+    ll_loads = None
     for case_name, loads in load_cases.items():
-        if case_name.upper() in ("DL", "DEAD", "D"):
+        up = case_name.upper()
+        if up in ("DL", "DEAD", "D") and dl_loads is None:
             dl_loads = loads
-            break
+        elif up in ("LL", "LIVE", "L") and ll_loads is None:
+            ll_loads = loads
 
     if not dl_loads:
         return []
@@ -1480,20 +1748,38 @@ def _estimate_story_weights(
     floor_area = sum(bays_x) * sum(bays_y)  # m²
     total_beam_len = sum(bays_x) * n_cols_y + sum(bays_y) * n_cols_x  # m
 
+    def _area_for(ld_type: str) -> float:
+        if ld_type == "floor_area":
+            return floor_area
+        if ld_type == "floor":
+            return total_beam_len
+        return 0.0
+
     weights = [0.0] * num_stories
     for ld in dl_loads:
-        ld_type = ld.get("type", "")
         story = ld.get("story", 0)
         if story < 1 or story > num_stories:
             continue
-        idx = story - 1
+        weights[story - 1] += ld.get("value", 0.0) * _area_for(ld.get("type", ""))
 
-        if ld_type == "floor_area":
-            weights[idx] += ld.get("value", 0.0) * floor_area
-        elif ld_type == "floor":
-            weights[idx] += ld.get("value", 0.0) * total_beam_len
+    # 창고류 활하중 25% (유효지진중량 일관성, KDS 41 17 00) — 비창고는 frac=0.
+    if usages and ll_loads:
+        from core.load_generator import seismic_live_load_fraction
+        for ld in ll_loads:
+            story = ld.get("story", 0)
+            if story < 1 or story > num_stories:
+                continue
+            idx = story - 1
+            usage = usages[idx] if idx < len(usages) else ""
+            frac = seismic_live_load_fraction(usage)
+            if frac > 0:
+                weights[idx] += frac * ld.get("value", 0.0) * _area_for(ld.get("type", ""))
 
     return weights if any(w > 0 for w in weights) else []
+
+
+# #11: 누적 유효질량 참여율 <90% 시 모드 수 자동 증대 상한(면내 기저 3·층수와 min).
+_EIGEN_MODE_CAP = 30
 
 
 def _run_eigen_analysis(
@@ -1556,6 +1842,7 @@ def _run_eigen_analysis(
     # 마스터 절점 결정
     master_nodes = {}
     floor_masses = []
+    node_mass: dict[int, float] = {}  # 절점기반 유효모달질량용 (실제 배정 질량)
 
     for s in range(1, num_stories + 1):
         snodes = story_nodes_map.get(s, [])
@@ -1563,8 +1850,14 @@ def _run_eigen_analysis(
             continue
         nodes_per_floor = len(snodes)
 
-        # 마스터 = 중앙 노드
-        master_nid = snodes[len(snodes) // 2]
+        # 마스터 = 강막(rigidDiaphragm) retained 절점. _build_frame_3d_model과 반드시
+        # 동일해야 master phi가 '순수 병진(ux,uy)'을 읽는다. 정형격자에서 빌드는
+        # node_grid[(s, ncx//2, ncy//2)]를 쓰는데, snodes[len//2]는 n_cols가 짝수면
+        # 다른 절점을 가리켜 비틀림(rz)이 ux/uy에 섞여 누적참여율이 100%를 넘었다.
+        if not is_irreg and node_grid:
+            master_nid = node_grid.get((s, n_cols_x // 2, n_cols_y // 2), snodes[len(snodes) // 2])
+        else:
+            master_nid = snodes[len(snodes) // 2]
         master_nodes[s] = master_nid
         mx_mm = node_map[master_nid].x * 1000
         my_mm = node_map[master_nid].y * 1000
@@ -1577,6 +1870,7 @@ def _run_eigen_analysis(
         I_eff = 0.0
         for nid in snodes:
             ops.mass(nid, m_per_node, m_per_node, 1e-6, 0.0, 0.0, 0.0)
+            node_mass[nid] = node_mass.get(nid, 0.0) + m_per_node
             dx = node_map[nid].x * 1000 - mx_mm
             dy = node_map[nid].y * 1000 - my_mm
             I_eff += m_per_node * (dx ** 2 + dy ** 2)
@@ -1585,138 +1879,161 @@ def _run_eigen_analysis(
 
     total_weight_kN = sum(story_weights_kN)
 
-    # 3. 모드 수 결정
+    # 3. 모드 수 결정 + 총 질량(참여질량 기준 — num_modes와 무관, 미리 계산)
     if num_modes <= 0:
         num_modes = min(3 * num_stories, 15)
+    mode_cap = min(3 * num_stories, _EIGEN_MODE_CAP)  # #11 자동증대 상한(면내 기저)
 
-    # 4. 고유치 풀이 (fallback 체인)
-    eigenvalues = None
-    try:
-        eigenvalues = ops.eigen(num_modes)
-    except Exception:
-        try:
-            eigenvalues = ops.eigen('-genBandArpack', num_modes)
-        except Exception:
-            try:
-                eigenvalues = ops.eigen('-fullGenLapack', num_modes)
-            except Exception:
-                return {}
-
-    if not eigenvalues:
-        return {}
-
-    # 5. 총 질량 (참여질량 비율 계산 기준)
     total_mass_x = sum(fm[0] for fm in floor_masses)
     total_mass_y = total_mass_x  # 동일 (병진질량)
     total_mass_rz = sum(fm[1] for fm in floor_masses)
 
-    # 6. 모드별 결과 추출 + 참여질량 계산
-    modes = []
-    T1_x, T1_y, T1_rz = None, None, None
-    cum_x, cum_y, cum_rz = 0.0, 0.0, 0.0
+    all_nids = set()
+    for s_nids in story_nodes_map.values():
+        all_nids.update(s_nids)
 
-    for i, lam in enumerate(eigenvalues):
-        mode_num = i + 1
-        if lam <= 0:
-            continue
+    def _solve_and_extract(nm: int):
+        """eigen(nm) 풀이 + 모드별 참여질량/형상 추출. 실패 시 None.
 
-        omega = math.sqrt(lam)
-        T = 2.0 * math.pi / omega
-        f = 1.0 / T
-
-        # 모드 형상 추출 (마스터 절점)
-        phi = []
-        for s in range(1, num_stories + 1):
-            nid = master_nodes[s]
-            ux = ops.nodeEigenvector(nid, mode_num, 1)
-            uy = ops.nodeEigenvector(nid, mode_num, 2)
-            rz = ops.nodeEigenvector(nid, mode_num, 6)
-            phi.append((ux, uy, rz))
-
-        # 일반화 질량: φ^T M φ
-        gen_mass = 0.0
-        for s_idx in range(num_stories):
-            m_t, i_r = floor_masses[s_idx]
-            ux, uy, rz = phi[s_idx]
-            gen_mass += m_t * ux ** 2 + m_t * uy ** 2 + i_r * rz ** 2
-
-        # 방향별 참여질량
-        mp = {}
-        for dir_name, dof_idx, total_m in [
-            ("x", 0, total_mass_x),
-            ("y", 1, total_mass_y),
-            ("rz", 2, total_mass_rz),
-        ]:
-            L = 0.0
-            for s_idx in range(num_stories):
-                m_t, i_r = floor_masses[s_idx]
-                if dof_idx < 2:
-                    L += m_t * phi[s_idx][dof_idx]
-                else:
-                    L += i_r * phi[s_idx][2]
-            m_eff = L ** 2 / gen_mass if gen_mass > 1e-30 else 0.0
-            pct = m_eff / total_m * 100 if total_m > 1e-30 else 0.0
-            mp[f"{dir_name}_pct"] = round(pct, 2)
-
-        # 누적 참여질량
-        cum_x += mp["x_pct"]
-        cum_y += mp["y_pct"]
-        cum_rz += mp["rz_pct"]
-
-        # 지배 방향 판별 (참여질량 기반으로 개선)
-        px, py, prz = mp["x_pct"], mp["y_pct"], mp["rz_pct"]
-        if px >= py and px >= prz:
-            direction, dominance = "TRAN-X", px
-        elif py >= prz:
-            direction, dominance = "TRAN-Y", py
-        elif prz > 0:
-            direction, dominance = "ROTN-Z", prz
-        else:
-            direction, dominance = "N/A", 0.0
-
-        # 전체 노드 모드형상 추출 (3D 시각화용)
-        mode_shape = {}
-        all_nids = set()
-        for s_nids in story_nodes_map.values():
-            all_nids.update(s_nids)
-        for nid in all_nids:
+        모델·질량은 이미 배정돼 있으므로 ops.eigen만 재호출하면 nm개 모드를 재산정한다(#11).
+        """
+        eigenvalues = None
+        for solver in (lambda: ops.eigen(nm),
+                       lambda: ops.eigen('-genBandArpack', nm),
+                       lambda: ops.eigen('-fullGenLapack', nm)):
             try:
-                ux_e = ops.nodeEigenvector(nid, mode_num, 1)
-                uy_e = ops.nodeEigenvector(nid, mode_num, 2)
-                uz_e = ops.nodeEigenvector(nid, mode_num, 3)
+                eigenvalues = solver()
+                break
             except Exception:
-                ux_e = uy_e = uz_e = 0.0
-            mode_shape[nid] = [round(ux_e, 6), round(uy_e, 6), round(uz_e, 6)]
+                continue
+        if not eigenvalues:
+            return None
 
-        # 정규화: 최대 변위 = 1.0
-        max_disp = max((math.sqrt(v[0]**2 + v[1]**2 + v[2]**2) for v in mode_shape.values()), default=1.0)
-        if max_disp > 1e-12:
-            for nid in mode_shape:
-                mode_shape[nid] = [round(c / max_disp, 6) for c in mode_shape[nid]]
+        modes_ = []
+        T1x = T1y = T1rz = None
+        cx = cy = crz = 0.0
+        for i, lam in enumerate(eigenvalues):
+            mode_num = i + 1
+            if lam <= 0:
+                continue
 
-        modes.append({
-            "mode": mode_num,
-            "period_s": round(T, 4),
-            "frequency_hz": round(f, 4),
-            "direction": direction,
-            "dominance_pct": round(dominance, 2),
-            "mass_participation": mp,
-            "shape": mode_shape,
-        })
+            omega = math.sqrt(lam)
+            T = 2.0 * math.pi / omega
+            f = 1.0 / T
 
-        # 방향별 1차 고유주기 기록
-        if direction == "TRAN-X" and T1_x is None:
-            T1_x = round(T, 4)
-        elif direction == "TRAN-Y" and T1_y is None:
-            T1_y = round(T, 4)
-        elif direction == "ROTN-Z" and T1_rz is None:
-            T1_rz = round(T, 4)
+            # 참여질량: 절점기반 유효모달질량.
+            # 질량은 x·y 병진에만 배정되므로 일반화질량 M_n = Σ m(φx²+φy²).
+            # L_x=Σmφx, L_y=Σmφy, L_rz=Σm(Δx·φy−Δy·φx)(각 층 마스터 기준 비틂영향).
+            # 마스터≠질량중심이어도 절점합이므로 정확 → 누적참여율 ≤100% 보장.
+            M_n = 0.0
+            Lx = Ly = Lrz = 0.0
+            for s in range(1, num_stories + 1):
+                mnid = master_nodes.get(s)
+                mxx = node_map[mnid].x * 1000 if mnid in node_map else 0.0
+                myy = node_map[mnid].y * 1000 if mnid in node_map else 0.0
+                for nid in story_nodes_map.get(s, []):
+                    m_nd = node_mass.get(nid, 0.0)
+                    if m_nd <= 0:
+                        continue
+                    try:  # nodeEigenvector 실패(과구속·수치이상) 시 0으로 폴백(V2와 동일)
+                        ux = ops.nodeEigenvector(nid, mode_num, 1)
+                        uy = ops.nodeEigenvector(nid, mode_num, 2)
+                    except Exception:
+                        ux = uy = 0.0
+                    M_n += m_nd * (ux * ux + uy * uy)
+                    Lx += m_nd * ux
+                    Ly += m_nd * uy
+                    Lrz += m_nd * ((node_map[nid].x * 1000 - mxx) * uy
+                                   - (node_map[nid].y * 1000 - myy) * ux)
+
+            def _pct(L, tot):
+                if M_n <= 1e-30 or tot <= 1e-30:
+                    return 0.0
+                return (L * L / M_n) / tot * 100
+
+            mp = {
+                "x_pct": round(_pct(Lx, total_mass_x), 2),
+                "y_pct": round(_pct(Ly, total_mass_y), 2),
+                "rz_pct": round(_pct(Lrz, total_mass_rz), 2),
+            }
+
+            cx += mp["x_pct"]
+            cy += mp["y_pct"]
+            crz += mp["rz_pct"]
+
+            # 지배 방향 판별 (참여질량 기반)
+            px, py, prz = mp["x_pct"], mp["y_pct"], mp["rz_pct"]
+            if px >= py and px >= prz:
+                direction, dominance = "TRAN-X", px
+            elif py >= prz:
+                direction, dominance = "TRAN-Y", py
+            elif prz > 0:
+                direction, dominance = "ROTN-Z", prz
+            else:
+                direction, dominance = "N/A", 0.0
+
+            # 전체 노드 모드형상 추출 (3D 시각화용)
+            mode_shape = {}
+            for nid in all_nids:
+                try:
+                    ux_e = ops.nodeEigenvector(nid, mode_num, 1)
+                    uy_e = ops.nodeEigenvector(nid, mode_num, 2)
+                    uz_e = ops.nodeEigenvector(nid, mode_num, 3)
+                except Exception:
+                    ux_e = uy_e = uz_e = 0.0
+                mode_shape[nid] = [round(ux_e, 6), round(uy_e, 6), round(uz_e, 6)]
+
+            # 정규화: 최대 변위 = 1.0
+            max_disp = max((math.sqrt(v[0]**2 + v[1]**2 + v[2]**2) for v in mode_shape.values()), default=1.0)
+            if max_disp > 1e-12:
+                for nid in mode_shape:
+                    mode_shape[nid] = [round(c / max_disp, 6) for c in mode_shape[nid]]
+
+            modes_.append({
+                "mode": mode_num,
+                "period_s": round(T, 4),
+                "frequency_hz": round(f, 4),
+                "direction": direction,
+                "dominance_pct": round(dominance, 2),
+                "mass_participation": mp,
+                "shape": mode_shape,
+            })
+
+            if direction == "TRAN-X" and T1x is None:
+                T1x = round(T, 4)
+            elif direction == "TRAN-Y" and T1y is None:
+                T1y = round(T, 4)
+            elif direction == "ROTN-Z" and T1rz is None:
+                T1rz = round(T, 4)
+
+        return modes_, T1x, T1y, T1rz, cx, cy, crz
+
+    # 4. 초기 풀이 + 누적참여 <90% 시 모드 수 자동 증대 재시도 (#11)
+    res = _solve_and_extract(num_modes)
+    if res is None or not res[0]:   # 유효 모드 0개 → 실패(V2와 동일하게 빈 dict 반환)
+        return {}
+    n_retry = 0
+    while (not (res[4] >= 90.0 and res[5] >= 90.0)
+           and num_modes < mode_cap and n_retry < 4):
+        num_modes = min(num_modes + max(num_stories, 3), mode_cap)
+        nxt = _solve_and_extract(num_modes)
+        if nxt is None or not nxt[0]:
+            break
+        improved = (nxt[4] > res[4] + 0.5) or (nxt[5] > res[5] + 0.5)
+        res = nxt
+        n_retry += 1
+        if not improved:   # 모드 추가가 누적참여를 개선 못하면 조기 종료(불필요한 풀이 방지)
+            break
+    modes, T1_x, T1_y, T1_rz, cum_x, cum_y, cum_rz = res
+    if not modes:
+        return {}
 
     # 7. 누적 참여질량 충분조건 (≥90%)
     sufficient = cum_x >= 90.0 and cum_y >= 90.0
 
     return {
         "num_modes": len(modes),
+        "mode_count_auto_increased": n_retry > 0,  # #11
         "modes": modes,
         "fundamental_periods": {
             "T1_x_s": T1_x or 0.0,
@@ -1767,6 +2084,7 @@ def analyze_frame_3d_multi(
     story_weights_kN: list[float] | None = None,
     zones: list[dict] | None = None,
     slab_distribution: str = "2way",
+    story_usages: list[str] | None = None,
 ) -> Frame3DMultiCaseResult:
     """3D 골조 멀티 하중케이스 정적 해석.
 
@@ -1897,6 +2215,33 @@ def analyze_frame_3d_multi(
         n_cols_y = len(bays_y) + 1
         story_nodes_map = _get_story_nodes_from_grid(node_grid, n_cols_x, n_cols_y, len(stories))
 
+    # T3-2: 영길이(좌표 일치) 연결 제거 — 비정형 좌표병합 시 특이행렬 방지(V2와 동형).
+    # 제거 후 member 번호가 재정렬되지만 모든 케이스가 동일 connections를 쓰므로 일관.
+    # member_metadata(비정형 하중 적용)는 connections와 1:1 평행이므로 동일 인덱스로 함께
+    # 필터해야 하중 매핑이 어긋나지 않는다.
+    _robustness_warnings: list[dict] = []
+    _degen = _degenerate_connections(nodes, connections)
+    if _degen:
+        _bad = set(_degen)
+        connections = [c for i, c in enumerate(connections, start=1) if i not in _bad]
+        if member_metadata is not None:
+            member_metadata = [mm for i, mm in enumerate(member_metadata, start=1)
+                               if i not in _bad]
+        _robustness_warnings.append({
+            "code": "W06", "removed": len(_degen),
+            "message": (f"영길이/좌표중복 연결 {len(_degen)}개 제거 "
+                        f"(특이행렬 방지, member_id {_degen[:10]})"),
+        })
+
+    # T3-3: 강막 절점 부족(rank 결손) 경고.
+    _robustness_warnings.extend(_diaphragm_rank_warnings(story_nodes_map, rigid_diaphragm))
+    if _robustness_warnings:
+        multi.analysis_metadata["robustness_warnings"] = _robustness_warnings
+    # T3-4/T3-8: 모델링 근사·가정(강막 강체·릴리즈 완전핀) 명시.
+    _mnotes = _modeling_assumptions(rigid_diaphragm, bool(member_releases))
+    if _mnotes:
+        multi.analysis_metadata["modeling_assumptions"] = _mnotes
+
     # 노드/요소 정보 저장
     multi.nodes = [{"id": n.id, "x_m": n.x, "y_m": n.y, "z_m": n.z} for n in nodes]
 
@@ -1925,6 +2270,14 @@ def analyze_frame_3d_multi(
                 {"id": e.id, "ni": e.ni, "nj": e.nj, "type": e.elem_type}
                 for e in elements_info
             ]
+            # T3-1: z-폴백 후에도 층 미해결 부재가 남으면 명시(설계검토 층보고 정확도 영향).
+            _none_story = sum(1 for m in member_info_list if m.get("story") is None)
+            if _none_story:
+                multi.analysis_metadata.setdefault("robustness_warnings", []).append({
+                    "code": "W08", "count": _none_story,
+                    "message": (f"부재 {_none_story}개의 층 정보를 좌표로도 복원하지 못함 "
+                                "— 설계검토 층보고/P-Delta 증폭 매핑이 부정확할 수 있음"),
+                })
 
         # 하중 적용
         if is_irregular:
@@ -1996,6 +2349,7 @@ def analyze_frame_3d_multi(
         if not sw:
             sw = _estimate_story_weights(
                 load_cases, len(stories), bays_x, bays_y, n_cols_x, n_cols_y,
+                usages=story_usages,
             )
             weight_source = "DL_load_case" if sw else None
 
@@ -2164,6 +2518,8 @@ def _build_model_v2(
     elem_id = 1
     next_node_id = max(n.id for n in model.nodes.values()) + 1
     num_sub = model.num_elements_per_member
+    # T3-1: .story 미할당 절점 대비 z좌표 기반 층 폴백 맵 (항상 가용).
+    _z_map_v2 = _z_story_map(n.z for n in model.nodes.values())
 
     for member_id, se in enumerate(
         sorted(model.elements.values(), key=lambda e: e.id), start=1
@@ -2252,6 +2608,10 @@ def _build_model_v2(
         v2_story = getattr(nj_node, "story", None)
         if v2_story is None:
             v2_story = getattr(ni_node, "story", None)
+        if v2_story is None:  # T3-1: .story 누락 → z좌표 폴백 (0=base 보존, None-aware)
+            v2_story = _story_from_z(nj_node.z, _z_map_v2)
+            if v2_story is None:
+                v2_story = _story_from_z(ni_node.z, _z_map_v2)
         member_info_list.append({
             "member_id": member_id,
             "type": v1_etype,
@@ -2279,6 +2639,11 @@ def _apply_loads_v2(
         - lateral_x, lateral_y: kN → 층별 노드 분배
         - nodal: 직접 노드 하중 (6-DOF)
     """
+    # 2026-07-01 중력버그 픽스(V1→V2 이식): eleLoad -beamUniform은 모멘트접합 보에서
+    # 고정단력을 i-end 편향 오귀속(대칭중력→비대칭해). 등가절점하중(_apply_beam_udl)
+    # + 요소력 q0 복원(공유 추출기 _extract_*_3d가 이미 _localforce_with_q0 사용)으로
+    # 정정. _ELEM_UDL은 케이스마다(모델 재구축 시 elem_id 재발급) 초기화한다.
+    _ELEM_UDL.clear()
     ops.timeSeries('Linear', 1)
     ops.pattern('Plain', 1, 1)
 
@@ -2305,12 +2670,14 @@ def _apply_loads_v2(
 
                 # 50% X방향, 50% Y방향 분배 (2-way slab)
                 w_line = 0.5 * w_area * trib_w  # kN/m
-                w_Nmm = w_line * 1000 / 1000  # kN/m → N/mm
+                # kN/m → N/mm: 환산계수 = 1000(N/kN)/1000(mm/m) = 1.0 (단위계 N·mm, 항등).
+                w_Nmm = w_line * 1000 / 1000
 
                 for eid in member_to_elements[mi]:
-                    # 수직 방향 등분포하중 (로컬 z축 = 중력방향)
-                    ops.eleLoad('-ele', eid, '-type', '-beamUniform',
-                                0.0, -w_Nmm, 0.0)
+                    # 수직 등분포하중 → 등가절점하중(중력버그 픽스). minfo["type"]은
+                    # beam_x/beam_y, w_Nmm은 양수(아래방향) 크기. 요소력은 추출단계에서
+                    # q0 복원(_localforce_with_q0)되어 실제 분포하중 내력과 일치.
+                    _apply_beam_udl(eid, w_Nmm, minfo["type"])
 
         elif ltype in ("lateral_x", "lateral_y") and story is not None:
             # 층별 수평하중 → 해당 층 노드에 균등 분배
@@ -2448,6 +2815,29 @@ def analyze_from_model(
     import logging
     _log = logging.getLogger(__name__)
 
+    # T3-2: 영길이(ni==nj 또는 좌표 일치) 요소를 **고아 절점 제거보다 먼저** 정리한다.
+    # (역순이면 영길이 요소 삭제로 새로 고립된 절점이 정리되지 않아, 무구속 자유절점이
+    #  OpenSees에 추가돼 특이행렬을 유발한다 — 적대적 리뷰 confirmed.) 제거 목록은
+    # robustness_warnings로 surfacing(침묵 0결과 방지). 좌표일치도 함께 검출.
+    _coord_v2 = {nid: (n.x, n.y, n.z) for nid, n in model.nodes.items()}
+    _tol_sq_v2 = (_ZERO_LEN_TOL_MM / 1000.0) ** 2  # m²
+
+    def _is_zero_len(e):
+        if e.node_i == e.node_j:
+            return True
+        ci, cj = _coord_v2.get(e.node_i), _coord_v2.get(e.node_j)
+        if ci is not None and cj is not None:
+            d2 = (ci[0]-cj[0])**2 + (ci[1]-cj[1])**2 + (ci[2]-cj[2])**2
+            return d2 <= _tol_sq_v2
+        return False
+
+    zero_elems = [eid for eid, e in model.elements.items() if _is_zero_len(e)]
+    if zero_elems:
+        _log.warning(f"[B-1] Removing {len(zero_elems)} zero-length elements: {zero_elems[:10]}")
+        for eid in zero_elems:
+            del model.elements[eid]
+
+    # 고아 절점 제거 (영길이 요소 제거 후 새로 고립된 절점까지 포착).
     conn_count: dict[int, int] = {nid: 0 for nid in model.nodes}
     for e in model.elements.values():
         if e.node_i in conn_count:
@@ -2460,12 +2850,6 @@ def analyze_from_model(
         _log.warning(f"[B-1] Removing {len(orphans)} orphan nodes: {orphans[:10]}")
         for nid in orphans:
             del model.nodes[nid]
-
-    zero_elems = [eid for eid, e in model.elements.items() if e.node_i == e.node_j]
-    if zero_elems:
-        _log.warning(f"[B-1] Removing {len(zero_elems)} zero-length elements: {zero_elems[:10]}")
-        for eid in zero_elems:
-            del model.elements[eid]
 
     has_support = any(n.support for n in model.nodes.values())
     if not has_support:
@@ -2483,6 +2867,7 @@ def analyze_from_model(
     case_results = {}
     member_forces = {}
     analysis_metadata = {}
+    failed_cases = []  # Tier1-4: 솔버 실패 케이스 추적 (0 결과 '안전' 오판 방지)
 
     for case_name, case_loads in load_cases.items():
         # 모델 구축
@@ -2498,6 +2883,13 @@ def analyze_from_model(
             analysis_metadata = solver_meta
 
         if solver_meta["ok"] != 0:
+            # Tier1-4: 비수렴/특이행렬 — 빈 결과로 진행하되 실패를 기록한다.
+            # design_check가 이 플래그를 보고 '안전'이 아닌 NG/미검토로 게이트한다.
+            _log.warning(
+                "[Tier1-4] V2 solver failed (case=%s, rc=%s) — 결과 0 처리, design_check 게이트 대상",
+                case_name, solver_meta["ok"],
+            )
+            failed_cases.append(case_name)
             case_results[case_name] = Frame3DCaseResult()
             continue
 
@@ -2576,6 +2968,44 @@ def analyze_from_model(
     est_bays_y = [round(ys[i+1] - ys[i], 3) for i in range(len(ys)-1)] if len(ys) > 1 else []
     est_width_x = (xs[-1] - xs[0]) if len(xs) > 1 else 0.0
     est_width_y = (ys[-1] - ys[0]) if len(ys) > 1 else 0.0
+
+    # Tier1-4: 솔버 실패가 있으면 메타데이터에 플래그를 실어 design_check가 게이트.
+    if not isinstance(analysis_metadata, dict):
+        analysis_metadata = {}
+    analysis_metadata = dict(analysis_metadata)
+    if failed_cases:
+        analysis_metadata["solver_failed"] = True
+        analysis_metadata["failed_cases"] = list(failed_cases)
+
+    # ── Tier-3 견고성/모델링 surfacing (V2) ──
+    _rob: list[dict] = []
+    if zero_elems:  # T3-2: 영길이 요소 제거 기록
+        _rob.append({
+            "code": "W06", "removed": len(zero_elems),
+            "message": (f"영길이/좌표중복 요소 {len(zero_elems)}개 제거 "
+                        f"(특이행렬 방지, elem_id {list(zero_elems)[:10]})"),
+        })
+    # T3-3: 강막 절점 부족(rank 결손) — story_nodes_map은 .story 기반(층 0=지점 제외).
+    _rob.extend(_diaphragm_rank_warnings(story_nodes_map, model.rigid_diaphragm))
+    # T3-1: z-폴백 후에도 층 미해결 부재
+    try:
+        _none_story = sum(1 for m in member_info_list if m.get("story") is None)
+    except NameError:
+        _none_story = 0
+    if _none_story:
+        _rob.append({
+            "code": "W08", "count": _none_story,
+            "message": (f"부재 {_none_story}개의 층 정보를 좌표로도 복원하지 못함 "
+                        "— 설계검토 층보고/P-Delta 증폭 매핑이 부정확할 수 있음"),
+        })
+    if _rob:
+        analysis_metadata["robustness_warnings"] = _rob
+    # T3-4/T3-8: 모델링 근사·가정(강막 강체·릴리즈 완전핀) 명시.
+    _has_rel = any(getattr(e, "release_i", None) or getattr(e, "release_j", None)
+                   for e in model.elements.values())
+    _mnotes = _modeling_assumptions(model.rigid_diaphragm, _has_rel)
+    if _mnotes:
+        analysis_metadata["modeling_assumptions"] = _mnotes
 
     multi = Frame3DMultiCaseResult(
         num_stories=n_stories,
@@ -2674,6 +3104,48 @@ def analyze_from_model(
                 if area > 0:
                     sw = [area * 5.0 / ns] * ns  # 5 kN/m² 기본 가정
 
+            # A1: 창고류 활하중 25% (modal 질량 V1/V2 일관성, KDS 41 17 00).
+            # base sw(DL)에 창고층만 0.25·LL을 가산한다. 비창고/LL부재 없으면 무변경.
+            story_usages = getattr(model, "story_usages", None)
+            if sw and story_usages:
+                from core.load_generator import seismic_live_load_fraction
+                ll_loads = None
+                for cn, loads in load_cases.items():
+                    if cn.upper() in ("LL", "LIVE", "L"):
+                        ll_loads = loads
+                        break
+                if ll_loads:
+                    def _story_plan_area(st):
+                        # value(kN/m²) 포맷용 평면면적 — 해당 층 절점 bbox 근사
+                        nids = story_nodes_map.get(st, []) if story_nodes_map else []
+                        xs = [model.nodes[n].x for n in nids if n in model.nodes]
+                        ys = [model.nodes[n].y for n in nids if n in model.nodes]
+                        if len(xs) < 2 or len(ys) < 2:
+                            return 0.0
+                        return (max(xs) - min(xs)) * (max(ys) - min(ys))
+
+                    add = [0.0] * ns
+                    for ld in ll_loads:
+                        st = ld.get("story", 0)
+                        if st < 1 or st > ns:
+                            continue
+                        frac = seismic_live_load_fraction(story_usages.get(st, "office"))
+                        if frac <= 0:
+                            continue
+                        lt = ld.get("type", "")
+                        if lt == "floor_area":
+                            area = ld.get("area_m2") or _story_plan_area(st)
+                            w = abs(ld.get("qz_kN_m2", ld.get("value", 0))) * area
+                        elif lt == "floor":
+                            w = abs(ld.get("w_kN_m", ld.get("value", 0))) * ld.get("L_m", 1)
+                        elif lt == "nodal":
+                            w = abs(ld.get("Fz_kN", ld.get("value", 0)))
+                        else:
+                            w = 0.0
+                        add[st - 1] += frac * w
+                    if any(a > 0 for a in add):
+                        sw = [sw[i] + add[i] for i in range(ns)]
+
             if sw:
                 eigen_result = _run_eigen_analysis_v2(
                     model, E, G, section_cache, sw, story_nodes_map,
@@ -2730,6 +3202,12 @@ def _run_eigen_analysis_v2(
     g_acc = 9810.0  # mm/s²
     node_map_3d = {n.id: n for n in nodes_3d}
     floor_masses = []
+    node_mass: dict[int, float] = {}  # 절점기반 유효모달질량 계산용 (실제 배정 질량)
+    # T3-A: 층별 rz 참여 기준점 = 질량중심(mm). 기존 master=snodes[len//2]는 짝수 격자에서
+    # 기하중심을 벗어나 Σm·Δy≠0 → 순수병진모드에 허위 비틀림(Lrz≠0)이 섞여 누적 rz
+    # 참여율이 100%를 넘는 비보수 결과를 냈다. 질량중심을 쓰면 병진모드 Lrz=0이 되고
+    # I_eff(극관성)도 같은 기준으로 산정돼 모달 분해가 정합(누적 rz ≤100%).
+    story_ref: dict[int, tuple] = {}
 
     for s in range(1, n_stories + 1):
         snodes = story_nodes_map.get(s, [])
@@ -2737,122 +3215,190 @@ def _run_eigen_analysis_v2(
             continue
         nodes_per_floor = len(snodes)
 
-        master_nid = snodes[len(snodes) // 2]
-        mx_mm = node_map_3d[master_nid].x * 1000
-        my_mm = node_map_3d[master_nid].y * 1000
-
         W_N = story_weights_kN[s - 1] * 1000.0
         m_per_node = W_N / g_acc / nodes_per_floor
         m_floor = W_N / g_acc
 
+        # 질량중심(질량 균일 → 좌표 산술평균). node_map_3d에 있는 절점만 사용.
+        cxs = [node_map_3d[nid].x * 1000 for nid in snodes if nid in node_map_3d]
+        cys = [node_map_3d[nid].y * 1000 for nid in snodes if nid in node_map_3d]
+        cx_mm = sum(cxs) / len(cxs) if cxs else 0.0
+        cy_mm = sum(cys) / len(cys) if cys else 0.0
+        story_ref[s] = (cx_mm, cy_mm)
+
         I_eff = 0.0
         for nid in snodes:
             ops.mass(nid, m_per_node, m_per_node, 1e-6, 0.0, 0.0, 0.0)
+            node_mass[nid] = node_mass.get(nid, 0.0) + m_per_node
             if nid in node_map_3d:
-                dx = node_map_3d[nid].x * 1000 - mx_mm
-                dy = node_map_3d[nid].y * 1000 - my_mm
+                dx = node_map_3d[nid].x * 1000 - cx_mm
+                dy = node_map_3d[nid].y * 1000 - cy_mm
                 I_eff += m_per_node * (dx ** 2 + dy ** 2)
 
         floor_masses.append((m_floor, I_eff))
 
-    # 3. 모드 수
+    # 3. 모드 수 + 총 질량(참여질량 기준 — num_modes와 무관)
     if num_modes <= 0:
         num_modes = min(3 * n_stories, 15)
+    mode_cap = min(3 * n_stories, _EIGEN_MODE_CAP)  # #11 자동증대 상한(면내 기저)
 
-    # 4. 고유치 풀이
-    eigenvalues = None
-    for solver in [lambda: ops.eigen(num_modes),
-                   lambda: ops.eigen('-genBandArpack', num_modes),
-                   lambda: ops.eigen('-fullGenLapack', num_modes)]:
-        try:
-            eigenvalues = solver()
-            break
-        except Exception:
-            continue
-
-    if not eigenvalues:
-        return {}
-
-    # 5. 참여질량 계산
     total_mass_x = sum(fm[0] for fm in floor_masses)
     total_mass_rz = sum(fm[1] for fm in floor_masses)
     stories = model.story_heights
 
-    modes = []
-    cum_x, cum_y, cum_rz = 0.0, 0.0, 0.0
-
-    for i, lam in enumerate(eigenvalues):
-        mode_num = i + 1
-        if lam <= 0:
-            continue
-
-        omega = math.sqrt(lam)
-        T = 2.0 * math.pi / omega
-        f = 1.0 / T
-
-        # 모드 형상 추출
-        shape = {}
-        for n3d in nodes_3d:
+    def _solve_and_extract_v2(nm: int):
+        """eigen(nm) 풀이 + 모드별 참여질량/형상 추출. 실패 시 None (#11)."""
+        eigenvalues = None
+        for solver in [lambda: ops.eigen(nm),
+                       lambda: ops.eigen('-genBandArpack', nm),
+                       lambda: ops.eigen('-fullGenLapack', nm)]:
             try:
-                phi = [ops.nodeEigenvector(n3d.id, mode_num, dof) for dof in range(1, 7)]
-                shape[str(n3d.id)] = phi[:3]  # dx, dy, dz
+                eigenvalues = solver()
+                break
             except Exception:
-                shape[str(n3d.id)] = [0, 0, 0]
-
-        # 참여질량 (간이)
-        Lx, Ly, Lrz = 0.0, 0.0, 0.0
-        Mx, My, Mrz = 0.0, 0.0, 0.0
-        for s_idx in range(1, n_stories + 1):
-            snodes = story_nodes_map.get(s_idx, [])
-            if not snodes or s_idx - 1 >= len(floor_masses):
                 continue
-            m_f, I_f = floor_masses[s_idx - 1]
-            avg_phi_x = sum(shape.get(str(nid), [0, 0, 0])[0] for nid in snodes) / max(len(snodes), 1)
-            avg_phi_y = sum(shape.get(str(nid), [0, 0, 0])[1] for nid in snodes) / max(len(snodes), 1)
-            Lx += m_f * avg_phi_x
-            Ly += m_f * avg_phi_y
-            Mx += m_f * avg_phi_x ** 2
-            My += m_f * avg_phi_y ** 2
+        if not eigenvalues:
+            return None
 
-        mp_x = (Lx ** 2 / Mx / total_mass_x * 100) if Mx > 0 and total_mass_x > 0 else 0
-        mp_y = (Ly ** 2 / My / total_mass_x * 100) if My > 0 and total_mass_x > 0 else 0
+        modes_ = []
+        cx = cy = crz = 0.0
+        for i, lam in enumerate(eigenvalues):
+            mode_num = i + 1
+            if lam <= 0:
+                continue
 
-        direction = "X" if abs(Lx) > abs(Ly) * 1.5 else ("Y" if abs(Ly) > abs(Lx) * 1.5 else "XY")
-        cum_x += mp_x
-        cum_y += mp_y
+            omega = math.sqrt(lam)
+            T = 2.0 * math.pi / omega
+            f = 1.0 / T
 
-        modes.append({
-            "mode_num": mode_num,
-            "mode": mode_num,  # V1 호환
-            "eigenvalue": round(lam, 4),
-            "frequency_Hz": round(f, 4),
-            "frequency_hz": round(f, 4),  # V1 호환
-            "period_s": round(T, 4),
-            "direction": direction,
-            "mass_participation_x_pct": round(mp_x, 2),
-            "mass_participation_y_pct": round(mp_y, 2),
-            "mass_participation": {  # V1 호환 nested 형식
-                "x_pct": round(mp_x, 2),
-                "y_pct": round(mp_y, 2),
-                "rz_pct": 0,
-            },
-            "dominance_pct": round(max(mp_x, mp_y), 2),  # V1 호환
-            "cumulative_x_pct": round(cum_x, 2),
-            "cumulative_y_pct": round(cum_y, 2),
-            "shape": shape,
-        })
+            # 모드 형상 추출
+            shape = {}
+            for n3d in nodes_3d:
+                try:
+                    phi = [ops.nodeEigenvector(n3d.id, mode_num, dof) for dof in range(1, 7)]
+                    shape[str(n3d.id)] = phi[:3]  # dx, dy, dz
+                except Exception:
+                    shape[str(n3d.id)] = [0, 0, 0]
+
+            # 참여질량: 절점기반 유효모달질량 (V1 _run_eigen_analysis와 동일 정식화).
+            # m_eff,dir = L_dir² / M_n,  M_n = Σ m·(φx²+φy²) (전체 일반화질량).
+            # A4/T3-A: L_rz = Σ m·(Δx·φy − Δy·φx) (각 층 질량중심 기준)로 비틀림참여 산정.
+            Lx = Ly = Lrz = M_n = 0.0
+            for s in range(1, n_stories + 1):
+                ref = story_ref.get(s)
+                if ref is None:
+                    continue
+                mxx, myy = ref  # 질량중심(mm) 기준 (T3-A)
+                for nid in story_nodes_map.get(s, []):
+                    m_nd = node_mass.get(nid, 0.0)
+                    if m_nd <= 0 or nid not in node_map_3d:
+                        continue
+                    ph = shape.get(str(nid)) or (0.0, 0.0, 0.0)
+                    phx, phy = ph[0], ph[1]
+                    M_n += m_nd * (phx * phx + phy * phy)
+                    Lx += m_nd * phx
+                    Ly += m_nd * phy
+                    Lrz += m_nd * ((node_map_3d[nid].x * 1000 - mxx) * phy
+                                   - (node_map_3d[nid].y * 1000 - myy) * phx)
+
+            def _pct(L, tot):
+                if M_n <= 1e-30 or tot <= 1e-30:
+                    return 0.0
+                return (L * L / M_n) / tot * 100
+
+            mp_x = _pct(Lx, total_mass_x)
+            mp_y = _pct(Ly, total_mass_x)  # total_mass_y == total_mass_x (병진질량)
+            mp_rz = _pct(Lrz, total_mass_rz)
+
+            # 지배 방향 (V1과 통일: TRAN-X / TRAN-Y / ROTN-Z).
+            if mp_x >= mp_y and mp_x >= mp_rz:
+                direction = "TRAN-X"
+            elif mp_y >= mp_rz:
+                direction = "TRAN-Y"
+            elif mp_rz > 0:
+                direction = "ROTN-Z"
+            else:
+                direction = "N/A"
+
+            cx += mp_x
+            cy += mp_y
+            crz += mp_rz
+
+            modes_.append({
+                "mode_num": mode_num,
+                "mode": mode_num,  # V1 호환
+                "eigenvalue": round(lam, 4),
+                "frequency_Hz": round(f, 4),
+                "frequency_hz": round(f, 4),  # V1 호환
+                "period_s": round(T, 4),
+                "direction": direction,
+                "mass_participation_x_pct": round(mp_x, 2),
+                "mass_participation_y_pct": round(mp_y, 2),
+                "mass_participation_rz_pct": round(mp_rz, 2),  # T3-B: rz 주기 산정용
+                "mass_participation": {  # V1 호환 nested 형식
+                    "x_pct": round(mp_x, 2),
+                    "y_pct": round(mp_y, 2),
+                    "rz_pct": round(mp_rz, 2),
+                },
+                "dominance_pct": round(max(mp_x, mp_y, mp_rz), 2),  # V1 호환
+                "cumulative_x_pct": round(cx, 2),
+                "cumulative_y_pct": round(cy, 2),
+                "shape": shape,
+            })
+
+        return modes_, cx, cy, crz
+
+    # 4+5. 초기 풀이 + 누적참여 <90% 시 모드 수 자동 증대 재시도 (#11)
+    res = _solve_and_extract_v2(num_modes)
+    if res is None or not res[0]:
+        return {}
+    n_retry = 0
+    while (not (res[1] >= 90.0 and res[2] >= 90.0)
+           and num_modes < mode_cap and n_retry < 4):
+        num_modes = min(num_modes + max(n_stories, 3), mode_cap)
+        nxt = _solve_and_extract_v2(num_modes)
+        if nxt is None or not nxt[0]:
+            break
+        improved = (nxt[1] > res[1] + 0.5) or (nxt[2] > res[2] + 0.5)
+        res = nxt
+        n_retry += 1
+        if not improved:   # 모드 추가가 누적참여를 개선 못하면 조기 종료
+            break
+    modes, cum_x, cum_y, cum_rz = res
 
     if not modes:
         return {}
 
+    # 방향별 기본주기: 'X' in 'XY' 같은 부분문자열 매칭은 결합모드를 X·Y 양쪽에
+    # 잡아 둘 다 같은(엉뚱한) 주기를 돌려준다. 해당 방향 질량참여가 최대인 모드를
+    # 그 방향 기본모드로 본다(결합모드는 우세 방향에만 귀속).
+    def _t1_dir(key: str):
+        cand = [m for m in modes if m.get(key, 0) > 0]
+        return max(cand, key=lambda m: m.get(key, 0))["period_s"] if cand else None
+
+    t1x = _t1_dir("mass_participation_x_pct")
+    t1y = _t1_dir("mass_participation_y_pct")
+    t1rz = _t1_dir("mass_participation_rz_pct")  # T3-B: 비틀림(rz) 1차주기
+
+    # A3: 누적 유효질량 참여율 충분조건 (KDS 41 17 00 ≥90%) — V1과 동형.
+    sufficient = cum_x >= 90.0 and cum_y >= 90.0
+
     return {
         "num_modes": len(modes),
+        "mode_count_auto_increased": n_retry > 0,  # #11
         "modes": modes,
         "fundamental_periods": {
-            "T1_x": next((m["period_s"] for m in modes if "X" in m["direction"]), None),
-            "T1_y": next((m["period_s"] for m in modes if "Y" in m["direction"]), None),
+            "T1_x": t1x,
+            "T1_y": t1y,
             # V1 호환 키 (리포트/interpreter에서 사용)
-            "T1_x_s": next((m["period_s"] for m in modes if "X" in m["direction"]), None),
-            "T1_y_s": next((m["period_s"] for m in modes if "Y" in m["direction"]), None),
+            "T1_x_s": t1x,
+            "T1_y_s": t1y,
+            "T1_rz_s": t1rz,  # T3-B: V1과 동일 키 (구버전 V2는 누락)
+        },
+        "cumulative_participation": {
+            "x_pct": round(cum_x, 1),
+            "y_pct": round(cum_y, 1),
+            "rz_pct": round(cum_rz, 1),
+            "sufficient_90pct": sufficient,
         },
     }

@@ -1,0 +1,17 @@
+{
+  "Top Disp N3 dx": 1.3880847639893124,
+  "Top Disp N4 dx": 1.3880847639893124,
+  "Top Disp N3 dy": -0.07560591677248164,
+  "Top Disp N4 dy": -0.08869211986598055,
+  "Col1 Base Moment": -51.10524746142563,
+  "Col2 Base Moment": -51.105247461425634,
+  "Beam Moment (i-end)": 23.894752538574295,
+  "Beam Moment (j-end)": 23.89475253857429,
+  "Base Shear": -49.999999999999936,
+  "Reaction N1 Fx": -24.999999999999964,
+  "Reaction N1 Fy": 92.03508248714188,
+  "Reaction N1 Mz": 51.10524746142563,
+  "Reaction N2 Fx": -24.99999999999997,
+  "Reaction N2 Fy": 107.96491751285811,
+  "Reaction N2 Mz": 51.105247461425634
+}

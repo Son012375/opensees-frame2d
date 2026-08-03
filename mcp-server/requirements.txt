@@ -1,7 +1,7 @@
 # OpenSeesPy MCP Server Dependencies
 
 # Core
-openseespy>=3.5.0
+openseespy>=3.3.0      # tested/pinned reproduction build: 3.3.0.1.1 (see docs/paper1_open_source_alternative/requirements-repro.txt)
 pydantic>=2.0.0
 
 # MCP Server

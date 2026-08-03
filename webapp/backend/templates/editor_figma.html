@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Figma UI Lab - OpenSees Frame Studio</title>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Editor CSS (V2 copy) -->
+    <link rel="stylesheet" href="/static/css/editor_figma.css?v=13">
+</head>
+<body>
+    <!-- Application Header -->
+    <div class="editor-topbar">
+        <div class="topbar-left">
+            <a href="/" class="logo">OpenSees Frame Studio</a>
+        </div>
+        <nav class="menu-strip" aria-label="Application menu">
+            <button type="button">File</button>
+            <button type="button">Edit</button>
+            <button type="button">View</button>
+            <button type="button">Model</button>
+            <button type="button">Node/Element</button>
+            <button type="button">Boundary</button>
+            <button type="button">Load</button>
+            <button type="button">Analysis</button>
+            <button type="button">Results</button>
+            <button type="button">Design</button>
+            <button type="button">Tools</button>
+            <button type="button">Help</button>
+        </nav>
+        <div class="topbar-center" id="status-bar">
+            <span class="status-text">Ready</span>
+        </div>
+        <div class="topbar-right">
+            <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
+            <span class="project-path">Project: academy_tower_v1.opf</span>
+            <span class="user-chip">SON</span>
+        </div>
+    </div>
+
+    <!-- Ribbon -->
+    <div class="editor-ribbon">
+        <div class="ribbon-tabs">
+            <button class="ribbon-tab active" onclick="switchInputTab('manual')">Model</button>
+            <button class="ribbon-tab">Structure</button>
+            <button class="ribbon-tab">Loads</button>
+            <button class="ribbon-tab">Analysis</button>
+            <button class="ribbon-tab">Results</button>
+            <button class="ribbon-tab">Design</button>
+        </div>
+        <div class="ribbon-command-row">
+            <div class="ribbon-command-group geometry">
+                <button class="ribbon-command" onclick="setEditMode('addNode')"><b>N</b><span>Node</span></button>
+                <button class="ribbon-command" onclick="setEditMode('addElement')"><b>B</b><span>Beam</span></button>
+                <button class="ribbon-command"><b>P</b><span>Plate</span></button>
+                <button class="ribbon-command" onclick="toggleGridSnap()"><b>G</b><span>Grid</span></button>
+                <em>Geometry</em>
+            </div>
+            <div class="ribbon-command-group properties">
+                <button class="ribbon-command" onclick="figmaOpenMaterials()"><b>M</b><span>Material</span></button>
+                <button class="ribbon-command" onclick="figmaOpenSections()"><b>S</b><span>Section</span></button>
+                <button class="ribbon-command" onclick="setEditMode('release')"><b>R</b><span>Release</span></button>
+                <em>Properties</em>
+            </div>
+            <div class="ribbon-command-group boundary">
+                <button class="ribbon-command" onclick="setEditMode('support')"><b>SP</b><span>Support</span></button>
+                <button class="ribbon-command"><b>K</b><span>Spring</span></button>
+                <button class="ribbon-command"><b>C</b><span>Constraint</span></button>
+                <em>Boundary</em>
+            </div>
+            <div class="ribbon-command-group loadcase">
+                <button class="ribbon-command" onclick="figmaOpenLoads('dead')" title="고정하중 정의 (층별 슬래브·마감)"><b>D</b><span>Dead</span></button>
+                <button class="ribbon-command" onclick="figmaOpenLoads('live')" title="활하중 정의 (층별 용도 → KDS 자동)"><b>L</b><span>Live</span></button>
+                <button class="ribbon-command" onclick="figmaOpenLoads('seismic')" title="지진하중 정의 (KDS 41 17 00)"><b>E</b><span>Seismic</span></button>
+                <button class="ribbon-command" onclick="figmaOpenLoads('wind')" title="풍하중 정의 (KDS 41 12 00 §5)"><b>W</b><span>Wind</span></button>
+                <em>Load Case</em>
+            </div>
+            <div class="ribbon-command-group solve">
+                <button class="ribbon-command run" onclick="runAnalysis()"><b>▶</b><span>Run</span></button>
+                <button class="ribbon-command" onclick="toggleDesignCheckColors()"><b>✓</b><span>Check</span></button>
+                <button class="ribbon-command"><b>R</b><span>Report</span></button>
+                <em>Solve</em>
+            </div>
+            <div class="ribbon-hint">Editable frame-based layout: dock panels, ribbon commands, split viewports, result/control panels</div>
+        </div>
+    </div>
+
+    <!-- Main Workbench -->
+    <div class="editor-workbench">
+        <aside class="tool-rail" aria-label="Viewport tools">
+            <button class="rail-btn active" onclick="setEditMode('view')" title="Select">SEL</button>
+            <button class="rail-btn" title="Pan">PAN</button>
+            <button class="rail-btn" title="Zoom">ZOOM</button>
+            <button class="rail-btn" onclick="resetCamera()" title="3D">3D</button>
+            <button class="rail-btn" title="XY">XY</button>
+            <button class="rail-btn" title="YZ">YZ</button>
+            <button class="rail-btn" title="XZ">XZ</button>
+            <button class="rail-btn" title="Dimension">DIM</button>
+            <button class="rail-btn" onclick="toggleGridSnap()" title="Snap">SNAP</button>
+            <button class="rail-btn" title="Mesh">MES</button>
+        </aside>
+
+        <div class="editor-layout">
+        <!-- Left: Config Panel -->
+        <div class="panel panel-left" id="config-panel">
+            <div class="panel-header">
+                <h3>Model Explorer</h3>
+            </div>
+            <div class="figma-model-explorer">
+                <div class="dock-tabs">
+                    <button class="dock-tab active" onclick="switchInputTab('manual')">Model</button>
+                    <button class="dock-tab" onclick="toggleDesignCheckColors()">Display</button>
+                    <button class="dock-tab">Tables</button>
+                    <button class="dock-tab">Reports</button>
+                </div>
+                <!-- 라이브 트리 — figma_explorer.js가 _v2Model/currentResult에서 채움 -->
+                <div class="tree-content" id="fig-mx-tree">
+                    <div class="tree-hint">모델이 없습니다 — IFC 가져오기, 자연어 입력 또는 해석 실행 후 구조 트리가 여기에 표시됩니다.</div>
+                </div>
+            </div>
+
+            <div class="figma-object-panel">
+                <div class="panel-header mini">
+                    <h3>Properties of Object</h3>
+                </div>
+                <div class="object-summary" id="fig-obj-summary">Selected: (none)</div>
+                <div class="figma-prop-row"><span>Section</span><strong id="fig-prop-section">-</strong></div>
+                <div class="figma-prop-row"><span>Material</span><strong id="fig-prop-material">-</strong></div>
+                <div class="figma-prop-row"><span>Length</span><strong id="fig-prop-length">-</strong></div>
+                <div class="figma-prop-row"><span>Release</span><strong id="fig-prop-release">-</strong></div>
+                <div class="figma-prop-row"><span>Load Group</span><strong id="fig-prop-loadgroup">-</strong></div>
+            </div>
+
+            <!-- 입력 모드 전환은 상단 File/Load 메뉴가 담당 — 구 탭 스트립 제거
+                 (엔진 switchInputTab은 .input-tab 부재 시에도 tab-content 전환만 수행) -->
+            <div class="panel-body legacy-config-ui">
+                <!-- ══ Manual Tab ══ -->
+                <div id="tab-manual" class="tab-content active">
+                    <!-- Quick Preset -->
+                    <div class="form-group">
+                        <label>Preset</label>
+                        <select id="preset-select" onchange="applyPreset()">
+                            <option value="">-- Select --</option>
+                            <option value="3story">3-Story Office</option>
+                            <option value="5story">5-Story Office</option>
+                            <option value="5story_mixed">5-Story Mixed-Use</option>
+                            <option value="10story">10-Story Office</option>
+                        </select>
+                    </div>
+
+                    <hr>
+
+                    <!-- Stories (per-story editor) -->
+                    <div class="form-section">
+                        <h4>Stories</h4>
+                        <div id="story-list-container">
+                            <!-- Dynamically generated story rows -->
+                        </div>
+                        <button class="btn-add-story" onclick="addStory()">+ 층 추가</button>
+                    </div>
+
+                    <!-- Bays / Zones -->
+                    <div class="form-section">
+                        <h4>
+                            Bays
+                            <label class="toggle-inline" style="margin-left:auto;font-weight:normal;font-size:11px;">
+                                <input type="checkbox" id="irregular-toggle" onchange="toggleIrregular()">
+                                비정형
+                            </label>
+                        </h4>
+                        <p id="irregular-hint" class="form-hint" style="display:none;">
+                            L자형, T자형, Setback 등 비직교 평면을 존(Zone)으로 정의합니다.
+                        </p>
+                        <!-- Regular bays (default) -->
+                        <div id="regular-bays-panel">
+                            <div class="form-group">
+                                <label>Bays X (widths, m)</label>
+                                <input type="text" id="input-bays-x" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('x')">
+                                <div id="bays-x-slider-container" class="bay-slider-group"></div>
+                            </div>
+                            <div class="form-group">
+                                <label>Bays Y (widths, m)</label>
+                                <input type="text" id="input-bays-y" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('y')">
+                                <div id="bays-y-slider-container" class="bay-slider-group"></div>
+                            </div>
+                        </div>
+                        <!-- Irregular zones panel -->
+                        <div id="irregular-zones-panel" style="display:none;">
+                            <div class="form-group">
+                                <label>형태 프리셋</label>
+                                <select id="zone-preset" onchange="applyZonePreset()">
+                                    <option value="">-- 선택 --</option>
+                                    <option value="L-shape">&#x2517; L자형 (2존)</option>
+                                    <option value="T-shape">&#x2533; T자형 (2존)</option>
+                                    <option value="setback">&#x25BD; Setback (상층 축소)</option>
+                                </select>
+                            </div>
+                            <div id="zone-list-container">
+                                <!-- Dynamically generated zone rows -->
+                            </div>
+                            <button class="btn-add-story" onclick="addZone()">+ 존 추가</button>
+                            <!-- Zone plan view (2D top-down) -->
+                            <div class="form-group" style="margin-top:10px;">
+                                <label>평면도 (위에서 본 배치)</label>
+                                <canvas id="zone-plan-canvas" width="320" height="260"
+                                        style="width:100%;aspect-ratio:4/3.2;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sections -->
+                    <div class="form-section">
+                        <h4>Sections</h4>
+                        <div class="form-group">
+                            <label>Column</label>
+                            <div class="input-with-action">
+                                <select id="input-col-section">
+                                    <option value="H-300x300">H-300x300</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('column')" title="전체 기둥 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Beam X</label>
+                            <div class="input-with-action">
+                                <select id="input-beamx-section">
+                                    <option value="H-400x200">H-400x200</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('beam_x')" title="전체 X보 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Beam Y</label>
+                            <div class="input-with-action">
+                                <select id="input-beamy-section">
+                                    <option value="H-400x200">H-400x200</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('beam_y')" title="전체 Y보 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Material & Options -->
+                    <div class="form-section">
+                        <h4>Material & Options</h4>
+                        <div class="form-group">
+                            <label>Material</label>
+                            <select id="input-material">
+                                <option value="SS275">SS275</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Supports</label>
+                            <select id="input-supports">
+                                <option value="fixed">Fixed</option>
+                                <option value="pinned">Pinned</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Region</label>
+                            <input type="text" id="input-region" value="서울" placeholder="서울, 부산, ...">
+                        </div>
+                        <div class="form-group">
+                            <label>Importance</label>
+                            <select id="input-importance">
+                                <option value="II" selected>II (일반)</option>
+                                <option value="I">I (중요)</option>
+                                <option value="특">특 (특수)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Seismic Method</label>
+                            <select id="input-seismic-method" onchange="document.getElementById('rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                <option value="ELF" selected>ELF (등가정적)</option>
+                                <option value="RSA">RSA (응답스펙트럼)</option>
+                            </select>
+                        </div>
+                        <div id="rsa-options" style="display:none;">
+                            <div class="form-group">
+                                <label>Modal Combination</label>
+                                <select id="input-rsa-combination">
+                                    <option value="CQC" selected>CQC</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Direction Rule</label>
+                                <select id="input-rsa-direction">
+                                    <option value="30pct" selected>30% Rule (KDS)</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary btn-block" onclick="runAnalysis()">
+                            해석 실행 (Analyze)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ══ Natural Language Tab (Figma 리디자인 — 자동 하중 입력 흐름의 핵심) ══
+                     엔진(editor3d_figma.js)이 참조하는 id는 유지: nl-api-warning /
+                     nl-input / btn-nl-parse / nl-resolution-report / nl-report-content.
+                     '직접 입력으로 수정' 버튼은 구 UI 흔적이라 제거 — 변환 결과는
+                     '모델 생성' 버튼(runAnalysisFromNL, figma_menu가 프리뷰 전용으로
+                     리타깃)이 직접입력 폼에도 자동 반영한다. -->
+                <div id="tab-nl" class="tab-content">
+                    <div id="nl-api-warning" class="nl-warning" style="display:none;">
+                        Claude API 키가 설정되지 않았습니다.
+                    </div>
+
+                    <p class="fid-nl-intro">
+                        건물의 <b>용도 · 지역 · 층수 · 경간</b>을 문장으로 적으면 모델과 함께
+                        KDS 하중(고정 · 활 · 지진 · 풍)이 자동 생성됩니다.
+                    </p>
+
+                    <textarea id="nl-input" class="nl-textarea" rows="5"
+                        placeholder="예: 서울 강남, 1층 근생, 2~5층 오피스, 3×2 경간"></textarea>
+
+                    <div class="fid-nl-chips">
+                        <span>예시</span>
+                        <button type="button" onclick="fillNLExample(0)">5층 오피스</button>
+                        <button type="button" onclick="fillNLExample(1)">복합용도</button>
+                        <button type="button" onclick="fillNLExample(2)">주차+사무실</button>
+                    </div>
+
+                    <div class="form-actions" style="margin-top:10px;">
+                        <button class="btn btn-primary btn-block" id="btn-nl-parse" onclick="parseBuilding()">
+                            Claude로 변환
+                        </button>
+                    </div>
+
+                    <!-- Resolution Report -->
+                    <div id="nl-resolution-report" style="display:none;">
+                        <div class="fid-nl-report-title">변환 결과</div>
+                        <div id="nl-report-content"></div>
+
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="btn btn-primary btn-block" onclick="runAnalysisFromNL()">
+                                바로 해석
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══ IFC Upload Tab (3-Step Wizard) ══ -->
+                <div id="tab-ifc" class="tab-content">
+                    <!-- Step Indicator -->
+                    <div class="ifc-wizard-steps">
+                        <div class="ifc-step-circle active" data-step="1">1</div>
+                        <div class="ifc-step-line"></div>
+                        <div class="ifc-step-circle" data-step="2">2</div>
+                        <div class="ifc-step-line"></div>
+                        <div class="ifc-step-circle" data-step="3">3</div>
+                    </div>
+                    <div class="ifc-step-labels">
+                        <span class="active">Upload</span>
+                        <span>Geometry</span>
+                        <span>Config</span>
+                    </div>
+
+                    <!-- Step 1: Upload -->
+                    <div id="ifc-step-1" class="ifc-step-content active">
+                        <div class="form-section">
+                            <h4>IFC 파일 업로드</h4>
+                            <div id="ifc-dropzone" class="ifc-dropzone">
+                                <div class="ifc-dropzone-icon">&#x1F4C1;</div>
+                                <p class="ifc-dropzone-text">클릭하거나 파일을 드래그하세요</p>
+                                <p class="ifc-dropzone-hint">.ifc 파일 (Revit, ArchiCAD 등)</p>
+                                <input type="file" id="ifc-file-input" accept=".ifc" style="display:none;">
+                            </div>
+                            <div id="ifc-filename" class="ifc-filename" style="display:none;"></div>
+                        </div>
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="btn btn-primary btn-block" id="btn-ifc-upload" onclick="uploadIFC()" disabled>
+                                업로드 & 파싱
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Tool Palette (replaces geometry preview) -->
+                    <div id="ifc-step-2" class="ifc-step-content">
+
+                        <!-- Model Info (compact) -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Model Info</div>
+                            <div id="tool-model-info" class="tool-info-grid"></div>
+                        </div>
+
+                        <!-- Geometry Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Geometry</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="addNode" onclick="setEditMode('addNode')" title="Add Node">
+                                    <span class="tool-icon">+</span>
+                                    <span>Node</span>
+                                </button>
+                                <button class="tool-btn" data-mode="addElement" onclick="setEditMode('addElement')" title="Add Element">
+                                    <span class="tool-icon">/</span>
+                                    <span>Element</span>
+                                </button>
+                                <button class="tool-btn" data-mode="delete" onclick="setEditMode('delete')" title="Delete">
+                                    <span class="tool-icon">&times;</span>
+                                    <span>Delete</span>
+                                </button>
+                                <button class="tool-btn" data-mode="move" onclick="setEditMode('move')" title="Move Node">
+                                    <span class="tool-icon">&#x21C4;</span>
+                                    <span>Move</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Properties Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Properties</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="release" onclick="setEditMode('release')" title="Beam Release (6-DOF)">
+                                    <span class="tool-icon">&#x2B21;</span>
+                                    <span>Release</span>
+                                </button>
+                                <button class="tool-btn" data-mode="support" onclick="setEditMode('support')" title="Support Conditions">
+                                    <span class="tool-icon">&#x25BC;</span>
+                                    <span>Support</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Display Options -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Display</div>
+                            <div class="tool-options">
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-grid-snap-tool" checked onchange="toggleGridSnap()"> Grid Snap
+                                    <select id="grid-spacing-tool" style="width:55px;margin-left:4px" onchange="document.getElementById('grid-spacing').value=this.value;updateSnapGrid()">
+                                        <option value="0.5">0.5m</option>
+                                        <option value="1.0" selected>1.0m</option>
+                                        <option value="2.0">2.0m</option>
+                                        <option value="4.0">4.0m</option>
+                                    </select>
+                                </label>
+                                <label class="tool-option">
+                                    <button class="tool-mini-btn" id="btn-label-id-tool" onclick="setLabelMode('id')">ID</button>
+                                    <button class="tool-mini-btn" id="btn-label-full-tool" onclick="setLabelMode('full')">XYZ</button>
+                                    Labels
+                                </label>
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-solid-section" onchange="toggleSolidSection()"> Solid Section (3D)
+                                </label>
+                                <label class="tool-option">
+                                    Z Level:
+                                    <select id="edit-z-level-tool" style="width:90px;margin-left:4px" onchange="document.getElementById('edit-z-level').value=this.value"></select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Selected Element Info -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Selected</div>
+                            <div id="tool-selected-info" class="tool-selected-empty">
+                                Click a node or element in 3D view
+                            </div>
+                        </div>
+
+                        <!-- Undo/Redo + Navigation -->
+                        <div class="tool-section">
+                            <div class="tool-button-row">
+                                <button class="btn btn-secondary" onclick="editUndo()" style="flex:1">↩ Undo</button>
+                                <button class="btn btn-secondary" onclick="editRedo()" style="flex:1">↪ Redo</button>
+                            </div>
+                        </div>
+
+                        <hr style="margin:12px 0">
+
+                        <div class="ifc-nav-buttons">
+                            <button class="btn btn-secondary" onclick="goToIFCStep(1)">&#x2190; 이전</button>
+                            <button class="btn btn-primary" onclick="goToIFCStep(3)">다음: Config &#x2192;</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Supplementary Config -->
+                    <div id="ifc-step-3" class="ifc-step-content">
+                        <!-- NL Helper (optional) -->
+                        <div class="form-section ifc-nl-helper">
+                            <h4>자연어 보조 입력 (선택)</h4>
+                            <textarea id="ifc-nl-input" class="nl-textarea" rows="2"
+                                placeholder="예: 1층 근생, 2~5층 오피스, 서울 강남"></textarea>
+                            <button class="btn btn-secondary btn-block" style="margin-top:4px;" onclick="applyNLToIFCForm()">
+                                NL 적용
+                            </button>
+                        </div>
+                        <hr>
+                        <!-- Per-story usage -->
+                        <div class="form-section">
+                            <h4>층별 용도</h4>
+                            <div id="ifc-story-usage-container"></div>
+                        </div>
+                        <!-- Region, Importance -->
+                        <div class="form-section">
+                            <h4>지역 / 중요도</h4>
+                            <div class="form-group">
+                                <label>지역</label>
+                                <input type="text" id="ifc-region" value="서울" placeholder="서울, 부산, ...">
+                            </div>
+                            <div class="form-group">
+                                <label>중요도</label>
+                                <select id="ifc-importance">
+                                    <option value="II" selected>II (일반)</option>
+                                    <option value="I">I (중요)</option>
+                                    <option value="특">특 (특수)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Sections, Material, Supports -->
+                        <div class="form-section">
+                            <h4>단면 / 재료</h4>
+                            <div class="form-group">
+                                <label>기둥</label>
+                                <select id="ifc-col-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>보 X</label>
+                                <select id="ifc-beamx-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>보 Y</label>
+                                <select id="ifc-beamy-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>재료</label>
+                                <select id="ifc-material"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>지지 조건</label>
+                                <select id="ifc-supports">
+                                    <option value="fixed">Fixed</option>
+                                    <option value="pinned">Pinned</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Seismic Analysis Method -->
+                        <div class="form-section">
+                            <h4>지진해석 방법</h4>
+                            <div class="form-group">
+                                <label>Method</label>
+                                <select id="ifc-seismic-method" onchange="document.getElementById('ifc-rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                    <option value="ELF" selected>ELF (등가정적)</option>
+                                    <option value="RSA">RSA (응답스펙트럼)</option>
+                                </select>
+                            </div>
+                            <div id="ifc-rsa-options" style="display:none;">
+                                <div class="form-group">
+                                    <label>Modal Combination</label>
+                                    <select id="ifc-rsa-combination">
+                                        <option value="CQC" selected>CQC</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Direction Rule</label>
+                                    <select id="ifc-rsa-direction">
+                                        <option value="30pct" selected>30% Rule (KDS)</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ifc-nav-buttons">
+                            <button class="btn btn-secondary" onclick="goToIFCStep(2)">&#x2190; 이전</button>
+                            <button class="btn btn-primary" onclick="runAnalysisFromIFCWizard()">해석 실행 (Analyze)</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Split Workspace -->
+        <div class="panel panel-center">
+            <div class="viewport-window plan-window">
+                <div class="viewport-title">
+                    <h3>Plan View - Base : Z = 0</h3>
+                    <span>×</span>
+                </div>
+                <div class="plan-canvas">
+                    <div class="selected-beam"></div>
+                    <span class="node n1"></span><span class="node n2"></span><span class="node n3"></span><span class="node n4"></span>
+                    <span class="node n5"></span><span class="node n6"></span><span class="node n7"></span><span class="node n8"></span>
+                    <span class="node n9"></span><span class="node n10"></span><span class="node n11"></span><span class="node n12"></span>
+                    <span class="node n13"></span><span class="node n14"></span><span class="node n15"></span><span class="node n16"></span>
+                    <span class="axis-x">X</span><span class="axis-y">Y</span>
+                </div>
+            </div>
+
+            <div class="viewport-window three-window">
+                <div class="viewport-title">
+                    <h3>3D View - Deformed Shape : DL + LL</h3>
+                    <label class="vp-solid" title="부재 실단면 Solid 표시">
+                        <input type="checkbox" id="chk-solid-section-top" onchange="toggleSolidSectionTop()"> Solid
+                    </label>
+                    <div class="viewer-controls">
+                        <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
+                        <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
+                        <button class="btn-icon" onclick="toggleAxes()" title="Axes">&#x2725;</button>
+                        <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
+                            <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
+                            <span>DC Colors</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="viewer-container">
+                <!-- V2 Edit Toolbar -->
+                <div id="edit-toolbar" style="display:none;">
+                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View">View</button>
+                    <span class="edit-separator"></span>
+                    <span id="edit-hint" class="edit-hint">View mode</span>
+                    <span id="addnode-options" style="display:none;margin-left:6px;">
+                        <select id="edit-z-level" style="padding:2px 6px;font-size:12px"></select>
+                        <label style="font-size:11px;cursor:pointer;margin-left:4px">
+                            <input type="checkbox" id="chk-grid-snap" checked onchange="toggleGridSnap()"> Grid
+                        </label>
+                        <select id="grid-spacing" style="padding:2px 4px;font-size:11px;width:55px" onchange="updateSnapGrid()">
+                            <option value="0.5">0.5m</option>
+                            <option value="1.0" selected>1.0m</option>
+                            <option value="2.0">2.0m</option>
+                            <option value="4.0">4.0m</option>
+                        </select>
+                        <button class="edit-btn" onclick="showCoordInputPanel()" title="좌표 직접 입력 (N)">XYZ</button>
+                    </span>
+                </div>
+                <!-- Coordinate Input Panel -->
+                <div id="coord-input-panel" style="display:none;">
+                    <div class="coord-panel-inner">
+                        <h4>Node Coordinate Input</h4>
+                        <div class="coord-row">
+                            <label>X</label><input type="number" id="coord-x" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Y</label><input type="number" id="coord-y" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Z</label><input type="number" id="coord-z" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Support</label>
+                            <select id="coord-support">
+                                <option value="">None</option>
+                                <option value="fixed">Fixed</option>
+                                <option value="pinned">Pinned</option>
+                            </select>
+                        </div>
+                        <div class="coord-buttons">
+                            <button class="btn-ok" onclick="createNodeFromCoords()">Create (Enter)</button>
+                            <button class="btn-cancel" onclick="hideCoordInputPanel()">Close (Esc)</button>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="three-canvas"></canvas>
+                <!-- Mouse coordinate display -->
+                <div id="mouse-coords" style="display:none;">
+                    X: <span id="mc-x">0.0</span>&nbsp;&nbsp;
+                    Y: <span id="mc-y">0.0</span>&nbsp;&nbsp;
+                    Z: <span id="mc-z">0.0</span>
+                </div>
+                <!-- Preview badge -->
+                <div id="preview-badge" class="ifc-preview-badge" style="display:none;">PREVIEW</div>
+                <!-- Loading overlay -->
+                <div id="loading-overlay" style="display:none;">
+                    <div class="spinner"></div>
+                    <p id="loading-text">Analyzing...</p>
+                </div>
+                <!-- Mode shape color legend -->
+                <div id="mode-color-legend" style="display:none;">
+                    <div class="legend-title" id="legend-title">VIBRATION MODE</div>
+                    <div class="legend-bar-wrap">
+                        <div class="legend-bar" id="legend-bar"></div>
+                        <div class="legend-labels" id="legend-labels"></div>
+                    </div>
+                    <div class="legend-info" id="legend-info"></div>
+                </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Property Panel -->
+        <div class="panel panel-right" id="property-panel">
+            <div class="panel-header">
+                <h3>Analysis Control</h3>
+            </div>
+            <!-- 실데이터 — figma_explorer.js updateAnalysisControl()이 채움 -->
+            <div class="figma-analysis-panel">
+                <div class="workflow-row"><span>Model Check</span><strong id="fig-ac-check">—</strong></div>
+                <div class="workflow-row"><span>Model Size</span><strong id="fig-ac-size">—</strong></div>
+                <div class="workflow-row"><span>Load Cases</span><strong id="fig-ac-cases">—</strong></div>
+                <div class="workflow-row"><span>Combinations</span><strong id="fig-ac-combos">—</strong></div>
+                <div class="workflow-row"><span>Solver</span><strong id="fig-ac-solver">—</strong></div>
+                <button class="analysis-btn primary" onclick="runAnalysis()">Run Analysis</button>
+                <button class="analysis-btn" id="fig-btn-report" onclick="figmaOpenReport()">Generate Report</button>
+                <button class="analysis-btn" id="fig-btn-export" onclick="figmaExportTables()">Export Tables</button>
+            </div>
+
+            <div class="figma-result-panel">
+                <div class="panel-header mini">
+                    <h3>Result Tables</h3>
+                </div>
+                <button class="result-row" onclick="figmaOpenResultTable('drift')"><span>Story Drift</span><strong id="fig-rt-drift">—</strong></button>
+                <button class="result-row" onclick="figmaOpenResultTable('reaction')"><span>Base Reaction</span><strong id="fig-rt-reaction">—</strong></button>
+                <button class="result-row" onclick="figmaOpenResultTable('force')"><span>Member Force</span><strong id="fig-rt-force">—</strong></button>
+                <button class="result-row" onclick="figmaOpenResultTable('dc')"><span>Design Check</span><strong id="fig-rt-dc">—</strong></button>
+                <button class="result-row" onclick="figmaOpenResultTable('modal')"><span>Modal Period</span><strong id="fig-rt-modal">—</strong></button>
+            </div>
+
+            <div class="panel-body legacy-property-ui">
+                <!-- No selection state -->
+                <div id="prop-empty" class="prop-section">
+                    <p class="hint">Click a member in the 3D view to inspect properties.</p>
+                </div>
+
+                <!-- Selected member properties -->
+                <div id="prop-member" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type" id="prop-elem-type">Column</span>
+                        <span class="prop-id" id="prop-elem-id">#1</span>
+                    </div>
+
+                    <table class="prop-table">
+                        <tr><td>Section</td><td id="prop-section">H-300x300</td></tr>
+                        <tr><td>Material</td><td id="prop-material">SS275</td></tr>
+                        <tr><td>Node i</td><td id="prop-node-i">1</td></tr>
+                        <tr><td>Node j</td><td id="prop-node-j">2</td></tr>
+                        <tr><td>Length</td><td id="prop-length">4.0 m</td></tr>
+                    </table>
+
+                    <!-- Design Check -->
+                    <div id="prop-dc" style="display:none;">
+                        <h4>Design Check</h4>
+                        <div id="prop-dc-banner" class="dc-banner">OK</div>
+                        <table class="prop-table">
+                            <tr><td>Interaction Ratio</td><td id="prop-dc-ratio">0.00</td></tr>
+                            <tr><td>Governing</td><td id="prop-dc-governing">-</td></tr>
+                        </table>
+                    </div>
+
+                    <hr>
+                    <h4>Modify Section</h4>
+                    <p id="prop-edit-scope" class="edit-scope-hint"></p>
+                    <div class="form-group">
+                        <select id="prop-new-section"></select>
+                    </div>
+                    <button class="btn btn-secondary btn-block" id="btn-apply-member" onclick="applyMemberChange()">
+                        Apply & Re-analyze
+                    </button>
+                </div>
+
+                <!-- Results Summary -->
+                <div id="prop-results" class="prop-section" style="display:none;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                        <h4 style="margin:0;">Analysis Results</h4>
+                        <span id="model-source-tag" class="model-source-tag"></span>
+                    </div>
+                    <div id="case-selector-wrap" style="display:none; margin-bottom:6px;">
+                        <select id="case-selector" onchange="onCaseSelect()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                            <option value="__envelope__">Envelope (전체 조합)</option>
+                        </select>
+                    </div>
+                    <table class="prop-table" id="results-table">
+                    </table>
+
+                    <!-- ELF vs RSA Comparison -->
+                    <div id="elf-rsa-comparison" style="display:none; margin-top:10px;">
+                        <h4>ELF vs RSA</h4>
+                        <table class="prop-table" id="elf-rsa-table"></table>
+                    </div>
+
+                    <!-- Modal Analysis -->
+                    <div id="modal-section" style="display:none; margin-top:10px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between;">
+                            <h4 style="margin:0;">Modal Analysis</h4>
+                            <div>
+                                <button id="btn-mode-animate" class="btn-icon" onclick="toggleModeAnimation()" title="애니메이션 재생/정지" style="font-size:14px; background:none; border:none; cursor:pointer; color:var(--text-secondary);">&#9654;</button>
+                            </div>
+                        </div>
+                        <select id="mode-selector" onchange="onModeSelect()" style="width:100%; padding:4px 6px; margin:6px 0; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        </select>
+                        <table class="prop-table" id="modal-table"></table>
+                    </div>
+
+                    <!-- Design Check Summary -->
+                    <div id="dc-summary" style="display:none; margin-top:10px;">
+                        <h4>Design Check</h4>
+                        <div id="dc-overall-banner" class="dc-banner">-</div>
+                        <table class="prop-table" id="dc-summary-table">
+                        </table>
+                    </div>
+
+                    <!-- Interpretation -->
+                    <div id="interp-summary" style="display:none; margin-top:10px;">
+                        <h4>Interpretation</h4>
+                        <p id="interp-text" class="interp-text"></p>
+                    </div>
+
+                    <!-- Report Button -->
+                    <div id="report-link" style="display:none; margin-top:12px;">
+                        <a id="report-url" href="#" target="_blank" class="btn btn-primary btn-block" style="text-align:center; text-decoration:none; display:block;">
+                            상세 리포트 (HTML Report)
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Bottom Bar: Quick Results -->
+    <div class="editor-bottombar" id="bottom-bar">
+        <div class="bottom-item">
+            <span class="bottom-label">X: 24.000 m&nbsp;&nbsp;Y: 18.000 m&nbsp;&nbsp;Z: 0.000 m</span>
+            <span class="bottom-value" id="bot-drift-x">-</span>
+        </div>
+        <div class="bottom-item">
+            <span class="bottom-label">Selected: 1 Beam, 2 Nodes</span>
+            <span class="bottom-value" id="bot-drift-y">-</span>
+        </div>
+        <div class="bottom-item">
+            <span class="bottom-label">Last run: 0 warnings, 0 errors</span>
+            <span class="bottom-value" id="bot-disp-x">-</span>
+        </div>
+        <div class="bottom-item">
+            <span class="bottom-label">Max Disp Y</span>
+            <span class="bottom-value" id="bot-disp-y">-</span>
+        </div>
+        <div class="bottom-item">
+            <span class="bottom-label">Max Moment</span>
+            <span class="bottom-value" id="bot-moment">-</span>
+        </div>
+        <div class="bottom-item">
+            <span class="bottom-label">kN, m, C</span>
+            <span class="bottom-value" id="bot-dc">-</span>
+        </div>
+    </div>
+
+    <!-- Hidden stubs: legacy selection ids the Figma reskin dropped (prevents showMemberProperties/clearAllSelection crash on member/node click) -->
+    <div id="figma-prop-stubs" style="display:none" aria-hidden="true">
+        <div id="prop-node"><span id="prop-node-id"></span><span id="prop-node-x"></span><span id="prop-node-y"></span><span id="prop-node-z"></span><span id="prop-node-support"></span></div>
+        <div id="prop-multi"><span id="prop-multi-count"></span><div id="prop-multi-summary"></div><div id="bulk-support-group"></div><div id="bulk-release-group"></div></div>
+        <input type="hidden" id="bulk-section"><input type="hidden" id="bulk-material"><input type="hidden" id="bulk-type">
+        <input type="hidden" id="bulk-release"><input type="hidden" id="bulk-support">
+        <span id="selection-count"></span>
+    </div>
+    <script src="/static/js/editor3d_figma.js?v=1"></script>
+    <script src="/static/js/figma_edit.js?v=1"></script>
+    <script src="/static/js/figma_tools.js?v=1"></script>
+    <script src="/static/js/figma_menu.js?v=10"></script>
+    <script src="/static/js/figma_plan.js?v=8"></script>
+    <script src="/static/js/figma_material.js?v=2"></script>
+    <script src="/static/js/figma_section.js?v=1"></script>
+    <script src="/static/js/figma_load.js?v=1"></script>
+    <script src="/static/js/figma_explorer.js?v=1"></script>
+</body>
+</html>

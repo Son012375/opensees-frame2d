@@ -9,6 +9,15 @@ import os
 # 모듈 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# .env 로드 (NARRATOR_API_KEY 등) — soft dep, 이미 설정된 env는 덮어쓰지 않음.
+# server.py가 단독/서브프로세스로 실행돼도 repo 루트 .env를 집도록.
+try:
+    from pathlib import Path as _Path
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(_Path(__file__).resolve().parents[1] / ".env")
+except Exception:
+    pass
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent
@@ -1273,6 +1282,25 @@ async def call_tool(name: str, arguments: dict):
                         dc_result, multi,
                         modal_analysis=multi.modal_analysis or None,
                     )
+                    # 결과 해설 LLM (역할 #3) — KHU 게이트웨이 키(NARRATOR_API_KEY)가 있으면
+                    # claude-opus-4-8로 summary_ko/en 산문 생성, 없으면 identity(템플릿 유지).
+                    # 숫자누출 self-check 실패/저신뢰/예외 시 자동으로 템플릿 폴백.
+                    from core.narrative_interpreter import narrate_interpretation
+                    from core.narrative_llm import make_narrator_from_env
+                    interpretation = narrate_interpretation(
+                        interpretation, dc_result, llm=make_narrator_from_env(),
+                        load_result=load_result,
+                        model_info={
+                            "num_stories": getattr(multi, "num_stories", None),
+                            "total_height_m": getattr(multi, "total_height", None),
+                            "material": getattr(multi, "material_name", None),
+                            "column_section": getattr(multi, "column_section", None),
+                            "beam_x_section": getattr(multi, "beam_x_section", None),
+                            "rigid_diaphragm": getattr(model, "rigid_diaphragm", None),
+                        },
+                        analysis_metadata=getattr(multi, "analysis_metadata", None),
+                        seismic_method=input_data.config.get("seismic_method", "ELF"),
+                    )
                 except Exception:
                     pass
 
@@ -1301,12 +1329,20 @@ async def call_tool(name: str, arguments: dict):
             if multi.modal_analysis:
                 response["modal_analysis"] = multi.modal_analysis
 
-            # HTML 리포트 생성
+            # HTML 리포트 생성 — 문서형 구조계산서 우선, 실패 시 기존 탭 리포트로 폴백.
             try:
-                html_path = plot_frame_3d_interactive(
-                    multi, assumptions=assumptions,
-                    design_check=dc_result, interpretation=interpretation,
-                )
+                try:
+                    from core.visualization_calc_report import plot_frame_3d_calc_report
+                    html_path = plot_frame_3d_calc_report(
+                        multi, assumptions=assumptions,
+                        design_check=dc_result, interpretation=interpretation,
+                        load_result=load_result, cover_info=None,
+                    )
+                except Exception:
+                    html_path = plot_frame_3d_interactive(
+                        multi, assumptions=assumptions,
+                        design_check=dc_result, interpretation=interpretation,
+                    )
                 response["html_report_path"] = html_path
             except Exception:
                 pass

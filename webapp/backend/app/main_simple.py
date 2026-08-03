@@ -222,6 +222,12 @@ async def home(request: Request):
     return templates.TemplateResponse(request, "editor_v2.html")
 
 
+@app.get("/landing", response_class=HTMLResponse)
+async def landing(request: Request):
+    """Product landing page — OpenSees-MCP marketing/intro."""
+    return templates.TemplateResponse(request, "landing.html")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Claude API endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -286,6 +292,18 @@ async def resolve_building_config_api(body: BuildingResolveInput):
 async def editor_v2_page(request: Request):
     """V2 3D Building Editor (alias for /)"""
     return templates.TemplateResponse(request, "editor_v2.html")
+
+
+@app.get("/editor-lab", response_class=HTMLResponse)
+async def editor_lab_page(request: Request):
+    """ETABS-style UI redesign (isolated clone of V2; shares all /api endpoints)."""
+    return templates.TemplateResponse(request, "editor_lab.html")
+
+
+@app.get("/editor-figma", response_class=HTMLResponse)
+async def editor_figma_page(request: Request):
+    """Figma UI Lab: isolated redesign of V2 (own html/css/js copies; shares all /api endpoints)."""
+    return templates.TemplateResponse(request, "editor_figma.html")
 
 
 @app.get("/api/sections/list")
@@ -357,6 +375,117 @@ async def list_materials():
                 "fallback": True, "error": str(e)}
 
 
+# 재료 팝업(Define Materials) 표시용 상수 — KDS 14 31 05 강구조 공통 물성.
+# 해석 코어는 ν=0.3(G=E/2.6) 가정을 그대로 쓰므로 여기 값과 정합(frame_3d).
+_STEEL_POISSON = 0.3
+_STEEL_THERMAL_PER_C = 1.2e-5
+_GRAVITY_M_S2 = 9.80665
+
+
+def _steel_material_entry(name, standard, E_MPa, density_kg_m3, fy_bands,
+                          fu_min=None, fu_max=None, elongation_min=None):
+    """강종 1건을 Material 팝업 JSON으로 (파생값 G/단위중량 포함)."""
+    return {
+        "name": name,
+        "type": "Steel",
+        "standard": standard,
+        "E_MPa": E_MPa,
+        "poisson": _STEEL_POISSON,
+        "G_MPa": round(E_MPa / (2.0 * (1.0 + _STEEL_POISSON)), 1),
+        "thermal_coeff_per_C": _STEEL_THERMAL_PER_C,
+        "density_kg_m3": density_kg_m3,
+        "unit_weight_kN_m3": round(density_kg_m3 * _GRAVITY_M_S2 / 1000.0, 2),
+        "fy_by_thickness": fy_bands,           # [{t_min, t_max, fy}] mm/MPa
+        "fu_MPa": fu_min,
+        "fu_max_MPa": (None if fu_max in (None, 999) else fu_max),
+        "elongation_min_pct": elongation_min,
+    }
+
+
+@app.get("/api/materials/detail")
+async def materials_detail():
+    """KS 강재 카탈로그 상세 — Material 팝업용.
+
+    Supabase materials 테이블(강종 × 두께구간 fy)을 등급 단위로 그룹핑하고
+    표시/파생값(단위중량 kN/m³, G, ν, 열팽창계수)을 붙여 반환한다.
+    """
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.simple_beam import get_supabase
+        rows = (get_supabase().table("materials")
+                .select("*").order("name").order("t_min").execute().data) or []
+        grouped: dict[str, dict] = {}
+        for r in rows:
+            g = grouped.get(r["name"])
+            if g is None:
+                g = _steel_material_entry(
+                    name=r["name"],
+                    standard=r.get("standard"),
+                    E_MPa=r.get("e") or 205000.0,
+                    density_kg_m3=r.get("density") or 7850.0,
+                    fy_bands=[],
+                    fu_min=r.get("fu_min"),
+                    fu_max=r.get("fu_max"),
+                    elongation_min=r.get("elongation_min"),
+                )
+                grouped[r["name"]] = g
+            g["fy_by_thickness"].append(
+                {"t_min": r.get("t_min"), "t_max": r.get("t_max"), "fy": r.get("fy")})
+        if not grouped:
+            raise RuntimeError("materials table empty")
+        return {"materials": list(grouped.values()),
+                "constants": {"poisson": _STEEL_POISSON,
+                              "thermal_coeff_per_C": _STEEL_THERMAL_PER_C}}
+    except Exception as e:
+        # Supabase 불가 시 최소 폴백 (해석 폴백 DEFAULT_MATERIALS와 동일 강종)
+        fb = [
+            _steel_material_entry("SS275", "KS D 3503", 205000.0, 7850.0,
+                                  [{"t_min": 0, "t_max": 16, "fy": 275},
+                                   {"t_min": 16, "t_max": 40, "fy": 265},
+                                   {"t_min": 40, "t_max": 100, "fy": 245}],
+                                  fu_min=410, fu_max=550, elongation_min=21),
+            _steel_material_entry("SS235", "KS D 3503", 205000.0, 7850.0,
+                                  [{"t_min": 0, "t_max": 16, "fy": 235},
+                                   {"t_min": 16, "t_max": 40, "fy": 225}],
+                                  fu_min=330, fu_max=450, elongation_min=26),
+        ]
+        return {"materials": fb, "fallback": True, "error": str(e),
+                "constants": {"poisson": _STEEL_POISSON,
+                              "thermal_coeff_per_C": _STEEL_THERMAL_PER_C}}
+
+
+# Load 팝업(Live) 표시용 활하중 캐시 — Supabase 콜드콜(수 초) 반복 방지.
+_LIVE_PREVIEW_CACHE: dict | None = None
+
+
+@app.get("/api/loads/live-preview")
+async def live_load_preview():
+    """용도별 KDS 41 12 00 활하중 미리보기 — 하중 정의 팝업(Live)용.
+
+    해석 시 load_generator가 조회하는 것과 동일한 경로
+    (_query_live_load_traced)를 쓰므로 팝업 표시값 == 실제 적용값이 보장된다.
+    반환: {"live_loads": {usage: {value, source, db_primary_key, db_secondary_key}}}
+    """
+    global _LIVE_PREVIEW_CACHE
+    if _LIVE_PREVIEW_CACHE is not None:
+        return _LIVE_PREVIEW_CACHE
+    usages = ["office", "retail", "residential", "parking", "storage",
+              "hospital", "school", "assembly", "corridor", "mechanical_room", "roof"]
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.load_generator import _query_live_load_traced
+        out = {u: _query_live_load_traced(u) for u in usages}
+        resp = {"live_loads": out, "source_code": "KDS 41 12 00 표 3.2-1"}
+        # DB 폴백으로 채워진 응답은 캐시하지 않음 (다음 요청에서 재시도)
+        if all(v.get("source") == "db_lookup" for v in out.values() if v):
+            _LIVE_PREVIEW_CACHE = resp
+        return resp
+    except Exception as e:
+        return {"live_loads": {}, "fallback": True, "error": str(e)}
+
+
 @app.post("/api/building/analyze")
 async def analyze_building_api(input_data: BuildingInput):
     """Run 3D building analysis and return results for the editor"""
@@ -420,6 +549,24 @@ async def analyze_building_api(input_data: BuildingInput):
                 interpretation = interpret_results(
                     dc_result, multi,
                     modal_analysis=multi.modal_analysis or None,
+                )
+                # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
+                from core.narrative_interpreter import narrate_interpretation
+                from core.narrative_llm import make_narrator_from_env
+                interpretation = narrate_interpretation(
+                    interpretation, dc_result, llm=make_narrator_from_env(),
+                    load_result=load_result,
+                    model_info={
+                        "num_stories": getattr(multi, "num_stories", None),
+                        "total_height_m": getattr(multi, "total_height", None),
+                        "material": getattr(multi, "material_name", None),
+                        "column_section": getattr(multi, "column_section", None),
+                        "beam_x_section": getattr(multi, "beam_x_section", None),
+                        "rigid_diaphragm": getattr(model, "rigid_diaphragm", None),
+                    },
+                    analysis_metadata=getattr(multi, "analysis_metadata", None),
+                    seismic_method=input_data.config.get("seismic_method", "ELF"),
+                    analysis_id=job_id,
                 )
             except Exception as interp_err:
                 logger.warning(
@@ -627,14 +774,29 @@ async def analyze_building_api(input_data: BuildingInput):
         # Generate HTML report
         report_url = None
         try:
-            from core.visualization_3d import plot_frame_3d_interactive
             report_path = str(job_dir / "report.html")
-            plot_frame_3d_interactive(
-                multi,
-                output_path=report_path,
-                design_check=dc_result,
-                interpretation=interpretation,
-            )
+            # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
+            try:
+                from core.visualization_calc_report import plot_frame_3d_calc_report
+                plot_frame_3d_calc_report(
+                    multi,
+                    output_path=report_path,
+                    design_check=dc_result,
+                    interpretation=interpretation,
+                    load_result=load_result,
+                    cover_info=input_data.config.get("cover_info"),
+                    data_out_path=str(job_dir / "calc_data.json"),
+                )
+            except Exception as calc_err:
+                logger.warning(
+                    "Calc report failed; fallback to tab report (job %s): %s",
+                    job_id, calc_err, exc_info=True,
+                )
+                from core.visualization_3d import plot_frame_3d_interactive
+                plot_frame_3d_interactive(
+                    multi, output_path=report_path,
+                    design_check=dc_result, interpretation=interpretation,
+                )
             report_url = f"/api/jobs/{job_id}/report"
             jobs_db[job_id]["report_url"] = report_url
         except Exception as report_err:
@@ -877,6 +1039,9 @@ async def analyze_v2_api(request: Request):
     body = await request.json()
     model_json = body.get("model")
     user_config = body.get("config", {})
+    # 표지·도장란 — 분석 요청에 동반되면 첫 리포트부터 반영. 없으면 None(=placeholder),
+    # 이후 /api/jobs/{job_id}/report-cover 로 재해석 없이 주입 가능.
+    cover_info = body.get("cover_info") or user_config.get("cover_info")
 
     if str(MCP_SERVER_PATH) not in sys.path:
         sys.path.insert(0, str(MCP_SERVER_PATH))
@@ -986,6 +1151,24 @@ async def analyze_v2_api(request: Request):
             if dc_result:
                 interpretation = interpret_results(dc_result, multi,
                     modal_analysis=getattr(multi, 'modal_analysis', None) or None)
+                # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
+                from core.narrative_interpreter import narrate_interpretation
+                from core.narrative_llm import make_narrator_from_env
+                interpretation = narrate_interpretation(
+                    interpretation, dc_result, llm=make_narrator_from_env(),
+                    load_result=load_result,
+                    model_info={
+                        "num_stories": getattr(multi, "num_stories", None),
+                        "total_height_m": getattr(multi, "total_height", None),
+                        "material": getattr(multi, "material_name", None),
+                        "column_section": getattr(multi, "column_section", None),
+                        "beam_x_section": getattr(multi, "beam_x_section", None),
+                        "rigid_diaphragm": getattr(model, "rigid_diaphragm", None),
+                    },
+                    analysis_metadata=getattr(multi, "analysis_metadata", None),
+                    seismic_method=user_config.get("seismic_method", "ELF"),
+                    analysis_id=job_id,
+                )
         except Exception as interp_err:
             logger.warning("V2 result interpretation failed: %s", interp_err, exc_info=True)
             warnings.append(f"result_interpretation_failed: {interp_err}")
@@ -993,9 +1176,19 @@ async def analyze_v2_api(request: Request):
         # ── Step 4: HTML 리포트 ──
         report_path = str(job_dir / "report.html")
         try:
-            from core.visualization_3d import plot_frame_3d_interactive
-            plot_frame_3d_interactive(multi, output_path=report_path,
-                                      design_check=dc_result, interpretation=interpretation)
+            # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
+            try:
+                from core.visualization_calc_report import plot_frame_3d_calc_report
+                plot_frame_3d_calc_report(multi, output_path=report_path,
+                                          design_check=dc_result, interpretation=interpretation,
+                                          load_result=load_result, cover_info=cover_info,
+                                          data_out_path=str(job_dir / "calc_data.json"))
+            except Exception as calc_err:
+                logger.warning("V2: calc report failed; fallback to tab report: %s",
+                               calc_err, exc_info=True)
+                from core.visualization_3d import plot_frame_3d_interactive
+                plot_frame_3d_interactive(multi, output_path=report_path,
+                                          design_check=dc_result, interpretation=interpretation)
         except Exception as viz_err:
             logger.warning(
                 "V2: primary HTML report failed (%s); falling back to V2 viewer.",
@@ -1794,6 +1987,56 @@ async def serve_job_report(job_id: str):
             ),
         )
     return FileResponse(str(report_path), media_type="text/html")
+
+
+@app.post("/api/jobs/{job_id}/report-cover")
+async def update_report_cover(job_id: str, request: Request):
+    """표지·도장란(cover_info)을 주입하여 문서형 구조계산서 리포트를 재생성.
+
+    재해석 없이 ``calc_data.json`` 사이드카(분석 시 plot_frame_3d_calc_report가
+    저장)만 다시 렌더한다. 사이드카가 없으면(=폴백 탭 리포트가 떴거나 구버전
+    잡) 409 — 재해석을 안내한다.
+
+    Body: ``{"cover_info": {...}}`` 또는 cover_info dict 자체(평탄형) 모두 허용.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="유효한 JSON 본문이 필요합니다.")
+    cover_info = body.get("cover_info") if isinstance(body, dict) and "cover_info" in body else body
+    if cover_info is not None and not isinstance(cover_info, dict):
+        raise HTTPException(status_code=400, detail="cover_info는 객체(dict)여야 합니다.")
+
+    job_dir = JOBS_DIR / job_id
+    data_path = job_dir / "calc_data.json"
+    report_path = job_dir / "report.html"
+
+    if not data_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "표지 정보를 주입할 문서형 리포트 데이터(calc_data.json)가 없습니다. "
+                "문서형 구조계산서가 생성된 해석에만 적용되며, 서버 재시작 등으로 "
+                "잡 산출물이 사라졌을 수 있습니다. 해석을 다시 실행해 주세요."
+            ),
+        )
+
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+
+    try:
+        with open(data_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        from core.visualization_calc_report import render_calc_report_from_data
+        render_calc_report_from_data(data, cover_info, output_path=str(report_path))
+    except Exception as e:
+        logger.error("report-cover regeneration failed (job %s): %s", job_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"리포트 재생성 실패: {e}")
+
+    if job_id in jobs_db:
+        jobs_db[job_id]["cover_info"] = cover_info
+
+    return {"status": "success", "report_url": f"/api/jobs/{job_id}/report"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -19,6 +19,31 @@ Finding 코드:
     R13  overall info      심각도 분류
     R14  overall caution   여유 부족 (marginal)
     R15  overall critical  심각 — 시스템 변경 필요
+    R16  modal   caution   누적 유효질량 참여율 < 90% (모드 수 부족)
+    R17  deflect warning   보 처짐 사용성 NG (L/360·L/240)
+    R18  deflect info      보 처짐 사용성 OK
+    R19  system  critical  내진설계범주 — 횡력저항시스템 부적격
+    R20  system  info      내진설계범주 — 시스템 높이제한 충족
+    R21  member  caution   순인장 부재 — 연결부 별도검토 권고
+    R22  stab    critical  전도 안정 부족
+    R23  stab    crit/caut P-Delta 불안정(NG) / 2차효과 고려(caution)
+    R24  torsion warn/caut (극단)비틀림 비정형 — Ax 변위증폭
+    R25  torsion caution   비틀림 비정형 미평가
+    R26  analysis critical 해석 미수렴(솔버 실패) — 결과 신뢰 불가
+    R27  member  caution   RSA 조합 부재검토 미수행
+    R28  member  info      기둥 유효좌굴길이계수 K>1 적용
+    R29  member  caution   보 LTB 지배(AISC F2)
+    R30  member  warning   세장비 한계 초과(KL/r·L/r)
+    R31  member  caution   비콤팩트/세장 단면(F3.2)
+    R32  member  caution   압축 세장요소(E7 미반영)
+    R33  member  caution   인장 순단면파단(D2-b) 지배
+    R34  wind    warn/info 풍하중 사용성 층간변위 NG/OK (1/400)   [bundle B #10]
+    R35  vert    warn/caut (극단)수직 비정형 (KDS 표 5.3-2)        [bundle B #12]
+    R36  torsion caution   우발 비틀림 ±5% 편심 모델 미적용         [bundle B #8]
+    R37  analysis warning  지진입력 손상 — 지진검토 미수행          [bundle B #13]
+
+    주의: R23(NG/caution)·R34(NG/OK)는 if/elif/else로 상호배타 — 1회 실행당 1개만 방출.
+    새 검토 추가 시 R38부터 할당(위 표 갱신).
 
 Usage:
     from core.result_interpreter import interpret_results
@@ -96,6 +121,24 @@ def interpret_results(
 
     findings: list[dict] = []
 
+    # 0. Tier1-4: 해석 실패 게이트 — 0 결과를 '안전'으로 해석하지 않음.
+    if design_check.get("analysis_error"):
+        ae = design_check.get("analysis_error") or {}
+        findings.append({
+            "code": "R26",
+            "category": "analysis",
+            "severity": "critical",
+            "message_ko": (
+                "구조해석 미수렴/실패 — 변위·부재력 0 산출, 설계검토 결과 신뢰 불가. "
+                "모델 점검 후 재해석 필요"
+            ),
+            "message_en": (
+                "Structural analysis did not converge — zero response; design check "
+                "results unreliable. Re-run after model review"
+            ),
+            "data": {"failed_cases": ae.get("failed_cases", [])},
+        })
+
     # 1. 심각도 분류
     severity = _classify_severity(design_check)
     ko, en = _SEVERITY_LABELS[severity]
@@ -129,6 +172,202 @@ def interpret_results(
     )
     findings.extend(member_findings)
 
+    # 3b. 보 처짐(사용성) 해석 (B1)
+    deflection_interp, deflection_findings = _interpret_deflection(
+        design_check.get("deflection_check"),
+    )
+    findings.extend(deflection_findings)
+
+    # 3c. 내진설계범주(SDC) + 시스템 적격성 (B2)
+    system_check = design_check.get("system_check")
+    if system_check:
+        if system_check["status"] == "NG":
+            findings.append({
+                "code": "R19",
+                "category": "seismic_system",
+                "severity": "critical",
+                "message_ko": (
+                    f"내진설계범주 {system_check['sdc']} — 횡력저항시스템 부적격: "
+                    + "; ".join(system_check.get("issues", []))
+                ),
+                "message_en": f"SDC {system_check['sdc']} — seismic system inadequate",
+                "data": {"sdc": system_check["sdc"], "issues": system_check.get("issues", [])},
+            })
+        else:
+            hl = (system_check.get("height_limit") or {}).get("limit_desc", "")
+            findings.append({
+                "code": "R20",
+                "category": "seismic_system",
+                "severity": "info",
+                "message_ko": (
+                    f"내진설계범주 {system_check['sdc']} — 횡력저항시스템 높이제한 충족 ({hl})"
+                ),
+                "message_en": f"SDC {system_check['sdc']} — system within height limit",
+                "data": {"sdc": system_check["sdc"]},
+            })
+
+    # 3d. 전역안정 전도 (C1)
+    stability_check = design_check.get("stability_check")
+    if stability_check and stability_check["status"] == "NG":
+        gfs = stability_check.get("governing_FS")
+        findings.append({
+            "code": "R22",
+            "category": "stability",
+            "severity": "critical",
+            "message_ko": f"전도 안정 부족 — 안전율 {gfs} < {stability_check.get('required_FS', 1.5)}",
+            "message_en": f"Overturning instability — FS {gfs} < {stability_check.get('required_FS', 1.5)}",
+            "data": {"governing_FS": gfs},
+        })
+
+    # 3e. P-Delta 안정계수 θ (C3)
+    pdelta_check = design_check.get("pdelta_check")
+    if pdelta_check:
+        if pdelta_check["status"] == "NG":
+            findings.append({
+                "code": "R23",
+                "category": "stability",
+                "severity": "critical",
+                "message_ko": (
+                    f"P-Delta 불안정 — θ_max {pdelta_check['max_theta']} > "
+                    f"한계 {pdelta_check['theta_limit']}"
+                ),
+                "message_en": f"P-Delta unstable — θ_max {pdelta_check['max_theta']} > {pdelta_check['theta_limit']}",
+                "data": {"max_theta": pdelta_check["max_theta"]},
+            })
+        elif pdelta_check.get("needs_amplification"):
+            findings.append({
+                "code": "R23",
+                "category": "stability",
+                "severity": "caution",
+                "message_ko": (
+                    f"P-Delta 2차효과 고려 필요 — θ_max {pdelta_check['max_theta']} "
+                    f"(>0.1, 증폭 1/(1−θ))"
+                ),
+                "message_en": f"P-Delta 2nd-order effects — θ_max {pdelta_check['max_theta']} (>0.1)",
+                "data": {"max_theta": pdelta_check["max_theta"]},
+            })
+
+    # 3f. 비틀림 비정형 (C2)
+    torsion_check = design_check.get("torsion_check")
+    # 지진검토(drift)는 있는데 비틀림이 미평가(예: V2/RSA 경로 — 다이어프램 변위 극값
+    # 미기록)면 누락을 명시(은폐 방지).
+    if torsion_check is None and design_check.get("drift_check"):
+        findings.append({
+            "code": "R25",
+            "category": "torsion",
+            "severity": "caution",
+            "message_ko": "비틀림 비정형(δmax/δavg) 미평가 — 변위증폭(Ax) 미반영 가능",
+            "message_en": "Torsional irregularity not evaluated — Ax amplification may be omitted",
+            "data": None,
+        })
+    if torsion_check and torsion_check.get("irregular"):
+        extreme = torsion_check.get("extreme")
+        findings.append({
+            "code": "R24",
+            "category": "torsion",
+            "severity": "warning" if extreme else "caution",
+            "message_ko": (
+                f"{'극단 ' if extreme else ''}비틀림 비정형 — δmax/δavg "
+                f"{torsion_check['max_ratio']} (Ax 변위증폭 적용)"
+            ),
+            "message_en": (
+                f"{'Extreme ' if extreme else ''}torsional irregularity — "
+                f"δmax/δavg {torsion_check['max_ratio']} (Ax applied)"
+            ),
+            "data": {"max_ratio": torsion_check["max_ratio"], "extreme": extreme},
+        })
+
+    # 3g. 풍하중 사용성 층간변위 (#10)
+    wind_check = design_check.get("wind_check")
+    if wind_check:
+        if wind_check["status"] == "NG":
+            crit = wind_check.get("critical") or {}
+            findings.append({
+                "code": "R34",
+                "category": "wind_drift",
+                "severity": "warning",
+                "message_ko": (
+                    f"풍하중 사용성 층간변위 초과 — {crit.get('story', '?')}층 "
+                    f"{crit.get('direction', '?')}방향 {crit.get('drift_inv', '')} "
+                    f"> 1/{wind_check['limit_inv']} (비율 {wind_check['max_ratio']:.2f})"
+                ),
+                "message_en": (
+                    f"Wind serviceability drift exceeds 1/{wind_check['limit_inv']} — "
+                    f"story {crit.get('story', '?')} {crit.get('direction', '?')}, "
+                    f"ratio {wind_check['max_ratio']:.2f}"
+                ),
+                "data": {"max_ratio": wind_check["max_ratio"], "limit_inv": wind_check["limit_inv"]},
+            })
+        else:
+            findings.append({
+                "code": "R34",
+                "category": "wind_drift",
+                "severity": "info",
+                "message_ko": f"풍하중 사용성 층간변위 OK — 최대 비율 {wind_check['max_ratio']:.2f} (1/{wind_check['limit_inv']})",
+                "message_en": f"Wind serviceability drift OK — max ratio {wind_check['max_ratio']:.2f}",
+                "data": {"max_ratio": wind_check["max_ratio"]},
+            })
+
+    # 3h. 수직 비정형 (#12) — 분류·경고 (overall 미게이트)
+    vertical_check = design_check.get("vertical_check")
+    if vertical_check and vertical_check.get("irregular"):
+        ext = vertical_check.get("extreme")
+        types_ko = {"stiffness_soft_story": "강성(연층)", "mass": "중량", "geometric": "기하"}
+        kinds = ", ".join(types_ko.get(t, t) for t in vertical_check.get("types", []))
+        findings.append({
+            "code": "R35",
+            "category": "vertical_irregularity",
+            "severity": "warning" if ext else "caution",
+            "message_ko": (
+                f"{'극단 ' if ext else ''}수직 비정형 감지({kinds}) — KDS 41 17 00 표 5.3-2. "
+                f"동적해석/내진상세 적용 검토 필요"
+            ),
+            "message_en": (
+                f"{'Extreme ' if ext else ''}vertical irregularity detected ({kinds}) — "
+                f"KDS 41 17 00 Table 5.3-2; dynamic analysis / detailing review needed"
+            ),
+            "data": {"types": vertical_check.get("types"), "extreme": ext},
+        })
+
+    # 3i. 우발 비틀림 미적용 (#8) — 등가정적 모델은 ±5% 편심 직접 적용 안 함
+    accidental = design_check.get("accidental_torsion")
+    if accidental and not accidental.get("applied_in_model"):
+        ecc = accidental.get("eccentricity_ratio") or 0.05   # None-safe
+        findings.append({
+            "code": "R36",
+            "category": "torsion",
+            "severity": "caution",
+            "message_ko": (
+                f"우발 비틀림(평면 ±{ecc * 100:g}% 편심) 모멘트 산정됨이나 등가정적 해석모델 미적용 "
+                f"— 최종 설계 시 ±{ecc * 100:g}% 우발편심 명시적 반영 권장(KDS 41 17 00 §7.2.6.4)"
+            ),
+            "message_en": (
+                f"Accidental torsion (±{ecc * 100:g}% eccentricity) computed but not applied "
+                f"in the equivalent-static model — apply explicitly in final design"
+            ),
+            "data": {"eccentricity_ratio": ecc,
+                     "total_Mt_x_kNm": accidental.get("total_Mt_x_kNm"),
+                     "total_Mt_y_kNm": accidental.get("total_Mt_y_kNm")},
+        })
+
+    # 3j. 지진입력 손상 → 지진검토 미수행 (#13, 게이트 구멍 정정)
+    sumry = design_check.get("summary") or {}
+    if sumry.get("seismic_input_error"):
+        findings.append({
+            "code": "R37",
+            "category": "analysis",
+            "severity": "warning",
+            "message_ko": (
+                "지진하중 입력 손상/누락 — 층간변위·내진설계범주·전도·P-Delta 등 지진검토 미수행. "
+                "본 결과를 '안전'으로 단정 불가, 지진입력 정정 후 재검토 필요"
+            ),
+            "message_en": (
+                "Seismic load input corrupted/missing — drift, SDC, overturning, P-Delta "
+                "checks not performed; cannot conclude 'safe', re-check after fixing input"
+            ),
+            "data": {"not_checked": sumry.get("not_checked_items", [])},
+        })
+
     # 4. 모달 해석
     modal_interp, modal_findings = _interpret_modal(
         modal_analysis, multi_result, drift_interp,
@@ -156,6 +395,7 @@ def interpret_results(
         "findings": findings,
         "drift_interpretation": drift_interp,
         "member_interpretation": member_interp,
+        "deflection_interpretation": deflection_interp,
         "modal_interpretation": modal_interp,
         "diagnosis": diagnosis,
         "suggestions": suggestions,
@@ -170,19 +410,36 @@ def interpret_results(
 
 def _classify_severity(dc: dict) -> str:
     """design_check의 최대 비율로 심각도 판별."""
+    # Tier1-4: 해석 실패(솔버 비수렴)면 결과 신뢰 불가 → 최고 심각도.
+    if dc.get("analysis_error"):
+        return "severe"
     s = dc.get("summary", {})
     dr = s.get("max_drift_ratio") or 0.0
     ir = s.get("max_interaction_ratio") or 0.0
-    max_ratio = max(dr, ir)
+    df = s.get("max_deflection_ratio") or 0.0  # B1: 보 처짐(사용성)
+    max_ratio = max(dr, ir, df)
 
     if max_ratio < _SEVERITY_THRESHOLDS["safe"]:
-        return "safe"
+        sev = "safe"
     elif max_ratio < _SEVERITY_THRESHOLDS["marginal"]:
-        return "marginal"
+        sev = "marginal"
     elif max_ratio < _SEVERITY_THRESHOLDS["moderate"]:
-        return "moderate"
+        sev = "moderate"
     else:
-        return "severe"
+        sev = "severe"
+
+    # 비율로 잡히지 않는 NG(예: B2 시스템 부적격)도 overall_status가 NG면 최소 moderate로
+    # 격상한다 — 그래야 §10 verdict(severity 기반)가 overall_status와 모순되지 않는다.
+    if dc.get("overall_status") == "NG" and sev in ("safe", "marginal"):
+        sev = "moderate"
+    # Tier1-5: RSA 조합 부재검토 미수행이면 '안전(green)'으로 단정하지 않는다.
+    # (부재설계가 일부 미수행 → 검토 필요. NG는 아니므로 최소 marginal로만 격상.)
+    if sev == "safe" and s.get("rsa_unchecked_combos"):
+        sev = "marginal"
+    # #13: 지진입력 손상으로 지진검토 미수행 → '안전'으로 단정 금지(게이트 구멍 정정).
+    if sev == "safe" and s.get("seismic_input_error"):
+        sev = "marginal"
+    return sev
 
 
 # ============================================================
@@ -210,6 +467,13 @@ def _interpret_drift(drift_check: dict | None) -> tuple[dict | None, list[dict]]
         # 같은 층/방향이 여러 조합에서 나오면 최대값 사용
         if story not in drift_by_dir[direction] or ratio > drift_by_dir[direction][story]:
             drift_by_dir[direction][story] = ratio
+
+    # 방향별 최대 층간변위비 (X/Y 비대칭 판정용 — B4)
+    max_ratio_by_dir: dict[str, float] = {
+        direction: max(story_ratios.values())
+        for direction, story_ratios in drift_by_dir.items()
+        if story_ratios
+    }
 
     # 패턴 판별
     pattern = "negligible"
@@ -308,6 +572,7 @@ def _interpret_drift(drift_check: dict | None) -> tuple[dict | None, list[dict]]
         "soft_story_detected": len(soft_stories) > 0,
         "soft_story_stories": soft_stories,
         "max_ratio": drift_check.get("max_ratio", 0),
+        "max_ratio_by_dir": {k: round(v, 4) for k, v in max_ratio_by_dir.items()},
     }, findings
 
 
@@ -419,6 +684,151 @@ def _interpret_members(member_check: dict | None) -> tuple[dict | None, list[dic
             "data": {"max_ratio": summary.get("max_interaction_ratio", 0)},
         })
 
+    # B3: 순인장 부재 존재 시 연결부 순단면파단(D2-b)·블록전단 별도검토 권고
+    n_tension = summary.get("n_tension_members", 0)
+    if n_tension:
+        findings.append({
+            "code": "R21",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"순인장 부재 {n_tension}개 — 총단면항복(D2-a)+순단면파단(D2-b, Ae/Ag 가정) "
+                f"min으로 검토됨. 블록전단·실연결부 상세는 별도 검토 필요"
+            ),
+            "message_en": (
+                f"{n_tension} net-tension members — checked by min(gross yield D2-a, "
+                f"net rupture D2-b with assumed Ae/Ag); block shear / connection details "
+                f"require separate review"
+            ),
+            "data": {"n_tension_members": n_tension},
+        })
+
+    # Tier1-1: 기둥 유효좌굴길이계수 K>1 (비가새 모멘트골조 sway) 적용 명시.
+    col_K = summary.get("column_K")
+    if isinstance(col_K, (int, float)) and col_K > 1.0:
+        findings.append({
+            "code": "R28",
+            "category": "member",
+            "severity": "info",
+            "message_ko": (
+                f"기둥 유효좌굴길이계수 K={col_K:g} 적용 (비가새 모멘트골조 sway, AISC) — "
+                f"세장비·압축내력에 반영"
+            ),
+            "message_en": (
+                f"Column effective length factor K={col_K:g} applied "
+                f"(unbraced moment frame, AISC)"
+            ),
+            "data": {"column_K": col_K},
+        })
+
+    # Tier1-2: 보 횡-비틀림좌굴(LTB) 지배 — 비지지길이 기준 휨내력 감소.
+    n_ltb = summary.get("n_ltb_governed", 0)
+    if n_ltb:
+        findings.append({
+            "code": "R29",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"보 {n_ltb}개 횡-비틀림좌굴(LTB) 지배 — 비지지길이 Lb 기준 "
+                f"강축 휨내력 감소(AISC F2) 적용"
+            ),
+            "message_en": (
+                f"{n_ltb} beams governed by lateral-torsional buckling — reduced "
+                f"strong-axis flexural capacity (AISC F2) applied"
+            ),
+            "data": {"n_ltb_governed": n_ltb},
+        })
+
+    # Tier2-6: 세장비 한계 초과 (압축 KL/r>200 / 인장 L/r>300).
+    n_sl_ng = summary.get("n_slenderness_ng", 0)
+    if n_sl_ng:
+        findings.append({
+            "code": "R30",
+            "category": "member",
+            "severity": "warning",
+            "message_ko": (
+                f"세장비 한계 초과 부재 {n_sl_ng}개 (압축 KL/r≤200·인장 L/r≤300, AISC E2/D1) "
+                f"— 최대 세장비 {summary.get('max_slenderness', 0):.0f}"
+            ),
+            "message_en": (
+                f"{n_sl_ng} members exceed slenderness limit (compression KL/r≤200, "
+                f"tension L/r≤300) — max {summary.get('max_slenderness', 0):.0f}"
+            ),
+            "data": {"n": n_sl_ng, "max_slenderness": summary.get("max_slenderness")},
+        })
+
+    # Tier2-7: 비콤팩트/세장 단면 (휨 국부좌굴 F3.2 감소 적용).
+    n_nc = summary.get("n_noncompact", 0)
+    if n_nc:
+        findings.append({
+            "code": "R31",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"비콤팩트/세장 단면 {n_nc}개 — 플랜지국부좌굴(AISC F3.2)로 휨내력 감소 적용"
+            ),
+            "message_en": (
+                f"{n_nc} non-compact/slender sections — flange local buckling (F3.2) "
+                f"capacity reduction applied"
+            ),
+            "data": {"n_noncompact": n_nc},
+        })
+
+    # Tier2-7: 압축 세장요소 (E7 추가감소 미반영 — 보수검토 권고).
+    n_cs = summary.get("n_compression_slender", 0)
+    if n_cs:
+        findings.append({
+            "code": "R32",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"압축 세장요소 단면 {n_cs}개 — 세장판요소 압축감소(AISC E7) 미반영, "
+                f"압축내력 보수검토 필요"
+            ),
+            "message_en": (
+                f"{n_cs} sections with slender compression elements — E7 reduction not "
+                f"applied; compression capacity needs conservative review"
+            ),
+            "data": {"n_compression_slender": n_cs},
+        })
+
+    # Tier2-15: 인장 순단면파단(D2-b)이 총단면항복보다 지배 (Ae/Ag 가정 기반).
+    n_rupt = sum(1 for m in members
+                 if (m.get("capacity") or {}).get("tension_rupture_governs"))
+    if n_rupt:
+        findings.append({
+            "code": "R33",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"인장 순단면파단(D2-b)이 지배하는 부재 {n_rupt}개 — Ae/Ag 보수 가정 기반, "
+                f"실연결부(볼트공·블록전단) 검토 필요"
+            ),
+            "message_en": (
+                f"{n_rupt} members governed by net-section rupture (D2-b) — based on "
+                f"assumed Ae/Ag; verify actual connection (bolt holes, block shear)"
+            ),
+            "data": {"n_rupture_governed": n_rupt},
+        })
+
+    # Tier1-5: RSA(응답스펙트럼) 조합 부재검토 미수행 명시 (은폐 방지).
+    rsa_unchecked = summary.get("rsa_unchecked_combos") or []
+    if rsa_unchecked:
+        findings.append({
+            "code": "R27",
+            "category": "member",
+            "severity": "caution",
+            "message_ko": (
+                f"RSA 조합 {len(rsa_unchecked)}개 부재강도 미검토 — RSA는 변위만 산출, "
+                f"부재력 미생성. ELF 조합 기준 부재검토만 수행됨"
+            ),
+            "message_en": (
+                f"{len(rsa_unchecked)} RSA combos not member-checked — RSA gives "
+                f"displacement only; member check from ELF combos only"
+            ),
+            "data": {"rsa_unchecked_combos": rsa_unchecked},
+        })
+
     return {
         "governing_check": governing,
         "weakest_link": weakest,
@@ -426,6 +836,51 @@ def _interpret_members(member_check: dict | None) -> tuple[dict | None, list[dic
         "ng_by_type": dict(ng_by_type),
         "status": status,
     }, findings
+
+
+# ============================================================
+# 3b. 보 처짐(사용성) 해석 (B1)
+# ============================================================
+
+def _interpret_deflection(deflection_check: dict | None) -> tuple[dict | None, list[dict]]:
+    """보 수직처짐 사용성 검토 결과 해석. None=미검토."""
+    if not deflection_check:
+        return None, []
+
+    summary = deflection_check.get("summary", {})
+    status = deflection_check.get("status", "OK")
+    max_r = summary.get("max_deflection_ratio", 0) or 0
+    ng = summary.get("ng", 0)
+    findings: list[dict] = []
+
+    if status == "NG":
+        beams = [b for b in deflection_check.get("beams", []) if b.get("status") == "NG"]
+        worst = beams[0] if beams else {}
+        findings.append({
+            "code": "R17",
+            "category": "deflection",
+            "severity": "critical" if max_r > 1.5 else "warning",
+            "message_ko": (
+                f"보 처짐 사용성 NG — {ng}개 보, 최대 처짐비 {max_r:.2f} (허용 1.00, "
+                f"활하중 L/360·전체 L/240)"
+            ),
+            "message_en": (
+                f"Beam deflection serviceability NG — {ng} beams, max ratio {max_r:.2f} "
+                f"(limit 1.00)"
+            ),
+            "data": {"ng": ng, "max_ratio": max_r, "worst_member": worst.get("member_id")},
+        })
+    else:
+        findings.append({
+            "code": "R18",
+            "category": "deflection",
+            "severity": "info",
+            "message_ko": f"보 처짐 사용성 OK — 최대 처짐비 {max_r:.2f} (L/360·L/240)",
+            "message_en": f"Beam deflection OK — max ratio {max_r:.2f}",
+            "data": {"max_ratio": max_r},
+        })
+
+    return {"status": status, "max_ratio": round(max_r, 4), "ng": ng}, findings
 
 
 # ============================================================
@@ -521,6 +976,36 @@ def _interpret_modal(
             "data": {"T1": T1, "Ta": Ta, "ratio": round(T1_Ta_ratio, 2)},
         })
 
+    # 누적 유효질량 참여율 (KDS 41 17 00 충분조건 ≥90%) — V1: cumulative_participation,
+    # V2: 마지막 모드의 cumulative_*_pct. 둘 다 방어적으로 처리.
+    cum = modal_analysis.get("cumulative_participation")
+    if not cum and modes:
+        last = modes[-1]
+        cum = {"x_pct": last.get("cumulative_x_pct"), "y_pct": last.get("cumulative_y_pct")}
+    cum = cum or {}
+    cx = cum.get("x_pct")
+    cy = cum.get("y_pct")
+    mass_x = round(cx, 1) if isinstance(cx, (int, float)) else None
+    mass_y = round(cy, 1) if isinstance(cy, (int, float)) else None
+    mass_ok = (mass_x is not None and mass_y is not None and mass_x >= 90 and mass_y >= 90)
+
+    # A3: 누적 유효질량 참여율 < 90% → 모드 수 부족 경고 (KDS 41 17 00 충분조건 미달).
+    if mass_x is not None and mass_y is not None and not mass_ok:
+        findings.append({
+            "code": "R16",
+            "category": "modal",
+            "severity": "caution",
+            "message_ko": (
+                f"누적 유효질량 참여율 부족: X {mass_x:.0f}% / Y {mass_y:.0f}% "
+                f"(< 90%) — 모드 수 확대 검토 필요"
+            ),
+            "message_en": (
+                f"Cumulative effective mass participation low: X {mass_x:.0f}% / "
+                f"Y {mass_y:.0f}% (< 90%) — increase number of modes"
+            ),
+            "data": {"mass_x_pct": mass_x, "mass_y_pct": mass_y},
+        })
+
     return {
         "T1_actual_s": round(T1, 4),
         "Ta_empirical_s": round(Ta, 4),
@@ -529,6 +1014,9 @@ def _interpret_modal(
         "torsion_risk": torsion_risk,
         "first_mode_direction": first_dir,
         "drift_modal_correlation": drift_modal_corr,
+        "cumulative_mass_x_pct": mass_x,
+        "cumulative_mass_y_pct": mass_y,
+        "mass_participation_sufficient": mass_ok,
     }, findings
 
 
@@ -770,15 +1258,17 @@ def _generate_summary(
     s = design_check.get("summary", {})
     dr = s.get("max_drift_ratio") or 0.0
     ir = s.get("max_interaction_ratio") or 0.0
+    df = s.get("max_deflection_ratio") or 0.0  # B1: 보 처짐
+    util = max(dr, ir, df)
     ng_stories = s.get("ng_stories", 0)
     ng_members = s.get("ng_members", 0)
 
     if severity == "safe":
-        ko = f"모든 설계검토 통과. 최대 활용률 {max(dr, ir):.0%}."
-        en = f"All design checks passed. Max utilization {max(dr, ir):.0%}."
+        ko = f"모든 설계검토 통과. 최대 활용률 {util:.0%}."
+        en = f"All design checks passed. Max utilization {util:.0%}."
     elif severity == "marginal":
-        ko = f"설계검토 통과, 최대 활용률 {max(dr, ir):.0%}으로 여유 부족. 하중 변경 시 재검토 필요."
-        en = f"Design checks passed, max utilization {max(dr, ir):.0%} with limited margin."
+        ko = f"설계검토 통과, 최대 활용률 {util:.0%}으로 여유 부족. 하중 변경 시 재검토 필요."
+        en = f"Design checks passed, max utilization {util:.0%} with limited margin."
     elif severity == "moderate":
         cause_ko = diagnosis.get("primary_cause_ko", "") if diagnosis else ""
         ko = (
