@@ -287,6 +287,278 @@ table.checks td.code { font-family: var(--font-mono); font-size: 12.5px; color: 
 
 .todo { color: var(--ink-300); font-size: 14px; }
 
+.sec-foot { margin: 18px 0 0; font-size: 13.5px; color: var(--ink-500); }
+.sec-foot .muted { display: block; margin-top: 3px; font-size: 12.5px; }
+.deep { color: var(--brand-600); font-weight: 700; text-decoration: none; }
+.deep:hover { text-decoration: underline; }
+
+.lede--repro {
+    padding: 12px 15px; border-radius: var(--r-md);
+    background: var(--brand-50); border: 1px solid var(--brand-100);
+    font-size: 14.5px; color: var(--ink-700);
+}
+.lede--repro a { color: var(--brand-600); font-weight: 700; }
+
+/* ── 01 the deliverable ───────────────────────────────────────────────── */
+.doc-grid {
+    display: grid; gap: 28px; align-items: start;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+.doc-toc {
+    margin: 0; padding: 20px 22px 20px 42px;
+    background: #fff; border: 1px solid var(--line);
+    border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+    font-size: 14.5px; color: var(--ink-700); counter-reset: none;
+}
+.doc-toc li { padding: 6px 0; }
+.doc-toc li + li { border-top: 1px dashed var(--ink-100); }
+.doc-toc .muted {
+    display: block; font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--ink-400); margin-top: 1px;
+}
+.doc-toc .apx { list-style: none; margin-left: -18px; color: var(--ink-500); font-size: 13.5px; }
+
+.doc-card {
+    padding: 20px; background: #fff; border: 1px solid var(--line);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-md);
+}
+.doc-note { margin: 11px 0 0; font-size: 13px; color: var(--ink-500); text-align: center; }
+.doc-caveat {
+    margin: 13px 0 0; padding: 9px 12px; font-size: 12px; color: var(--ink-500);
+    background: var(--ink-50); border-radius: var(--r-sm);
+}
+
+/* ── 07 files out ─────────────────────────────────────────────────────── */
+.file-grid {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.file-card {
+    display: block; padding: 20px; text-decoration: none;
+    background: #fff; border: 1px solid var(--line); border-radius: var(--r-md);
+    box-shadow: var(--shadow-sm); color: inherit;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.file-card:hover {
+    border-color: var(--brand-500); box-shadow: var(--shadow-md); transform: translateY(-2px);
+}
+.file-ext {
+    display: inline-block; font-family: var(--font-mono); font-size: 11px;
+    font-weight: 700; letter-spacing: .06em; color: var(--brand-600);
+    background: var(--brand-50); border-radius: var(--r-pill); padding: 3px 10px;
+}
+.file-card strong {
+    display: block; margin: 10px 0 2px; font-size: 17px;
+    font-weight: 800; color: var(--ink-900);
+}
+.file-size { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-400); }
+.file-card ul {
+    margin: 12px 0 0; padding: 0; list-style: none;
+    font-size: 12.5px; color: var(--ink-600);
+}
+.file-card li { position: relative; padding-left: 13px; }
+.file-card li + li { margin-top: 5px; }
+.file-card li::before {
+    content: ""; position: absolute; left: 0; top: .66em;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--ink-300);
+}
+
+/* ── 08 input paths ───────────────────────────────────────────────────── */
+.path-grid {
+    display: grid; gap: 24px;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+}
+.path h3 { margin: 14px 0 6px; font-size: 17px; font-weight: 800; color: var(--ink-900); }
+.path p { margin: 0 0 10px; font-size: 14px; color: var(--ink-600); }
+.path figure {
+    margin: 0; border: 1px solid var(--line); border-radius: var(--r-md);
+    overflow: hidden; background: var(--bg-soft); box-shadow: var(--shadow-sm);
+}
+.path img {
+    display: block; width: 100%; height: 205px;
+    /* `contain`, not `cover`: these are evidence, and cover crops away whichever
+       part happens to fall outside the frame's aspect ratio. Letterboxing is a
+       fair price for showing the whole capture. */
+    object-fit: contain; object-position: center;
+    background: #fff; padding: 6px;
+}
+
+/* ── 02 load receipts ─────────────────────────────────────────────────── */
+.receipts {
+    display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-items: start;
+}
+.receipt {
+    background: #fff; border: 1px solid var(--line);
+    border-radius: var(--r-md); box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.receipt-head {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    padding: 13px 16px; border-bottom: 1px solid var(--line);
+    background: var(--bg-soft);
+}
+.receipt-head h3 { margin: 0; font-size: 15px; font-weight: 800; color: var(--ink-900); }
+.receipt-code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-400); }
+.receipt-tag {
+    margin-left: auto; font-size: 11px; font-weight: 700; color: var(--brand-600);
+    background: var(--brand-50); border-radius: var(--r-pill); padding: 2px 9px;
+}
+.receipt-rows { margin: 0; padding: 4px 0; }
+.rrow {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 6px 16px; font-size: 13px;
+}
+.rrow dt { flex: 1 1 auto; color: var(--ink-600); margin: 0; }
+.rrow dt code {
+    display: block; font-size: 10.5px; color: var(--ink-300); line-height: 1.35;
+}
+.rrow dd {
+    margin: 0; flex: 0 0 auto; text-align: right;
+    font-family: var(--font-mono); font-size: 13px; color: var(--ink-900);
+    max-width: 55%; overflow-wrap: anywhere;
+}
+.rrow .ru { margin-left: 4px; font-size: 11px; color: var(--ink-400); }
+.rrow--in { background: var(--bg-soft); }
+.rrow--out {
+    background: var(--brand-50); border-top: 1px solid var(--brand-100);
+}
+.rrow--out dt, .rrow--out dd { color: var(--brand-700); font-weight: 700; }
+.rrow--why dd { color: #B54708; font-weight: 700; }
+
+.receipt-foot { margin: 30px 0 10px; font-size: 14px; font-weight: 700; color: var(--ink-700); }
+
+table.mini { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
+table.mini th, table.mini td {
+    text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line);
+}
+table.mini thead th {
+    font-size: 11.5px; font-weight: 700; color: var(--ink-400);
+    text-transform: uppercase; letter-spacing: .03em;
+    border-bottom: 1.5px solid var(--ink-200);
+}
+table.mini .num { text-align: right; font-family: var(--font-mono); }
+table.mini code { font-size: 11px; }
+
+/* ── 04 combinations ──────────────────────────────────────────────────── */
+.gov-card {
+    display: flex; flex-direction: column; gap: 5px;
+    padding: 16px 19px; margin-bottom: 16px;
+    background: var(--ng-soft); border: 1px solid #FECDCA;
+    border-radius: var(--r-md);
+}
+.gov-k { font-size: 12px; font-weight: 700; letter-spacing: .03em; color: var(--ng); }
+.gov-v {
+    font-family: var(--font-mono); font-size: clamp(14px, 2vw, 18px);
+    font-weight: 700; color: var(--ink-900); overflow-wrap: anywhere;
+}
+.gov-s { font-size: 13px; color: var(--ink-600); }
+.gov-s b { color: var(--ng); }
+
+.combo-mix {
+    display: grid; gap: 12px; margin-bottom: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.mix {
+    display: flex; align-items: baseline; gap: 9px;
+    padding: 12px 15px; background: var(--bg-soft);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.mix strong {
+    font-family: var(--font-mono); font-size: 22px; font-weight: 700;
+    color: var(--ink-900); line-height: 1;
+}
+.mix span { font-size: 12.5px; color: var(--ink-500); }
+
+.disclose {
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    background: #fff; overflow: hidden;
+}
+.disclose > summary {
+    cursor: pointer; padding: 14px 18px; font-size: 14px; color: var(--ink-700);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    list-style: none;
+}
+.disclose > summary::-webkit-details-marker { display: none; }
+.disclose > summary::before {
+    content: "▸"; color: var(--brand-500); font-size: 12px;
+}
+.disclose[open] > summary::before { content: "▾"; }
+.disclose > summary:hover { background: var(--bg-soft); }
+.disclose > summary .muted { font-size: 12.5px; }
+
+.combo-list {
+    margin: 0; padding: 10px 18px 18px 44px; border-top: 1px solid var(--line);
+    columns: 2; column-gap: 26px; font-size: 12.5px; color: var(--ink-600);
+}
+.combo-list .combo { padding: 3px 0; break-inside: avoid; }
+.combo-list code { font-size: 12px; color: var(--ink-700); }
+.combo.is-gov { list-style-position: inside; }
+.combo.is-gov code {
+    background: var(--ng-soft); color: var(--ng); font-weight: 700;
+    padding: 1px 5px; border-radius: 4px;
+}
+.gov-tag {
+    margin-left: 7px; font-size: 10.5px; font-weight: 700; color: var(--ng);
+    border: 1px solid #FECDCA; border-radius: var(--r-pill); padding: 1px 7px;
+    white-space: nowrap;
+}
+@media (max-width: 780px) { .combo-list { columns: 1; } }
+
+/* ── 05 member roll ───────────────────────────────────────────────────── */
+.member-tools {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.seg {
+    display: inline-flex; border: 1px solid var(--ink-200);
+    border-radius: var(--r-pill); overflow: hidden; background: #fff;
+}
+.seg-btn {
+    border: 0; background: none; cursor: pointer; font-family: inherit;
+    font-size: 13px; font-weight: 600; color: var(--ink-500);
+    padding: 7px 15px;
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--ink-100); }
+.seg-btn:hover { background: var(--ink-50); }
+.seg-btn.is-on { background: var(--brand-500); color: #fff; }
+.member-count { font-size: 12.5px; }
+
+.members-table { min-width: 820px; }
+.members-table tbody tr.is-ng { background: var(--ng-soft); }
+.members-table tbody tr.is-ng:hover { background: #FEE4E2; }
+.members-table td.strong { font-weight: 700; color: var(--ink-900); }
+.members-table tr.is-ng td.strong { color: var(--ng); }
+.members-table .combo-cell { font-size: 11.5px; color: var(--ink-500); }
+.members-table td .muted { font-size: 11.5px; margin-left: 3px; }
+
+.more-btn {
+    background: #fff; border: 1px solid var(--ink-200); border-radius: var(--r-pill);
+    padding: 8px 18px; font-family: inherit; font-size: 13px; font-weight: 600;
+    color: var(--brand-600); cursor: pointer;
+}
+.more-btn:hover { border-color: var(--brand-500); background: var(--brand-50); }
+
+/* ── 06 modal ─────────────────────────────────────────────────────────── */
+.modal-grid {
+    display: grid; gap: 14px; margin-bottom: 26px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.mcard {
+    padding: 15px 17px; background: var(--bg-soft);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    display: flex; flex-direction: column; gap: 3px;
+}
+.mcard-k { font-size: 12.5px; font-weight: 700; color: var(--ink-500); }
+.mcard-v {
+    font-family: var(--font-mono); font-size: 25px; font-weight: 700;
+    color: var(--ink-900); letter-spacing: -.02em;
+}
+.mcard-v .ru { font-size: 13px; color: var(--ink-400); margin-left: 3px; }
+.mcard-s { font-size: 12px; color: var(--ink-400); }
+
+.run-note.is-busy { color: #B54708; }
+
 /* ── run it yourself ──────────────────────────────────────────────────── */
 .top-actions { display: inline-flex; align-items: center; gap: 8px; }
 .btn-solid, .btn-primary { background: var(--brand-500); color: #fff; }
@@ -337,6 +609,7 @@ table.checks td.code { font-family: var(--font-mono); font-size: 12.5px; color: 
 
 @media (max-width: 860px) {
     .run-grid { grid-template-columns: 1fr; }
+    .doc-grid { grid-template-columns: 1fr; }
 }
 
 .foot { padding: 30px 0; background: var(--ink-900); color: var(--ink-300); }

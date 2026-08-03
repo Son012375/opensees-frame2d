@@ -47,7 +47,18 @@ def main() -> int:
             return 1
         variants[row["variant"]] = json.loads(path.read_text(encoding="utf-8"))
 
-    payload = {"manifest": manifest, "variants": variants}
+    # Downloadable sizes, measured rather than typed into the HTML. Numbers
+    # written by hand go stale the first time an artifact is re-baked, and a
+    # page whose pitch is "these are the real files" cannot afford a wrong
+    # file size sitting next to the download link.
+    files_dir = out.parent / "files"
+    file_sizes = {
+        p.name: p.stat().st_size
+        for p in sorted(files_dir.glob("*"))
+        if p.is_file() and p.suffix != ".json"
+    } if files_dir.is_dir() else {}
+
+    payload = {"manifest": manifest, "variants": variants, "files": file_sizes}
     # "</script>" inside the JSON would close the host <script> tag early.
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) \
         .replace("</", "<\\/")
