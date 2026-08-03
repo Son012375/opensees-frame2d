@@ -121,22 +121,62 @@ class BuildingInput(BaseModel):
     config: Dict[str, Any]
 
 
+# ── Public-demo master switch ────────────────────────────────────────────────
+# One flag instead of five: a public deployment must not depend on the operator
+# remembering every individual guard env var — forgetting one is what leaves the
+# API docs or the chat router exposed. DEMO_MODE=1 turns on the whole posture
+# (closed docs, no chat, dev editors hidden, conservative caps); every explicit
+# env var still wins over it. Default OFF, so local/dev behaviour is unchanged.
+DEMO_MODE = os.environ.get("DEMO_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+if DEMO_MODE:
+    # The KDS reference tables are a frozen code edition, so a public demo
+    # should read the local snapshot rather than a Supabase project that
+    # auto-pauses and turns every analysis into a DNS error. Set here, before
+    # anything under core/ is imported, because kds_cache resolves its mode at
+    # import time. An explicit KDS_CACHE_MODE still wins.
+    os.environ.setdefault("KDS_CACHE_MODE", "prefer")
+
+
+def _env_int(name: str, demo_default: int, plain_default: int = 0) -> int:
+    """Env override, else the DEMO_MODE-aware default.
+
+    Deliberately NOT ``int(os.environ.get(name, d) or 0)``: that idiom turns an
+    empty or malformed value into 0, which for these names means "guard off" —
+    a typo in a deployment env file would silently unlock the resource limits.
+    """
+    raw = (os.environ.get(name) or "").strip()
+    default = demo_default if DEMO_MODE else plain_default
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer — using %d", name, raw, default)
+        return default
+
+
 # ── Public-demo resource guard ───────────────────────────────────────────────
 # Measured peak RSS: 3-story preset ~0.7 GB, 10-story preset ~6 GB. A container
 # sized for the demo is OOM-killed by one oversized request, which takes down
 # every other visitor's session with it. Reject early with a readable message
 # instead. DEMO_MAX_MEMBERS=0 disables the guard (local/desktop use).
-DEMO_MAX_MEMBERS = int(os.environ.get("DEMO_MAX_MEMBERS", "0") or 0)
+#
+# Measured preset sizes: 3-story 63, 5-story-mixed 105, 5-story 145,
+# 10-story 400 members. The DEMO_MODE default of 250 clears every preset except
+# the 10-story one — the ~6 GB case the guard exists for. (400 would let it
+# through by exactly one member.)
+DEMO_MAX_MEMBERS = _env_int("DEMO_MAX_MEMBERS", demo_default=250, plain_default=0)
 
 #: Enforced while streaming the upload, not after it is already in memory.
-IFC_MAX_UPLOAD_MB = int(os.environ.get("IFC_MAX_UPLOAD_MB", "20") or 20)
+IFC_MAX_UPLOAD_MB = _env_int("IFC_MAX_UPLOAD_MB", demo_default=20, plain_default=20)
 
 # ── Rate limit for the paid-LLM endpoint ─────────────────────────────────────
 # /api/claude/parse-building is anonymous, uncached and billed per call. Without
 # a ceiling one script can spend the author's credits without limit. Per-IP and
 # global daily caps; 0 disables (local use).
-LLM_CALLS_PER_IP_PER_HOUR = int(os.environ.get("LLM_CALLS_PER_IP_PER_HOUR", "0") or 0)
-LLM_CALLS_PER_DAY = int(os.environ.get("LLM_CALLS_PER_DAY", "0") or 0)
+LLM_CALLS_PER_IP_PER_HOUR = _env_int("LLM_CALLS_PER_IP_PER_HOUR", demo_default=5)
+LLM_CALLS_PER_DAY = _env_int("LLM_CALLS_PER_DAY", demo_default=100)
 
 _llm_hits: dict[str, list[float]] = {}
 _llm_day: list[float] = []
@@ -202,14 +242,30 @@ def _enforce_demo_size(member_count: int, what: str = "모델") -> None:
 
 
 # Application
-app = FastAPI(title="OpenSees Structural Analysis Platform")
+#
+# DEMO_MODE closes /docs, /openapi.json and /redoc: the schema enumerates every
+# route, which hands a visitor the shortest path to the dev-only and
+# unauthenticated surfaces before they ever see the demo itself.
+app = FastAPI(
+    title="OpenSees Structural Analysis Platform",
+    docs_url=None if DEMO_MODE else "/docs",
+    openapi_url=None if DEMO_MODE else "/openapi.json",
+    redoc_url=None if DEMO_MODE else "/redoc",
+)
 
 # Phase A.1 — chat router (sessions + NDJSON stream). Imported here so
 # the include_router call sits right next to app creation; chat_router
 # does its own MCP_SERVER_PATH injection so importing it is safe even
 # before main_simple's endpoints run.
+#
+# Not mounted in DEMO_MODE: without an API key the chat provider is
+# unreachable and the visitor is shown a raw
+# "ConnectError: All connection attempts failed", and
+# GET /api/v2/chat/audit/{id} answers with operator-level detail and no auth —
+# it can dump copyrighted KDS quotations to anyone who guesses a session id.
 from app.chat_router import router as chat_router  # noqa: E402
-app.include_router(chat_router)
+if not DEMO_MODE:
+    app.include_router(chat_router)
 
 # Demo auth - disabled for now
 # from app.core.auth import check_demo_auth, make_auth_response, set_auth_cookie
@@ -332,7 +388,8 @@ async def home(request: Request):
         return FileResponse(str(index), media_type="text/html")
     # Landing not built yet (scripts/build_landing.py) — fall back to the editor
     # rather than 404ing a local dev session.
-    return templates.TemplateResponse(request, "editor_figma.html")
+    return templates.TemplateResponse(request, "editor_figma.html",
+                                      {"demo_mode": DEMO_MODE})
 
 
 @app.get("/landing", response_class=HTMLResponse)
@@ -403,22 +460,30 @@ async def resolve_building_config_api(body: BuildingResolveInput):
 # 3D Building Editor
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# /editor-v2 and /editor-lab are the author's working surfaces, not the demo —
+# the routes stay registered (nothing else has to change) but refuse in
+# DEMO_MODE so a visitor only ever meets /editor-figma.
 @app.get("/editor-v2", response_class=HTMLResponse)
 async def editor_v2_page(request: Request):
     """V2 3D Building Editor (alias for /)"""
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "editor_v2.html")
 
 
 @app.get("/editor-lab", response_class=HTMLResponse)
 async def editor_lab_page(request: Request):
     """ETABS-style UI redesign (isolated clone of V2; shares all /api endpoints)."""
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "editor_lab.html")
 
 
 @app.get("/editor-figma", response_class=HTMLResponse)
 async def editor_figma_page(request: Request):
     """Figma UI Lab: isolated redesign of V2 (own html/css/js copies; shares all /api endpoints)."""
-    return templates.TemplateResponse(request, "editor_figma.html")
+    return templates.TemplateResponse(request, "editor_figma.html",
+                                      {"demo_mode": DEMO_MODE})
 
 
 @app.get("/api/sections/list")
@@ -847,6 +912,7 @@ async def analyze_building_api(input_data: BuildingInput):
                     "interaction_ratio": interaction,
                     "governing": mem.get("governing_combo", ""),
                     "type": mem.get("type", ""),
+                    "story": mem.get("story", ""),
                     "section": mem.get("section", ""),
                 }
                 # viewer member IDs match design check member_id (both 1-based structural members)
@@ -1444,6 +1510,12 @@ async def analyze_v2_api(request: Request):
                 member_checks[str(mem.get("member_id", ""))] = {
                     "status": mem.get("status", "OK"),
                     "interaction_ratio": mem.get("ratios", {}).get("interaction", 0),
+                    # 설계검토 결과표의 지배조합/부재/층/단면 열이 이 네 값으로 채워진다.
+                    # 없으면 뷰어가 빈 칸을 그린다.
+                    "governing": mem.get("governing_combo", ""),
+                    "type": mem.get("type", ""),
+                    "story": mem.get("story", ""),
+                    "section": mem.get("section", ""),
                 }
 
         # Recommendation pipeline foundation — deterministic layer only.
@@ -1729,6 +1801,12 @@ async def post_recommendations_evaluate(request: Request):
         {"job_id": "rec_eval_<uuid>", "status": "queued",
          "num_total": int, "num_applicable_requested": int}
     """
+    # Off in DEMO_MODE: this queues one full reanalysis per candidate onto the
+    # single shared solver thread with no size guard, so one submission holds
+    # the whole demo hostage for every other visitor.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     body = await request.json()
     analysis_id = body.get("analysis_id")
     candidate_ids = body.get("candidate_ids") or []
@@ -1802,6 +1880,10 @@ async def post_recommendations_evaluate(request: Request):
 @app.get("/api/v2/recommendations/evaluate/{eval_job_id}")
 async def get_recommendations_evaluate(eval_job_id: str):
     """Poll the state of a batch evaluation job."""
+    # Nothing to poll while POST /evaluate is disabled.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     with _EVAL_JOBS_LOCK:
         job = eval_jobs_db.get(eval_job_id)
         if job is None:
@@ -2013,6 +2095,11 @@ async def post_recommendations_explain(request: Request):
         404  — candidate_id not found in the analysis context
         410  — analysis context expired (TTL)
     """
+    # Off in DEMO_MODE: the explanation path reaches the same keyless LLM/RAG
+    # stack as chat, and its KDS evidence block quotes clauses verbatim.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     body = await request.json()
     analysis_id = body.get("analysis_id")
     candidate_id = body.get("candidate_id")
@@ -3201,8 +3288,12 @@ async def health_demo():
         "kds_source": "snapshot" if (kds_mode in ("prefer", "only") or kds_offline)
                       else "database",
         "kds_mode": kds_mode,
+        "demo_mode": DEMO_MODE,
         "demo_max_members": DEMO_MAX_MEMBERS or None,
-        "expected_seconds": 15,
+        # Measured end-to-end for the 3-story bench model the landing links to
+        # (10.4 s with the KDS snapshot); rounded up rather than down so the
+        # number the visitor is quoted is one they beat, not one they miss.
+        "expected_seconds": 12,
         "message": (
             "지금 바로 실행할 수 있습니다." if ready else
             f"현재 {depth}건이 대기 중입니다. 잠시 후 다시 시도해 주세요."
