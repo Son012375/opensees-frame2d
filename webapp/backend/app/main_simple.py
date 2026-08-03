@@ -167,6 +167,7 @@ from app.services.recommendation_jobs import (
     _eval_executor,
     _rehydrate_candidate,
 )
+from app.services.solver_pool import run_solver, queue_depth
 
 
 # Marker on each ``analysis_context_cache`` entry that tells the
@@ -518,7 +519,7 @@ async def analyze_building_api(input_data: BuildingInput):
         jobs_db[job_id]["progress"] = 20
 
         # 2. Auto load generation
-        load_result = generate_all_loads(model)
+        load_result = await run_solver(generate_all_loads, model)
         jobs_db[job_id]["progress"] = 40
 
         # 3. Run 3D analysis
@@ -527,7 +528,9 @@ async def analyze_building_api(input_data: BuildingInput):
         kwargs["load_combinations"] = load_result["load_combinations"]
         kwargs["modal_analysis"] = True
 
-        multi = analyze_frame_3d_multi(**kwargs)
+        # Solver thread: serialises OpenSees global state and keeps the event
+        # loop free while this multi-second run proceeds.
+        multi = await run_solver(analyze_frame_3d_multi, **kwargs)
         jobs_db[job_id]["progress"] = 70
 
         # 4. Design check
@@ -536,7 +539,7 @@ async def analyze_building_api(input_data: BuildingInput):
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result["reports"].get("seismic")
-            dc_result = run_design_check(multi, model, seismic_rpt)
+            dc_result = await run_solver(run_design_check, multi, model, seismic_rpt)
         except Exception as dc_err:
             logger.warning("Building design check failed: %s", dc_err, exc_info=True)
             warnings.append(f"design_check_failed: {dc_err}")
@@ -546,14 +549,15 @@ async def analyze_building_api(input_data: BuildingInput):
         if dc_result is not None:
             try:
                 from core.result_interpreter import interpret_results
-                interpretation = interpret_results(
-                    dc_result, multi,
+                interpretation = await run_solver(
+                    interpret_results, dc_result, multi,
                     modal_analysis=multi.modal_analysis or None,
                 )
                 # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
                 from core.narrative_interpreter import narrate_interpretation
                 from core.narrative_llm import make_narrator_from_env
-                interpretation = narrate_interpretation(
+                interpretation = await run_solver(
+                    narrate_interpretation,
                     interpretation, dc_result, llm=make_narrator_from_env(),
                     load_result=load_result,
                     model_info={
@@ -778,7 +782,8 @@ async def analyze_building_api(input_data: BuildingInput):
             # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
             try:
                 from core.visualization_calc_report import plot_frame_3d_calc_report
-                plot_frame_3d_calc_report(
+                await run_solver(
+                    plot_frame_3d_calc_report,
                     multi,
                     output_path=report_path,
                     design_check=dc_result,
@@ -1126,12 +1131,13 @@ async def analyze_v2_api(request: Request):
         building_model = model.to_building_model()
 
         from core.load_generator import generate_all_loads
-        load_result = generate_all_loads(building_model)
+        load_result = await run_solver(generate_all_loads, building_model)
         load_cases = load_result["load_cases"]
         load_combinations = load_result.get("load_combinations", {})
 
         # ── Step 2: 해석 ──
-        multi = analyze_from_model(model, load_cases, load_combinations)
+        # Solver thread — see the V1 endpoint above.
+        multi = await run_solver(analyze_from_model, model, load_cases, load_combinations)
 
         # ── Step 3: 설계검토 ──
         dc_result = None
@@ -1141,7 +1147,8 @@ async def analyze_v2_api(request: Request):
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result.get("reports", {}).get("seismic")
-            dc_result = run_design_check(multi, building_model, seismic_rpt)
+            dc_result = await run_solver(run_design_check, multi, building_model,
+                                         seismic_rpt)
         except Exception as dc_err:
             logger.warning("V2 design check failed: %s", dc_err, exc_info=True)
             warnings.append(f"design_check_failed: {dc_err}")
@@ -1154,7 +1161,8 @@ async def analyze_v2_api(request: Request):
                 # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
                 from core.narrative_interpreter import narrate_interpretation
                 from core.narrative_llm import make_narrator_from_env
-                interpretation = narrate_interpretation(
+                interpretation = await run_solver(
+                    narrate_interpretation,
                     interpretation, dc_result, llm=make_narrator_from_env(),
                     load_result=load_result,
                     model_info={
@@ -1179,10 +1187,11 @@ async def analyze_v2_api(request: Request):
             # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
             try:
                 from core.visualization_calc_report import plot_frame_3d_calc_report
-                plot_frame_3d_calc_report(multi, output_path=report_path,
-                                          design_check=dc_result, interpretation=interpretation,
-                                          load_result=load_result, cover_info=cover_info,
-                                          data_out_path=str(job_dir / "calc_data.json"))
+                await run_solver(plot_frame_3d_calc_report, multi,
+                                 output_path=report_path,
+                                 design_check=dc_result, interpretation=interpretation,
+                                 load_result=load_result, cover_info=cover_info,
+                                 data_out_path=str(job_dir / "calc_data.json"))
             except Exception as calc_err:
                 logger.warning("V2: calc report failed; fallback to tab report: %s",
                                calc_err, exc_info=True)
