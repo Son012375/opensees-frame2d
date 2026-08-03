@@ -23,7 +23,11 @@
   var variants = BUNDLE.variants;          // { "H-300x300": {...}, ... }
   var fileSizes = BUNDLE.files || {};      // measured at build time
   var order = manifest.ladder.map(function (r) { return r.variant; });
-  var DEFAULT = "H-300x300";
+  // The ladder from the manifest is authoritative; the named baseline is only a
+  // preference. A re-bake with a different section list must not leave every
+  // render() call returning early against a variant that no longer exists.
+  var DEFAULT = Object.prototype.hasOwnProperty.call(variants, "H-300x300")
+    ? "H-300x300" : order[0];
 
   // ── helpers ──────────────────────────────────────────────────────────
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -58,13 +62,33 @@
   // ── live-app links ───────────────────────────────────────────────────
   // The landing is static and may be hosted apart from the app, so the app
   // origin comes from one <meta> tag rather than being hardcoded per link.
-  (function wireAppLinks() {
+  function appBase() {
     var meta = document.querySelector('meta[name="app-base"]');
-    var base = (meta && meta.getAttribute("content") || "").replace(/\/+$/, "");
+    return (meta && meta.getAttribute("content") || "").replace(/\/+$/, "");
+  }
+
+  (function wireAppLinks() {
+    var base = appBase();
     $$("[data-app-path]").forEach(function (a) {
       a.href = base + a.getAttribute("data-app-path");
     });
   })();
+
+  // The primary CTA promises "run this and get these numbers". Every figure
+  // around it follows the dropdown, so the link has to as well — otherwise
+  // moving the knob to the section that passes and then clicking through
+  // opens the section that fails, which is the precise contradiction this
+  // page was rebuilt to remove. Non-default variants ride along as ?col=,
+  // which figma_deeplink.js prefills.
+  function syncRunCta(name) {
+    var cta = $("#run-cta");
+    if (!cta) return;
+    var path = cta.getAttribute("data-app-path") || "/editor-figma?demo=bench";
+    cta.href = appBase() + path + (name === DEFAULT ? "" : "&col=" + encodeURIComponent(name));
+    cta.textContent = (name === DEFAULT)
+      ? "이 모델 직접 돌려보기 →"
+      : name + "(으)로 직접 돌려보기 →";
+  }
 
   // ── the section dropdown ─────────────────────────────────────────────
   var select = $("#sect");
@@ -407,8 +431,12 @@
       var mass = md.mass_info || {};
       // Say plainly that the table is a subset — a reader who counts rows and
       // finds fewer than num_modes should not have to wonder which is wrong.
-      foot.innerHTML =
-        "해석은 <b>" + solved + "모드</b>를 풀었고 위 표는 상위 " + shown + "개입니다. " +
+      // Both counts are optional in the bundle (extract_modal returns {} when
+      // there was no modal analysis), so neither is interpolated unguarded.
+      var lead = (solved && shown)
+        ? "해석은 <b>" + solved + "모드</b>를 풀었고 위 표는 상위 " + shown + "개입니다. "
+        : (shown ? "위 표는 " + shown + "개 모드입니다. " : "");
+      foot.innerHTML = lead +
         "질량 산정 기준 <code>" + (mass.basis || "—") + "</code>" +
         (mass.rigid_diaphragm ? " · 강막 적용" : "") +
         (mass.includes_member_self_weight === false
@@ -427,9 +455,15 @@
     if (!note) return;
 
     fetch(base + "/api/health/demo", { cache: "no-store" })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        // A 5xx/404 is exactly the case this probe exists for. Returning null
+        // and bailing would leave the optimistic "약 12초" note in place — the
+        // one outcome worse than not probing at all.
+        if (!r.ok) throw new Error("health " + r.status);
+        return r.json();
+      })
       .then(function (h) {
-        if (!h) return;
+        if (!h) throw new Error("health payload empty");
         if (h.ready === false) {
           note.innerHTML = "지금 <b>" + h.queue_depth +
             "건이 대기 중</b>입니다. 열어두고 잠시 후 ▶ Run을 눌러도 됩니다.";
@@ -515,6 +549,14 @@
     expandedMembers = false;
     renderMembers(rec);
     renderModal(rec);
+    syncRunCta(name);
+
+    // How many of the NG members this one combination actually governs. The
+    // envelope NG count is over all 36 combinations, so quoting it against a
+    // single combination would overstate that combination's reach.
+    setText("gov-ng-count", (rec.members || []).filter(function (m) {
+      return m.status === "NG" && m.governing_combo === rec.governing_combo;
+    }).length);
 
     setText("nudge", nudgeFor(name));
     setText("foot", footFor(rec));
@@ -534,7 +576,10 @@
   // wants to point at the exact case they are disputing.
   function initialSection() {
     var q = new URLSearchParams(window.location.search).get("section");
-    return (q && variants[q]) ? q : DEFAULT;
+    // hasOwnProperty, not truthiness: `?section=constructor` resolves through
+    // the prototype chain to a function, which passes a plain `variants[q]`
+    // test and then blows up in render().
+    return (q && Object.prototype.hasOwnProperty.call(variants, q)) ? q : DEFAULT;
   }
 
   var start = initialSection();

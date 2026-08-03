@@ -68,14 +68,23 @@
     }
 
     // ── the "same model as the landing" banner ───────────────────────────────
-    function showBenchBanner() {
+    // The quoted numbers belong to the baseline H-300x300 run and to nothing
+    // else. A ?col=/?beam= link is deliberately a DIFFERENT model — the landing
+    // knob uses it to send someone to the section that flips the verdict — so
+    // asserting the baseline figures there would have the banner contradict the
+    // very result it is inviting the visitor to produce.
+    function showBenchBanner(overridden) {
         if (document.getElementById('fig-dl-banner')) return;
         var bar = document.createElement('div');
         bar.id = 'fig-dl-banner';
+        var msg = overridden
+            ? '랜딩에서 고른 단면 <b>' + overridden + '</b>이 적용된 상태입니다 — ' +
+              '▶ Run을 누르면 이 단면의 판정을 직접 확인할 수 있습니다.'
+            : '랜딩에 실린 것과 <b>같은 모델</b>입니다 — ▶ Run을 누르면 ' +
+              '총중량 3916.8 kN · 밑면전단 421.98 kN · 최대 상관비 1.4933이 그대로 나옵니다.';
         bar.innerHTML =
             '<span class="fdl-dot" aria-hidden="true"></span>' +
-            '<span>랜딩에 실린 것과 <b>같은 모델</b>입니다 — ▶ Run을 누르면 ' +
-            '총중량 3916.8 kN · 밑면전단 421.98 kN · 최대 상관비 1.4933이 그대로 나옵니다.</span>' +
+            '<span>' + msg + '</span>' +
             '<button type="button" class="fdl-x" aria-label="닫기">✕</button>';
         bar.querySelector('.fdl-x').addEventListener('click', function () { bar.remove(); });
         document.body.appendChild(bar);
@@ -135,7 +144,7 @@
         }
         call('updateManualPreview');
         injectStyles();
-        showBenchBanner();
+        showBenchBanner(colOverride || beamOverride || null);
         coachRun();
     }
 
@@ -213,7 +222,19 @@
         } else {
             // ?demo=ifc and bare ?panel= links: the IFC path is driven by
             // editor3d_figma.js, so only the panel is ours to open.
-            if (panel) setTimeout(function () { openPanel(panel); }, demo === 'ifc' ? 1200 : 0);
+            //
+            // The readiness wait is NOT optional here. /api/sections/list does
+            // not block the `load` event, so on a cold open the catalogue is
+            // still empty at this point and figmaOpenSections bails with a
+            // status line instead of a window — a bare ?panel=sections link
+            // would appear to do nothing at all.
+            if (panel) {
+                whenSectionsReady(function (ready) {
+                    if (!ready) log('section list never arrived — opening ' + panel + ' anyway');
+                    if (demo === 'ifc') setTimeout(function () { openPanel(panel); }, 1200);
+                    else openPanel(panel);
+                });
+            }
             if (params.get('run') === '1' && demo !== 'ifc') autoRun();
         }
 

@@ -43,7 +43,9 @@
       <ul class="scope">
         <li>브라우저에서 도는 <b>KDS 강구조 골조</b> 해석·설계검토 도구입니다. 설치도 로그인도 없습니다.</li>
         <li><b>RC(철근콘크리트)는 지원하지 않습니다.</b> 강구조 골조 전용이고, 접합부·기초는 검토하지 않습니다.</li>
-        <li>LLM은 입력 문장만 해석합니다. <b>하중·해석·검토 수치는 OpenSeesPy 솔버와 KDS 표가 만듭니다.</b></li>
+        <li><b>숫자는 LLM이 만들지 않습니다.</b> 하중·해석·검토 수치는 전부 OpenSeesPy 솔버와 KDS 표에서 나옵니다.
+            LLM이 하는 일은 입력 문장 해석과, 구조계산서 결론부의 <b>서술 문장</b>을 쓰는 것뿐입니다
+            (그 문단에는 <code>llm_used</code> 표시가 함께 기록됩니다).</li>
       </ul>
 
       <p class="lede">
@@ -164,8 +166,9 @@
         <figcaption id="frame-cap" class="frame-cap">
           3층 · 8m×8m 2×2경간 · 절점 36 · 부재 63
           <span class="legend">
-            <i class="lg lg--ng"></i>NG 부재
-            <i class="lg lg--ok"></i>OK 부재
+            <i class="lg lg--ng"></i>NG
+            <i class="lg lg--hot"></i>상관비 0.9 이상
+            <i class="lg lg--ok"></i>그 외
           </span>
         </figcaption>
       </figure>
@@ -278,9 +281,15 @@
   <div class="wrap">
     <header class="sec-head">
       <span class="kicker">03 · Checks</span>
-      <h2 class="h2">이 모델에 적용된 검토 10가지</h2>
+      <h2 class="h2">검토 10항목, 판정과 근거 조항까지</h2>
       <p class="sec-lede">
         조항 번호는 손으로 적지 않았습니다. 아래 <code>code_ref</code>는 검토 레코드에 기록된 값을 그대로 옮긴 것입니다.
+        이 모델에서 실제로 판정이 난 것은 9개이고, 우발 비틀림은 <b>미평가</b>로 남습니다 — 그것도 그대로 적었습니다.
+      </p>
+      <p class="sec-lede">
+        <b>활용도</b>는 각 검토가 자기 한계 대비 얼마나 찼는지를 <b>1.0 기준</b>으로 정규화한 값입니다
+        (1.0을 넘으면 NG). 옆의 <b>기준 한계값</b>은 그 검토가 참조하는 조항의 원래 수치라
+        단위와 자릿수가 서로 다릅니다 — 예: 층간변위 활용도 0.9297 ↔ 한계값 0.02(=2%h).
       </p>
     </header>
 
@@ -290,8 +299,8 @@
           <tr>
             <th scope="col">검토 항목</th>
             <th scope="col">판정</th>
-            <th scope="col" class="num">값</th>
-            <th scope="col" class="num">한계</th>
+            <th scope="col" class="num">활용도</th>
+            <th scope="col" class="num">기준 한계값</th>
             <th scope="col">근거 조항 (code_ref)</th>
             <th scope="col"><span class="sr">이의</span></th>
           </tr>
@@ -318,8 +327,10 @@
       <span class="gov-k">부재강도 지배조합</span>
       <code class="gov-v" data-bind="governing-combo">—</code>
       <span class="gov-s">
-        이 조합에서 <b data-bind="ng-members">10</b>개 부재가 한계를 넘었고,
-        최대 상관비 <b data-bind="max-ratio">1.4933</b>이 나왔습니다.
+        최대 상관비 <b data-bind="max-ratio">1.4933</b>이 이 조합에서 나왔습니다.
+        NG 부재는 전체 <b data-bind="ng-members">10</b>개이고, 그중
+        <b data-bind="gov-ng-count">5</b>개가 이 조합에 지배됩니다 —
+        나머지는 다른 조합에서 최대가 나옵니다. 그래서 조합 하나만 풀어서는 안 됩니다.
       </span>
     </div>
 
@@ -413,8 +424,8 @@
       <span class="kicker">07 · Files</span>
       <h2 class="h2">파일로 나갑니다</h2>
       <p class="sec-lede">
-        실무자는 화면이 아니라 파일을 신뢰합니다. 아래 셋은 위 해석에서 그대로 나온 것이고,
-        각각 Excel·CAD·BIM 도구로 바로 열립니다.
+        실무자는 화면이 아니라 파일을 신뢰합니다. 앞의 두 개는 위 해석이 그대로 뱉은 산출물이고,
+        세 번째는 <b>입력용</b> 예제 BIM 파일입니다 — 다른 모델이며, 이 앱에 IFC 내보내기는 없습니다.
       </p>
     </header>
 
@@ -425,7 +436,7 @@
         <span class="file-size" data-file="tables_example.xlsx">125 KB</span>
         <ul>
           <li>5시트 — 변위 / 부재력 / 반력 / 포락 / 메타데이터</li>
-          <li>Member_Forces 65행 × 263열 (케이스 × 부재 × 5스테이션)</li>
+          <li>Member_Forces 부재 63행 × 263열 (하중케이스·조합 × N/Vy/Vz/T/My/Mz)</li>
           <li>화면 표는 400행에서 잘리지만 이 파일은 전량입니다</li>
         </ul>
       </a>
@@ -444,7 +455,7 @@
       <a class="file-card" href="files/ifc_example.ifc" download>
         <span class="file-ext">IFC</span>
         <strong>예제 BIM 모델</strong>
-        <span class="file-size" data-file="ifc_example.ifc">47 KB</span>
+        <span class="file-size" data-file="ifc_example.ifc">46 KB</span>
         <ul>
           <li>IFC2X3 · 기둥 36 · 보 51 (3층 3×2경간)</li>
           <li>입력으로 다시 넣어볼 수 있는 실제 파일</li>
@@ -487,7 +498,7 @@
         <h3>② IFC 가져오기</h3>
         <p>
           BIM에서 내보낸 <code>.ifc</code>를 올리면 절점·부재로 변환하고 접합부를 스냅합니다.
-          예제 파일 기준 <b>0.38초</b>에 절점 48 · 부재 87.
+          예제 파일 기준 파싱 <b>0.38초</b>(절점 150 · 부재 87), 병합·스냅을 거쳐 절점 48 · 부재 87.
           이 모델이 논문에서 <b>ETABS와 31/31 항목 일치</b>를 확인한 것입니다.
         </p>
         <a class="deep" href="#" data-app-path="/editor-figma?demo=ifc">예제 IFC 자동으로 올려보기 →</a>
@@ -579,7 +590,7 @@
     <div class="run-grid">
       <ol class="run-steps">
         <li><b>링크를 엽니다.</b> 이 페이지가 보여준 3층 골조가 에디터에 그대로 세팅된 채 열립니다.</li>
-        <li><b>▶ Run을 누릅니다.</b> KDS 하중 7케이스·조합 36개 생성 → OpenSees 3D 해석 → 설계검토 10항목.</li>
+        <li><b>▶ Run을 누릅니다.</b> KDS 하중 7케이스·조합 36개 생성 → OpenSees 3D 해석 → 설계검토 10항목(이 모델은 9개 판정 + 1개 미평가).</li>
         <li><b>대조합니다.</b> 종합 NG, NG 부재 <b data-bind="ng-members">10</b>개, 지배조합까지 위 카드와 같아야 합니다.</li>
       </ol>
 

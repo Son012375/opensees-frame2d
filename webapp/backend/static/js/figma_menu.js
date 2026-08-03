@@ -170,11 +170,24 @@
     function soon(label, note) { return { label: label, disabled: true, note: note || '준비 중' }; }
     var SEP = { sep: true };
 
+    /* Natural-language input reaches a paid LLM. On a keyless public
+       deployment the response is an English billing error that ends up in an
+       alert(), so the demo hides the entry — but only the demo. With
+       DEMO_MODE off this must behave exactly as it always has, which is the
+       whole contract of that flag. window.DEMO_MODE is emitted by
+       editor_figma.html from the server-side value. */
+    function nlEntry(label) {
+        if (window.DEMO_MODE) {
+            return soon(label, '자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)');
+        }
+        return { label: label, hint: 'NL', run: function () { openInputDrawer('nl'); } };
+    }
+
     /* ---- menu content (keyed by the exact button text in .menu-strip) ------ */
     var MENUS = {
         'File': [
             { label: '직접 입력 (모델 정의)', hint: 'Manual', run: function () { openInputDrawer('manual'); } },
-            soon('자연어 입력', '자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)'),
+            nlEntry('자연어 입력'),
             { label: 'IFC 가져오기…', hint: 'Import', run: function () { openInputDrawer('ifc'); } },
             SEP,
             { label: '해석 리포트 열기', hint: 'Report', enabled: function () { return !!reportUrl(); },
@@ -224,7 +237,7 @@
             soon('구속조건', '엔진 훅 없음 (백로그)')
         ],
         'Load': [
-            soon('자연어 입력 (모델·하중 자동 생성)', '자연어 입력은 이 공개 데모에서 비활성화되어 있습니다 (LLM 키 필요)'),
+            nlEntry('자연어 입력 (모델·하중 자동 생성)'),
             SEP,
             action('고정하중 정의 (Dead)…', 'figmaOpenLoads', { args: ['dead'], hint: 'D' }),
             action('활하중 정의 (Live)…', 'figmaOpenLoads', { args: ['live'], hint: 'L' }),

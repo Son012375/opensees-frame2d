@@ -211,15 +211,81 @@ def _enforce_llm_quota(request: Request) -> None:
             _llm_day.append(now)
 
 
+def _grid_member_count(n_story: int, nx: int, ny: int) -> int:
+    """Members in a rectangular nx-by-ny grid over n_story storeys."""
+    gx, gy = nx + 1, ny + 1
+    return gx * gy * n_story + nx * gy * n_story + ny * gx * n_story
+
+
+def _zone_member_bound(config: Dict[str, Any]) -> int:
+    """Upper bound on members for a zoned (irregular) plan, by arithmetic only.
+
+    Summing the zones double-counts members on shared boundaries, so this is an
+    over-estimate — the safe direction for a guard, since it can refuse a model
+    that would have fit but never admits one that would not. Measured on the
+    editor's L-shape payloads it runs about 11% high (150 against 135).
+
+    Arithmetic on purpose. Building the real IR to find out costs whatever the
+    request asks it to cost: a 5.3 KB body of 40 storeys x 4 zones x 12x12 bays
+    materialises 584,000 elements in 13 s and 434 MB before anything is in a
+    position to reject it, on the one event loop that serves every visitor.
+    """
+    total = 0
+    n_story_default = (len(config.get("stories") or [])
+                       or int(config.get("num_stories") or 0) or 1)
+    for z in config.get("zones") or []:
+        if not isinstance(z, dict):
+            continue
+        try:
+            nx = len(z.get("bays_x") or []) or int(z.get("num_bays_x") or 0)
+            ny = len(z.get("bays_y") or []) or int(z.get("num_bays_y") or 0)
+            lo = int(z.get("story_from") or 1)
+            hi = int(z.get("story_to") or n_story_default)
+        except (TypeError, ValueError):
+            continue
+        spread = max(0, hi - lo + 1)
+        if nx and ny and spread:
+            total += _grid_member_count(spread, nx, ny)
+    return total
+
+
 def _estimate_member_count(config: Dict[str, Any]) -> int:
     """Members a config will generate, without running the solver.
 
-    The arithmetic path covers a rectangular grid. A config can instead describe
-    its plan as ``zones`` (L-shape / T-shape / setback), which carries no
-    bays_x/bays_y at the top level — that used to fall through to 0 and wave the
-    request past the guard entirely. For those, build the node-element IR and
-    count it: exact, and cheap next to the solve it is protecting.
+    ``zones`` is checked FIRST and takes over completely. An irregular config
+    (L-shape / T-shape / setback) still carries top-level bays_x/bays_y — the
+    editor fills them from the first zone as a fallback
+    (editor3d_figma.js:2281-2283) — so the rectangular arithmetic would
+    otherwise answer for one zone and silently ignore the rest. Measured
+    undercount on the payload the editor actually sends: 36% (an 8-story
+    L-shape estimated 232 against 360 real elements, i.e. it slipped past a cap
+    of 250 while building a model half again as large).
+
+    The zoned bound is deliberately arithmetic. The exact IR is built only when
+    the bound lands close enough to the cap that its ~11% slack could decide the
+    answer — and by then the model is small by construction, so the build is
+    bounded work rather than whatever the request asked for.
     """
+    if config.get("zones"):
+        bound = _zone_member_bound(config)
+        if not DEMO_MAX_MEMBERS or bound <= DEMO_MAX_MEMBERS:
+            # Over-estimate already fits, so the exact count fits too.
+            return bound
+        if bound > DEMO_MAX_MEMBERS * 3:
+            return bound            # not close; no build can rescue it
+        try:
+            if str(MCP_SERVER_PATH) not in sys.path:
+                sys.path.insert(0, str(MCP_SERVER_PATH))
+            from core.structural_model import StructuralModel
+            return len(StructuralModel.from_building_config(config).elements or {})
+        except Exception as exc:
+            # A config we cannot even build is not one to hand to the solver.
+            logger.warning("member-count estimate failed for a zone config: %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail="모델 구성을 해석할 수 없습니다. 입력값을 확인해 주세요.",
+            )
+
     try:
         n_story = len(config.get("stories") or []) or int(config.get("num_stories") or 0)
         nx = len(config.get("bays_x") or []) or int(config.get("num_bays_x") or 0)
@@ -227,27 +293,9 @@ def _estimate_member_count(config: Dict[str, Any]) -> int:
     except (TypeError, ValueError):
         return 0
 
-    if n_story and nx and ny:
-        gx, gy = nx + 1, ny + 1
-        columns = gx * gy * n_story
-        beams_x = nx * gy * n_story
-        beams_y = ny * gx * n_story
-        return columns + beams_x + beams_y
-
-    if not config.get("zones"):
+    if not (n_story and nx and ny):
         return 0
-    try:
-        if str(MCP_SERVER_PATH) not in sys.path:
-            sys.path.insert(0, str(MCP_SERVER_PATH))
-        from core.structural_model import StructuralModel
-        return len(StructuralModel.from_building_config(config).elements or {})
-    except Exception as exc:
-        # A config we cannot even build is not one to hand to the solver.
-        logger.warning("member-count estimate failed for a zone config: %s", exc)
-        raise HTTPException(
-            status_code=400,
-            detail="모델 구성을 해석할 수 없습니다. 입력값을 확인해 주세요.",
-        )
+    return _grid_member_count(n_story, nx, ny)
 
 
 def _enforce_demo_size(member_count: int, what: str = "모델") -> None:
@@ -691,7 +739,17 @@ async def live_load_preview():
 @app.post("/api/building/analyze")
 async def analyze_building_api(input_data: BuildingInput):
     """Run 3D building analysis and return results for the editor"""
-    _enforce_demo_size(_estimate_member_count(input_data.config), "요청하신 모델")
+    # The V1 analyse path. No editor posts here any more — every front end
+    # (figma, v2, lab) goes to /api/v2/analyze — so on a public deployment this
+    # is an unauthenticated way to start a full solve that nothing needs.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Only pay for the estimate when a cap exists to compare it against;
+    # Python evaluates the argument before the call, so an unconditional
+    # estimate would do work even with the guard switched off.
+    if DEMO_MAX_MEMBERS:
+        _enforce_demo_size(_estimate_member_count(input_data.config), "요청하신 모델")
 
     job_id = str(uuid.uuid4())
     job_dir = JOBS_DIR / job_id
@@ -1327,6 +1385,13 @@ async def analyze_v2_api(request: Request):
                 "[V2] Created %d intersection nodes, model: %d nodes, %d elems",
                 intersections, len(model.nodes), len(model.elements),
             )
+
+        # Re-check now that topology processing has run. The count above was
+        # taken from the uploaded file; splitting beams at intersections ADDS
+        # elements, so a model that arrived under the cap can be over it by the
+        # time it reaches the solver — which is the only place the cap actually
+        # matters. Cheap, and the only gate that sees the real number.
+        _enforce_demo_size(len(model.elements or {}), "분할 후 이 모델")
     else:
         logger.info(
             "[V2] config-built model: %d nodes, %d elems (post-process skipped)",
