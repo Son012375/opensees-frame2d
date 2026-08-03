@@ -22,7 +22,10 @@ def _get_supabase() -> Client:
     """Supabase 클라이언트 (싱글톤)."""
     global _supabase_client
     if _supabase_client is None:
-        _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        from core.kds_cache import wrap as _kds_wrap
+        # Wrapped so a paused/unreachable database falls back to the local
+        # snapshot instead of raising. Transparent while the DB answers.
+        _supabase_client = _kds_wrap(create_client(SUPABASE_URL, SUPABASE_KEY))
     return _supabase_client
 
 
