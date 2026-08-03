@@ -4,8 +4,11 @@ Simplified FastAPI app - No Redis/Celery required
 Runs analysis synchronously (blocking)
 """
 import logging
+import os
 import sys
 import json
+import threading
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -28,9 +31,11 @@ logger.setLevel(logging.INFO)
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse, FileResponse, StreamingResponse, RedirectResponse,
+)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 from app.models.schemas import JobStatus
@@ -95,8 +100,13 @@ def _build_recommendation_block(
 
 
 class NaturalLanguageInput(BaseModel):
-    """Natural language input for Claude parsing"""
-    text: str
+    """Natural language input for Claude parsing.
+
+    The length cap is a billing control, not a usability one: this text is sent
+    straight to a paid LLM from an unauthenticated endpoint. A building
+    description never approaches 2000 characters.
+    """
+    text: str = Field(max_length=2000)
 
 
 class ParseResponse(BaseModel):
@@ -109,6 +119,86 @@ class ParseResponse(BaseModel):
 class BuildingInput(BaseModel):
     """Building analysis input (same config as MCP analyze_building)"""
     config: Dict[str, Any]
+
+
+# ── Public-demo resource guard ───────────────────────────────────────────────
+# Measured peak RSS: 3-story preset ~0.7 GB, 10-story preset ~6 GB. A container
+# sized for the demo is OOM-killed by one oversized request, which takes down
+# every other visitor's session with it. Reject early with a readable message
+# instead. DEMO_MAX_MEMBERS=0 disables the guard (local/desktop use).
+DEMO_MAX_MEMBERS = int(os.environ.get("DEMO_MAX_MEMBERS", "0") or 0)
+
+#: Enforced while streaming the upload, not after it is already in memory.
+IFC_MAX_UPLOAD_MB = int(os.environ.get("IFC_MAX_UPLOAD_MB", "20") or 20)
+
+# ── Rate limit for the paid-LLM endpoint ─────────────────────────────────────
+# /api/claude/parse-building is anonymous, uncached and billed per call. Without
+# a ceiling one script can spend the author's credits without limit. Per-IP and
+# global daily caps; 0 disables (local use).
+LLM_CALLS_PER_IP_PER_HOUR = int(os.environ.get("LLM_CALLS_PER_IP_PER_HOUR", "0") or 0)
+LLM_CALLS_PER_DAY = int(os.environ.get("LLM_CALLS_PER_DAY", "0") or 0)
+
+_llm_hits: dict[str, list[float]] = {}
+_llm_day: list[float] = []
+_llm_lock = threading.Lock()
+
+
+def _enforce_llm_quota(request: Request) -> None:
+    if not (LLM_CALLS_PER_IP_PER_HOUR or LLM_CALLS_PER_DAY):
+        return
+    now = time.time()
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else "unknown"))
+    with _llm_lock:
+        if LLM_CALLS_PER_DAY:
+            _llm_day[:] = [t for t in _llm_day if now - t < 86400]
+            if len(_llm_day) >= LLM_CALLS_PER_DAY:
+                raise HTTPException(
+                    status_code=429,
+                    detail=("오늘 자연어 변환 사용량이 소진되었습니다. "
+                            "직접 입력 또는 예제 IFC로 계속 진행하실 수 있습니다."))
+        if LLM_CALLS_PER_IP_PER_HOUR:
+            hits = [t for t in _llm_hits.get(ip, []) if now - t < 3600]
+            if len(hits) >= LLM_CALLS_PER_IP_PER_HOUR:
+                _llm_hits[ip] = hits
+                raise HTTPException(
+                    status_code=429,
+                    detail=("자연어 변환 요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요. "
+                            "직접 입력 또는 예제 IFC는 제한이 없습니다."))
+            hits.append(now)
+            _llm_hits[ip] = hits
+        if LLM_CALLS_PER_DAY:
+            _llm_day.append(now)
+
+
+def _estimate_member_count(config: Dict[str, Any]) -> int:
+    """Members a rectangular-grid config will generate, before building it."""
+    try:
+        n_story = len(config.get("stories") or []) or int(config.get("num_stories") or 0)
+        nx = len(config.get("bays_x") or []) or int(config.get("num_bays_x") or 0)
+        ny = len(config.get("bays_y") or []) or int(config.get("num_bays_y") or 0)
+    except (TypeError, ValueError):
+        return 0
+    if not (n_story and nx and ny):
+        return 0
+    gx, gy = nx + 1, ny + 1
+    columns = gx * gy * n_story
+    beams_x = nx * gy * n_story
+    beams_y = ny * gx * n_story
+    return columns + beams_x + beams_y
+
+
+def _enforce_demo_size(member_count: int, what: str = "모델") -> None:
+    if not DEMO_MAX_MEMBERS or member_count <= DEMO_MAX_MEMBERS:
+        return
+    raise HTTPException(
+        status_code=413,
+        detail=(
+            f"{what} 규모가 이 공개 데모의 한도를 넘습니다 "
+            f"(부재 {member_count}개 > 한도 {DEMO_MAX_MEMBERS}개). "
+            "더 작은 모델로 시도해 주시거나, 저장소를 내려받아 로컬에서 실행해 주세요."
+        ),
+    )
 
 
 # Application
@@ -128,6 +218,18 @@ app.include_router(chat_router)
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+# The landing page is a self-contained static bundle at the repo root
+# (built by scripts/build_landing.py). It is served here so a single-origin
+# deployment works out of the box; hosting it separately is also supported —
+# see the app-base <meta> in landing/index.template.html.
+LANDING_DIR = BASE_DIR.parent.parent / "landing"
+if (LANDING_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=LANDING_DIR / "assets"),
+              name="landing-assets")
+if (LANDING_DIR / "files").is_dir():
+    app.mount("/files", StaticFiles(directory=LANDING_DIR / "files"),
+              name="landing-files")
 
 # In-memory job storage.
 #
@@ -219,14 +321,24 @@ def _assert_full_context_for_recommendations(ctx: dict, analysis_id: str) -> Non
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Home — V2 3D Building Editor"""
-    return templates.TemplateResponse(request, "editor_v2.html")
+    """Landing page.
+
+    The bare domain used to serve the editor, so anyone given the root URL
+    landed in a tool with no explanation and no way back to the pitch. The
+    editor now lives at /editor-figma, which the landing links into.
+    """
+    index = LANDING_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index), media_type="text/html")
+    # Landing not built yet (scripts/build_landing.py) — fall back to the editor
+    # rather than 404ing a local dev session.
+    return templates.TemplateResponse(request, "editor_figma.html")
 
 
 @app.get("/landing", response_class=HTMLResponse)
 async def landing(request: Request):
-    """Product landing page — OpenSees-MCP marketing/intro."""
-    return templates.TemplateResponse(request, "landing.html")
+    """Kept so existing links keep working; the landing is now the root."""
+    return RedirectResponse(url="/", status_code=307)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -240,8 +352,10 @@ async def claude_status():
 
 
 @app.post("/api/claude/parse-building")
-async def parse_building_natural_language(input_data: NaturalLanguageInput):
+async def parse_building_natural_language(request: Request,
+                                          input_data: NaturalLanguageInput):
     """Parse natural language to BuildingIntent, then resolve to config"""
+    _enforce_llm_quota(request)
     try:
         # Step 1: Claude → BuildingIntent
         intent = parse_building(input_data.text)
@@ -490,6 +604,8 @@ async def live_load_preview():
 @app.post("/api/building/analyze")
 async def analyze_building_api(input_data: BuildingInput):
     """Run 3D building analysis and return results for the editor"""
+    _enforce_demo_size(_estimate_member_count(input_data.config), "요청하신 모델")
+
     job_id = str(uuid.uuid4())
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -910,16 +1026,36 @@ async def get_building_result(job_id: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/v2/parse-ifc")
-async def parse_ifc_v2_api(file: UploadFile = File(...)):
+async def parse_ifc_v2_api(request: Request, file: UploadFile = File(...)):
     """V2: IFC → Node-Element StructuralModel 변환"""
     import tempfile, os
 
     if not file.filename.lower().endswith(".ifc"):
         raise HTTPException(status_code=400, detail="IFC 파일(.ifc)만 업로드할 수 있습니다.")
 
-    content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+    # Read in chunks with a running limit. `await file.read()` pulled the whole
+    # upload into memory BEFORE the size check, so an oversized POST killed the
+    # container before the check could reject it.
+    max_bytes = IFC_MAX_UPLOAD_MB * 1024 * 1024
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기가 {IFC_MAX_UPLOAD_MB}MB를 초과합니다.")
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"파일 크기가 {IFC_MAX_UPLOAD_MB}MB를 초과합니다.")
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ifc")
     try:
@@ -940,10 +1076,16 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             viewer_dir = JOBS_DIR / "v2_viewers"
             viewer_dir.mkdir(parents=True, exist_ok=True)
+            # Unguessable name. A second-resolution timestamp is only 86,400
+            # candidates a day, and /api/v2/viewer/{filename} has no ownership
+            # check — so anyone could enumerate another visitor's uploaded
+            # model. The uuid also removes the same-second overwrite collision.
+            # The original filename is deliberately NOT put in the title: it
+            # leaks the uploader's project name to whoever opens the viewer.
             viewer_path = generate_model_viewer(
                 model,
-                output_path=str(viewer_dir / f"model_{ts}.html"),
-                title=f"IFC Model: {file.filename}",
+                output_path=str(viewer_dir / f"model_{ts}_{uuid.uuid4().hex}.html"),
+                title="IFC Model",
             )
         except Exception as viewer_err:
             logger.warning(
@@ -1070,6 +1212,10 @@ async def analyze_v2_api(request: Request):
         config_built = True
 
     warnings: list[str] = []  # 부분 실패 정보 (success 응답에 포함)
+
+    # An uploaded/edited V2 model carries its elements directly, so count them
+    # rather than estimating from a grid config.
+    _enforce_demo_size(len(getattr(model, "elements", {}) or {}), "이 모델")
 
     if not config_built:
         # 요소 분류 확인 + 자동 분류 (IFC는 elem_type이 누락된 경우가 있음)
@@ -3025,6 +3171,43 @@ async def export_dxf(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "mode": "simple (no Redis)"}
+
+
+@app.get("/api/health/demo")
+async def health_demo():
+    """Is it worth sending a visitor into a live run right now?
+
+    The landing page calls this before opening the "run it yourself" door. A
+    visitor whose first click ends in a timeout or a raw error concludes the
+    tool does not work — better to say "busy, come back" than to hand them a
+    request that will sit behind three others.
+    """
+    depth = queue_depth()
+    kds_offline = None
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core import kds_cache
+        kds_offline = kds_cache.is_offline()
+        kds_mode = kds_cache.mode()
+    except Exception:
+        kds_mode = "unknown"
+
+    # Busy is not broken: the run still works, it just queues.
+    ready = depth <= 2
+    return {
+        "ready": ready,
+        "queue_depth": depth,
+        "kds_source": "snapshot" if (kds_mode in ("prefer", "only") or kds_offline)
+                      else "database",
+        "kds_mode": kds_mode,
+        "demo_max_members": DEMO_MAX_MEMBERS or None,
+        "expected_seconds": 15,
+        "message": (
+            "지금 바로 실행할 수 있습니다." if ready else
+            f"현재 {depth}건이 대기 중입니다. 잠시 후 다시 시도해 주세요."
+        ),
+    }
 
 
 if __name__ == "__main__":
