@@ -212,20 +212,42 @@ def _enforce_llm_quota(request: Request) -> None:
 
 
 def _estimate_member_count(config: Dict[str, Any]) -> int:
-    """Members a rectangular-grid config will generate, before building it."""
+    """Members a config will generate, without running the solver.
+
+    The arithmetic path covers a rectangular grid. A config can instead describe
+    its plan as ``zones`` (L-shape / T-shape / setback), which carries no
+    bays_x/bays_y at the top level — that used to fall through to 0 and wave the
+    request past the guard entirely. For those, build the node-element IR and
+    count it: exact, and cheap next to the solve it is protecting.
+    """
     try:
         n_story = len(config.get("stories") or []) or int(config.get("num_stories") or 0)
         nx = len(config.get("bays_x") or []) or int(config.get("num_bays_x") or 0)
         ny = len(config.get("bays_y") or []) or int(config.get("num_bays_y") or 0)
     except (TypeError, ValueError):
         return 0
-    if not (n_story and nx and ny):
+
+    if n_story and nx and ny:
+        gx, gy = nx + 1, ny + 1
+        columns = gx * gy * n_story
+        beams_x = nx * gy * n_story
+        beams_y = ny * gx * n_story
+        return columns + beams_x + beams_y
+
+    if not config.get("zones"):
         return 0
-    gx, gy = nx + 1, ny + 1
-    columns = gx * gy * n_story
-    beams_x = nx * gy * n_story
-    beams_y = ny * gx * n_story
-    return columns + beams_x + beams_y
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.structural_model import StructuralModel
+        return len(StructuralModel.from_building_config(config).elements or {})
+    except Exception as exc:
+        # A config we cannot even build is not one to hand to the solver.
+        logger.warning("member-count estimate failed for a zone config: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="모델 구성을 해석할 수 없습니다. 입력값을 확인해 주세요.",
+        )
 
 
 def _enforce_demo_size(member_count: int, what: str = "모델") -> None:
