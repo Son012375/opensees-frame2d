@@ -288,6 +288,28 @@ table.checks td.code { font-family: var(--font-mono); font-size: 12.5px; color: 
 
 .todo { color: var(--ink-300); font-size: 14px; }
 
+/* ── 11 feedback ──────────────────────────────────────────────────────── */
+.fb-card {
+    max-width: 620px; padding: 22px; background: #fff;
+    border: 1px solid var(--line); border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+}
+.fb-addr { margin: 12px 0 0; font-size: 12.5px; }
+.fb-addr code { color: var(--ink-700); }
+.fb-addr .muted { display: block; margin-top: 3px; }
+.fb-asks {
+    margin: 16px 0 0; padding: 15px 17px; list-style: none;
+    background: var(--bg-soft); border-radius: var(--r-md);
+    font-size: 13.5px; color: var(--ink-600);
+}
+.fb-asks li { position: relative; padding-left: 14px; }
+.fb-asks li + li { margin-top: 6px; }
+.fb-asks li::before {
+    content: ""; position: absolute; left: 0; top: .68em;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--brand-500);
+}
+.fb-asks b { color: var(--ink-800); }
+
 .sec-foot { margin: 18px 0 0; font-size: 13.5px; color: var(--ink-500); }
 .sec-foot .muted { display: block; margin-top: 3px; font-size: 12.5px; }
 .deep { color: var(--brand-600); font-weight: 700; text-decoration: none; }

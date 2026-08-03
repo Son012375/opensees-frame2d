@@ -444,6 +444,33 @@
     }
   }
 
+  // ── feedback ─────────────────────────────────────────────────────────
+  var FEEDBACK_TO = "mk0010@khu.ac.kr";
+
+  function mailtoHref(topic, checkRow) {
+    var rec = variants[select.value] || {};
+    var ms = rec.member_summary || {};
+    var lines = [
+      "지적 내용:",
+      "",
+      "",
+      "— 아래는 어느 화면을 보고 계셨는지 알려주는 정보입니다 (지워도 됩니다) —",
+      "기둥 단면: " + select.value,
+      "판정: " + (rec.overall_status || "-") +
+        " · 최대 상관비 " + fmt(ms.max_interaction_ratio) +
+        " · NG " + (ms.ng == null ? "-" : ms.ng) + "/" + (ms.total == null ? "-" : ms.total),
+    ];
+    if (checkRow) {
+      lines.push("해당 검토: " + checkRow.label +
+        " (" + (checkRow.status || "미평가") + ", " + (checkRow.code_ref || "-") + ")");
+    }
+    lines.push("bake: " + manifest.git_commit + " / " + (manifest.generated_at || "").slice(0, 10));
+
+    return "mailto:" + FEEDBACK_TO +
+      "?subject=" + encodeURIComponent("[OpenSees-MCP 데모] " + (topic || "지적")) +
+      "&body=" + encodeURIComponent(lines.join("\n"));
+  }
+
   // ── is the app awake? ────────────────────────────────────────────────
   // The CTA promises a live run. If the solver is queued or the app is asleep,
   // saying so beforehand costs nothing; letting the visitor find out by waiting
@@ -550,6 +577,8 @@
     renderMembers(rec);
     renderModal(rec);
     syncRunCta(name);
+    var mail = $("#fb-mail");
+    if (mail) mail.href = mailtoHref();
 
     // How many of the NG members this one combination actually governs. The
     // envelope NG count is over all 36 combinations, so quoting it against a
@@ -594,11 +623,17 @@
   render(start);
   probeHealth();
 
-  // Inline dispute buttons — wiring lands with the feedback phase; for now
-  // make sure a click is never a dead end.
+  // Inline dispute buttons. A disagreement is worth almost nothing without the
+  // state it was formed against, and nobody will retype it — so the click
+  // carries the variant, the verdict and the bake commit into the draft.
   document.addEventListener("click", function (ev) {
     var btn = ev.target.closest && ev.target.closest(".dispute");
     if (!btn) return;
+    var key = btn.getAttribute("data-anchor");
+    var rec = variants[select.value] || {};
+    var row = (rec.checks || []).filter(function (c) { return c.key === key; })[0];
+    var mail = $("#fb-mail");
+    if (mail) mail.href = mailtoHref(row ? row.label + " 검토가 다릅니다" : "지적", row);
     var target = document.getElementById("feedback");
     if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
   });
