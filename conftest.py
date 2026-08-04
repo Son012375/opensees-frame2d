@@ -9,8 +9,18 @@
 # Note: both `core/` (legacy MVP contract_interpreter) and
 # `mcp-server/core/` (V2 analysis engine) exist as namespace packages
 # (no __init__.py) so PEP 420 merges them at import time.
+import os
 import sys
 from pathlib import Path
+
+# matplotlib picks an interactive backend (TkAgg on Windows) when a display is
+# available, and the report-rendering tests then create and tear down Tcl
+# interpreters from whatever thread pytest happens to be on. That fails
+# intermittently with `_tkinter.TclError` — a *different* test each run, because
+# the ordering is randomised, which makes the failure look like a real
+# regression somewhere new every time. Nothing under test needs a window.
+# Must be set before anything imports matplotlib (visualization.py does).
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 _ROOT = Path(__file__).resolve().parent
 _MCP_SERVER = _ROOT / "mcp-server"

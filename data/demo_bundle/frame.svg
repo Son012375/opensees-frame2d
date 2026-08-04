@@ -1,0 +1,78 @@
+<svg class="frame-svg" viewBox="0 0 720 645" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3층 강구조 골조 — 절점 36개, 부재 63개">
+  <g class="members">
+    <line class="mb mb--column" data-m="1" data-type="column" data-story="1" x1="283.35" y1="325.76" x2="283.35" y2="217.48"/>
+    <line class="mb mb--column" data-m="10" data-type="column" data-story="2" x1="283.35" y1="217.48" x2="283.35" y2="122.74"/>
+    <line class="mb mb--column" data-m="19" data-type="column" data-story="3" x1="283.35" y1="122.74" x2="283.35" y2="28.0"/>
+    <line class="mb mb--beam_x" data-m="28" data-type="beam_x" data-story="1" x1="283.35" y1="217.48" x2="487.68" y2="273.45"/>
+    <line class="mb mb--beam_x" data-m="34" data-type="beam_x" data-story="2" x1="283.35" y1="122.74" x2="487.68" y2="178.71"/>
+    <line class="mb mb--beam_x" data-m="40" data-type="beam_x" data-story="3" x1="283.35" y1="28.0" x2="487.68" y2="83.97"/>
+    <line class="mb mb--beam_y" data-m="46" data-type="beam_y" data-story="1" x1="283.35" y1="217.48" x2="155.68" y2="307.05"/>
+    <line class="mb mb--beam_y" data-m="52" data-type="beam_y" data-story="2" x1="283.35" y1="122.74" x2="155.68" y2="212.31"/>
+    <line class="mb mb--beam_y" data-m="58" data-type="beam_y" data-story="3" x1="283.35" y1="28.0" x2="155.68" y2="117.57"/>
+    <line class="mb mb--column" data-m="2" data-type="column" data-story="1" x1="487.68" y1="381.73" x2="487.68" y2="273.45"/>
+    <line class="mb mb--column" data-m="4" data-type="column" data-story="1" x1="155.68" y1="415.33" x2="155.68" y2="307.05"/>
+    <line class="mb mb--column" data-m="11" data-type="column" data-story="2" x1="487.68" y1="273.45" x2="487.68" y2="178.71"/>
+    <line class="mb mb--column" data-m="13" data-type="column" data-story="2" x1="155.68" y1="307.05" x2="155.68" y2="212.31"/>
+    <line class="mb mb--column" data-m="20" data-type="column" data-story="3" x1="487.68" y1="178.71" x2="487.68" y2="83.97"/>
+    <line class="mb mb--column" data-m="22" data-type="column" data-story="3" x1="155.68" y1="212.31" x2="155.68" y2="117.57"/>
+    <line class="mb mb--beam_x" data-m="29" data-type="beam_x" data-story="1" x1="487.68" y1="273.45" x2="692.0" y2="329.42"/>
+    <line class="mb mb--beam_x" data-m="30" data-type="beam_x" data-story="1" x1="155.68" y1="307.05" x2="360.0" y2="363.02"/>
+    <line class="mb mb--beam_x" data-m="35" data-type="beam_x" data-story="2" x1="487.68" y1="178.71" x2="692.0" y2="234.68"/>
+    <line class="mb mb--beam_x" data-m="36" data-type="beam_x" data-story="2" x1="155.68" y1="212.31" x2="360.0" y2="268.28"/>
+    <line class="mb mb--beam_x" data-m="41" data-type="beam_x" data-story="3" x1="487.68" y1="83.97" x2="692.0" y2="139.94"/>
+    <line class="mb mb--beam_x" data-m="42" data-type="beam_x" data-story="3" x1="155.68" y1="117.57" x2="360.0" y2="173.54"/>
+    <line class="mb mb--beam_y" data-m="47" data-type="beam_y" data-story="1" x1="155.68" y1="307.05" x2="28.0" y2="396.62"/>
+    <line class="mb mb--beam_y" data-m="48" data-type="beam_y" data-story="1" x1="487.68" y1="273.45" x2="360.0" y2="363.02"/>
+    <line class="mb mb--beam_y" data-m="53" data-type="beam_y" data-story="2" x1="155.68" y1="212.31" x2="28.0" y2="301.88"/>
+    <line class="mb mb--beam_y" data-m="54" data-type="beam_y" data-story="2" x1="487.68" y1="178.71" x2="360.0" y2="268.28"/>
+    <line class="mb mb--beam_y" data-m="59" data-type="beam_y" data-story="3" x1="155.68" y1="117.57" x2="28.0" y2="207.14"/>
+    <line class="mb mb--beam_y" data-m="60" data-type="beam_y" data-story="3" x1="487.68" y1="83.97" x2="360.0" y2="173.54"/>
+    <line class="mb mb--column" data-m="3" data-type="column" data-story="1" x1="692.0" y1="437.7" x2="692.0" y2="329.42"/>
+    <line class="mb mb--column" data-m="5" data-type="column" data-story="1" x1="360.0" y1="471.3" x2="360.0" y2="363.02"/>
+    <line class="mb mb--column" data-m="7" data-type="column" data-story="1" x1="28.0" y1="504.9" x2="28.0" y2="396.62"/>
+    <line class="mb mb--column" data-m="12" data-type="column" data-story="2" x1="692.0" y1="329.42" x2="692.0" y2="234.68"/>
+    <line class="mb mb--column" data-m="14" data-type="column" data-story="2" x1="360.0" y1="363.02" x2="360.0" y2="268.28"/>
+    <line class="mb mb--column" data-m="16" data-type="column" data-story="2" x1="28.0" y1="396.62" x2="28.0" y2="301.88"/>
+    <line class="mb mb--column" data-m="21" data-type="column" data-story="3" x1="692.0" y1="234.68" x2="692.0" y2="139.94"/>
+    <line class="mb mb--column" data-m="23" data-type="column" data-story="3" x1="360.0" y1="268.28" x2="360.0" y2="173.54"/>
+    <line class="mb mb--column" data-m="25" data-type="column" data-story="3" x1="28.0" y1="301.88" x2="28.0" y2="207.14"/>
+    <line class="mb mb--beam_x" data-m="31" data-type="beam_x" data-story="1" x1="360.0" y1="363.02" x2="564.32" y2="418.99"/>
+    <line class="mb mb--beam_x" data-m="32" data-type="beam_x" data-story="1" x1="28.0" y1="396.62" x2="232.32" y2="452.59"/>
+    <line class="mb mb--beam_x" data-m="37" data-type="beam_x" data-story="2" x1="360.0" y1="268.28" x2="564.32" y2="324.25"/>
+    <line class="mb mb--beam_x" data-m="38" data-type="beam_x" data-story="2" x1="28.0" y1="301.88" x2="232.32" y2="357.85"/>
+    <line class="mb mb--beam_x" data-m="43" data-type="beam_x" data-story="3" x1="360.0" y1="173.54" x2="564.32" y2="229.51"/>
+    <line class="mb mb--beam_x" data-m="44" data-type="beam_x" data-story="3" x1="28.0" y1="207.14" x2="232.32" y2="263.11"/>
+    <line class="mb mb--beam_y" data-m="49" data-type="beam_y" data-story="1" x1="360.0" y1="363.02" x2="232.32" y2="452.59"/>
+    <line class="mb mb--beam_y" data-m="50" data-type="beam_y" data-story="1" x1="692.0" y1="329.42" x2="564.32" y2="418.99"/>
+    <line class="mb mb--beam_y" data-m="55" data-type="beam_y" data-story="2" x1="360.0" y1="268.28" x2="232.32" y2="357.85"/>
+    <line class="mb mb--beam_y" data-m="56" data-type="beam_y" data-story="2" x1="692.0" y1="234.68" x2="564.32" y2="324.25"/>
+    <line class="mb mb--beam_y" data-m="61" data-type="beam_y" data-story="3" x1="360.0" y1="173.54" x2="232.32" y2="263.11"/>
+    <line class="mb mb--beam_y" data-m="62" data-type="beam_y" data-story="3" x1="692.0" y1="139.94" x2="564.32" y2="229.51"/>
+    <line class="mb mb--column" data-m="6" data-type="column" data-story="1" x1="564.32" y1="527.27" x2="564.32" y2="418.99"/>
+    <line class="mb mb--column" data-m="8" data-type="column" data-story="1" x1="232.32" y1="560.87" x2="232.32" y2="452.59"/>
+    <line class="mb mb--column" data-m="15" data-type="column" data-story="2" x1="564.32" y1="418.99" x2="564.32" y2="324.25"/>
+    <line class="mb mb--column" data-m="17" data-type="column" data-story="2" x1="232.32" y1="452.59" x2="232.32" y2="357.85"/>
+    <line class="mb mb--column" data-m="24" data-type="column" data-story="3" x1="564.32" y1="324.25" x2="564.32" y2="229.51"/>
+    <line class="mb mb--column" data-m="26" data-type="column" data-story="3" x1="232.32" y1="357.85" x2="232.32" y2="263.11"/>
+    <line class="mb mb--beam_x" data-m="33" data-type="beam_x" data-story="1" x1="232.32" y1="452.59" x2="436.65" y2="508.56"/>
+    <line class="mb mb--beam_x" data-m="39" data-type="beam_x" data-story="2" x1="232.32" y1="357.85" x2="436.65" y2="413.82"/>
+    <line class="mb mb--beam_x" data-m="45" data-type="beam_x" data-story="3" x1="232.32" y1="263.11" x2="436.65" y2="319.08"/>
+    <line class="mb mb--beam_y" data-m="51" data-type="beam_y" data-story="1" x1="564.32" y1="418.99" x2="436.65" y2="508.56"/>
+    <line class="mb mb--beam_y" data-m="57" data-type="beam_y" data-story="2" x1="564.32" y1="324.25" x2="436.65" y2="413.82"/>
+    <line class="mb mb--beam_y" data-m="63" data-type="beam_y" data-story="3" x1="564.32" y1="229.51" x2="436.65" y2="319.08"/>
+    <line class="mb mb--column" data-m="9" data-type="column" data-story="1" x1="436.65" y1="616.84" x2="436.65" y2="508.56"/>
+    <line class="mb mb--column" data-m="18" data-type="column" data-story="2" x1="436.65" y1="508.56" x2="436.65" y2="413.82"/>
+    <line class="mb mb--column" data-m="27" data-type="column" data-story="3" x1="436.65" y1="413.82" x2="436.65" y2="319.08"/>
+  </g>
+  <g class="supports">
+    <path class="sup" d="M277.35 331.76 L289.35 331.76 L283.35 325.76 Z"/>
+    <path class="sup" d="M481.68 387.73 L493.68 387.73 L487.68 381.73 Z"/>
+    <path class="sup" d="M686.0 443.7 L698.0 443.7 L692.0 437.7 Z"/>
+    <path class="sup" d="M149.68 421.33 L161.68 421.33 L155.68 415.33 Z"/>
+    <path class="sup" d="M354.0 477.3 L366.0 477.3 L360.0 471.3 Z"/>
+    <path class="sup" d="M558.32 533.27 L570.32 533.27 L564.32 527.27 Z"/>
+    <path class="sup" d="M22.0 510.9 L34.0 510.9 L28.0 504.9 Z"/>
+    <path class="sup" d="M226.32 566.87 L238.32 566.87 L232.32 560.87 Z"/>
+    <path class="sup" d="M430.65 622.84 L442.65 622.84 L436.65 616.84 Z"/>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+{
+ "job_id": "de7f0359-573a-4a93-98fc-1c885a76ea82",
+ "overall_status": "NG",
+ "max_interaction_ratio": 1.4933,
+ "ng": 10,
+ "total": 63,
+ "combos": 36,
+ "cases": 7,
+ "files": {
+  "report_example.html": 473432,
+  "tables_example.xlsx": 127821,
+  "drawing_example.dxf": 262200
+ }
+}

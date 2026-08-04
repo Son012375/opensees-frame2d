@@ -16,6 +16,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-surface:
+    name: no non-public paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # This repository is public. The research working tree it was split from
+      # also holds an unsubmitted manuscript, commercial-tool comparison output
+      # and a committed node_modules. Keeping those out with .gitignore would
+      # mean shipping ignore rules that also hide the manuscript from
+      # `git status` in the research tree — so the guard lives here instead,
+      # where it fails loudly and affects nothing outside this repo.
+      - name: Fail if non-public paths are tracked
+        run: |
+          set -e
+          patterns='^docs/paper1_open_source_alternative/|^outputs/|(^|/)node_modules/|^data/etabs_images/|^data/etabs_summary/|^docs/etabs/|^data/kds_images/'
+          hits=$(git ls-files | grep -E "$patterns" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::These paths must not be tracked in the public repository:"
+            echo "$hits" | head -50
+            echo "total: $(echo "$hits" | wc -l)"
+            exit 1
+          fi
+          echo "OK — no non-public paths tracked ($(git ls-files | wc -l) files)"
+
   pytest-and-smoke:
     name: pytest + FastAPI smoke (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

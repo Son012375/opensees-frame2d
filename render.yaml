@@ -12,6 +12,13 @@ services:
     startCommand: |
       cd webapp/backend && python -m uvicorn app.main_simple:app --host 0.0.0.0 --port $PORT
     envVars:
+      # This blueprint autoDeploys, so it IS the public demo. Without this the
+      # app ships with /docs open, the chat router mounted, /editor-v2 and
+      # /editor-lab reachable, and no member or LLM caps — every guard in
+      # main_simple.py keys off this one flag and defaults to off so that local
+      # development is unaffected.
+      - key: DEMO_MODE
+        value: "1"
       - key: PYTHONPATH
         value: /opt/render/project/src/webapp/backend:/opt/render/project/src/mcp-server
       - key: MCP_SERVER_PATH

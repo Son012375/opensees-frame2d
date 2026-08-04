@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V2 3D Building Editor - OpenSees</title>
+
+    <!-- Three.js -->
+    <script src="/static/vendor/three.min.js?v=r128"></script>
+    <script src="/static/vendor/OrbitControls.js?v=r128"></script>
+
+    <!-- Editor CSS (V2 copy) -->
+    <link rel="stylesheet" href="/static/css/editor_lab.css?v=1">
+</head>
+<body>
+    <!-- Menu Bar (ETABS-style, placeholder — wires existing functions where available) -->
+    <div id="app-menubar">
+        <div class="menu-item" tabindex="0">File
+            <div class="menu-dropdown">
+                <button onclick="saveProject()">Save Project</button>
+                <label class="menu-file-label">Open Project<input type="file" accept=".json,.v2proj,.v2proj.json" onchange="loadProject(event)" style="display:none;"></label>
+                <button onclick="exportToExcel()">Export Excel</button>
+                <button onclick="exportToDXF()">Export DXF</button>
+                <button class="menu-stub" disabled>New Model — 준비 중</button>
+            </div>
+        </div>
+        <div class="menu-item" tabindex="0">Edit
+            <div class="menu-dropdown">
+                <button onclick="switchInputTab('manual'); openInputDrawer()">Manual Input</button>
+                <button onclick="switchInputTab('nl'); openInputDrawer()">Natural Language</button>
+                <button onclick="switchInputTab('ifc'); openInputDrawer()">IFC Import</button>
+            </div>
+        </div>
+        <div class="menu-item" tabindex="0">View
+            <div class="menu-dropdown">
+                <button onclick="resetCamera()">Reset View</button>
+                <button onclick="toggleWireframe()">Wireframe</button>
+                <button onclick="toggleAxes()">Axes</button>
+                <button onclick="setViewPreset('front')">Front</button>
+                <button onclick="setViewPreset('right')">Right</button>
+                <button onclick="setViewPreset('top')">Top (Plan)</button>
+                <button onclick="setViewPreset('iso')">3D Isometric</button>
+            </div>
+        </div>
+        <div class="menu-item" tabindex="0">Define
+            <div class="menu-dropdown">
+                <button onclick="switchInputTab('manual'); openInputDrawer()">Building Config</button>
+                <button class="menu-stub" disabled>Sections — 준비 중</button>
+                <button class="menu-stub" disabled>Materials — 준비 중</button>
+            </div>
+        </div>
+        <div class="menu-item menu-disabled">Draw</div>
+        <div class="menu-item" tabindex="0">Analyze
+            <div class="menu-dropdown">
+                <button onclick="runAnalysis()">Run Analysis</button>
+                <button onclick="switchViewerTab('drift')">Story Drift</button>
+            </div>
+        </div>
+        <div class="menu-item" tabindex="0">Display
+            <div class="menu-dropdown">
+                <button onclick="setDiagramMode('moment')">Moment (BMD)</button>
+                <button onclick="setDiagramMode('shear')">Shear (SFD)</button>
+                <button onclick="setDiagramMode('axial')">Axial</button>
+                <button onclick="setDiagramMode('off')">Diagrams Off</button>
+                <button onclick="toggleDeformedShape()">Deformed Shape</button>
+                <button onclick="toggleFilterPanel()">Display Filters</button>
+            </div>
+        </div>
+        <div class="menu-item menu-disabled">Design</div>
+        <div class="menu-item menu-disabled">Detailing</div>
+        <div class="menu-item" tabindex="0">Options
+            <div class="menu-dropdown">
+                <button onclick="toggleTheme()">Toggle Theme</button>
+                <button class="menu-stub" disabled>Units: kN · m</button>
+            </div>
+        </div>
+        <div class="menu-item menu-disabled">Help</div>
+    </div>
+
+    <!-- Icon Ribbon -->
+    <div id="app-topbar">
+        <a href="/" class="ribbon-logo" title="Home">OpenSees</a>
+        <span class="ribbon-title">Lab · 3D Building Editor</span>
+        <span class="ribbon-sep"></span>
+        <button class="icon-btn" onclick="saveProject()" title="프로젝트 저장 (.json)">💾</button>
+        <label class="icon-btn" title="프로젝트 불러오기">📂<input type="file" accept=".json,.v2proj,.v2proj.json" onchange="loadProject(event)" style="display:none;"></label>
+        <button class="icon-btn" id="btn-export-excel" onclick="exportToExcel()" disabled title="해석 결과 Excel 다운로드">📊</button>
+        <button class="icon-btn" id="btn-export-dxf" onclick="exportToDXF()" title="DXF 평면도 내보내기">📐</button>
+        <span class="ribbon-sep"></span>
+        <button class="icon-btn icon-run" onclick="runAnalysis()" title="해석 실행 (Analyze)">▶ Run</button>
+        <span class="ribbon-sep"></span>
+        <button class="icon-btn" onclick="resetCamera()" title="Reset View">↺</button>
+        <button class="icon-btn" onclick="toggleWireframe()" title="Wireframe">▢</button>
+        <button class="icon-btn" onclick="toggleAxes()" title="Axes">✥</button>
+        <button class="icon-btn" onclick="setViewPreset('front')" title="Front (XZ)">F</button>
+        <button class="icon-btn" onclick="setViewPreset('right')" title="Right (YZ)">R</button>
+        <button class="icon-btn" onclick="setViewPreset('top')" title="Top / Plan (XY)">T</button>
+        <button class="icon-btn" onclick="setViewPreset('iso')" title="Isometric 3D">3D</button>
+        <span class="ribbon-spacer"></span>
+        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="테마 전환">&#x263E;</button>
+        <a href="/" class="nav-link">Home</a>
+    </div>
+
+    <!-- Main Layout (grid app shell) -->
+    <div class="app-body" id="app-body">
+        <!-- Left vertical icon rail -->
+        <div id="app-rail">
+            <button class="rail-btn" onclick="switchInputTab('manual'); openInputDrawer()" title="직접 입력 (Config)">▦</button>
+            <button class="rail-btn" onclick="switchInputTab('nl'); openInputDrawer()" title="자연어 입력">🗣</button>
+            <button class="rail-btn" onclick="switchInputTab('ifc'); openInputDrawer()" title="IFC 가져오기">📁</button>
+            <span class="rail-sep"></span>
+            <button class="rail-btn" onclick="toggleModelExplorer()" title="Model Explorer 접기/펼치기">🌲</button>
+            <button class="rail-btn" onclick="toggleInputDrawer()" title="입력 패널 접기/펼치기">◧</button>
+            <button class="rail-btn" onclick="togglePropertyDock()" title="속성 패널 접기/펼치기">▣</button>
+        </div>
+
+        <!-- Model Explorer (placeholder tree; data-driven in later phase) -->
+        <div id="model-explorer">
+            <div class="mx-tabs">
+                <button class="mx-tab active" data-mxtab="model" onclick="switchExplorerTab('model')">Model</button>
+                <button class="mx-tab" data-mxtab="display" onclick="switchExplorerTab('display')">Display</button>
+                <button class="mx-tab" data-mxtab="tables" onclick="switchExplorerTab('tables')">Tables</button>
+                <button class="mx-tab" data-mxtab="reports" onclick="switchExplorerTab('reports')">Reports</button>
+            </div>
+            <div class="mx-body">
+                <div class="mx-pane active" id="mxpane-model">
+                    <ul class="mx-tree" id="mx-tree">
+                        <li class="mx-branch mx-root"><span class="mx-twist">▾</span>📁 Model
+                            <ul>
+                                <li class="mx-leaf" data-mx="stories">🏢 Structure Layout — Stories</li>
+                                <li class="mx-leaf" data-mx="objects">▤ Structural Objects</li>
+                                <li class="mx-leaf" data-mx="sections">▥ Properties — Sections</li>
+                                <li class="mx-leaf" data-mx="materials">◈ Properties — Materials</li>
+                                <li class="mx-leaf" data-mx="loads">⭳ Loads — Cases / Combos</li>
+                                <li class="mx-leaf" data-mx="dc">✓ Design Check</li>
+                            </ul>
+                        </li>
+                    </ul>
+                    <div class="mx-hint">해석을 실행하면 모델 정보가 채워집니다.</div>
+                </div>
+                <div class="mx-pane" id="mxpane-display"><div class="mx-hint">Display 항목 — 준비 중</div></div>
+                <div class="mx-pane" id="mxpane-tables"><div class="mx-hint">Tables 항목 — 준비 중</div></div>
+                <div class="mx-pane" id="mxpane-reports"><div class="mx-hint">Reports 항목 — 준비 중</div></div>
+            </div>
+        </div>
+
+        <!-- Left: Config Panel (input drawer — moved intact, all IDs preserved) -->
+        <div class="panel panel-left" id="config-panel">
+            <div class="panel-header">
+                <h3>Building Config</h3>
+            </div>
+
+            <!-- Input Mode Tabs -->
+            <div class="input-tabs">
+                <button class="input-tab active" onclick="switchInputTab('manual')">직접 입력</button>
+                <button class="input-tab" onclick="switchInputTab('nl')">자연어</button>
+                <button class="input-tab" onclick="switchInputTab('ifc')">IFC</button>
+            </div>
+
+            <div class="panel-body">
+                <!-- ══ Manual Tab ══ -->
+                <div id="tab-manual" class="tab-content active">
+                    <!-- Quick Preset -->
+                    <div class="form-group">
+                        <label>Preset</label>
+                        <select id="preset-select" onchange="applyPreset()">
+                            <option value="">-- Select --</option>
+                            <option value="3story">3-Story Office</option>
+                            <option value="5story">5-Story Office</option>
+                            <option value="5story_mixed">5-Story Mixed-Use</option>
+                            <option value="10story">10-Story Office</option>
+                        </select>
+                    </div>
+
+                    <hr>
+
+                    <!-- Stories (per-story editor) -->
+                    <div class="form-section">
+                        <h4>Stories</h4>
+                        <div id="story-list-container">
+                            <!-- Dynamically generated story rows -->
+                        </div>
+                        <button class="btn-add-story" onclick="addStory()">+ 층 추가</button>
+                    </div>
+
+                    <!-- Bays / Zones -->
+                    <div class="form-section">
+                        <h4>
+                            Bays
+                            <label class="toggle-inline" style="margin-left:auto;font-weight:normal;font-size:11px;">
+                                <input type="checkbox" id="irregular-toggle" onchange="toggleIrregular()">
+                                비정형
+                            </label>
+                        </h4>
+                        <p id="irregular-hint" class="form-hint" style="display:none;">
+                            L자형, T자형, Setback 등 비직교 평면을 존(Zone)으로 정의합니다.
+                        </p>
+                        <!-- Regular bays (default) -->
+                        <div id="regular-bays-panel">
+                            <div class="form-group">
+                                <label>Bays X (widths, m)</label>
+                                <input type="text" id="input-bays-x" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('x')">
+                                <div id="bays-x-slider-container" class="bay-slider-group"></div>
+                            </div>
+                            <div class="form-group">
+                                <label>Bays Y (widths, m)</label>
+                                <input type="text" id="input-bays-y" value="8.0, 8.0" placeholder="8.0, 8.0"
+                                       onchange="syncTextToBaySliders('y')">
+                                <div id="bays-y-slider-container" class="bay-slider-group"></div>
+                            </div>
+                        </div>
+                        <!-- Irregular zones panel -->
+                        <div id="irregular-zones-panel" style="display:none;">
+                            <div class="form-group">
+                                <label>형태 프리셋</label>
+                                <select id="zone-preset" onchange="applyZonePreset()">
+                                    <option value="">-- 선택 --</option>
+                                    <option value="L-shape">&#x2517; L자형 (2존)</option>
+                                    <option value="T-shape">&#x2533; T자형 (2존)</option>
+                                    <option value="setback">&#x25BD; Setback (상층 축소)</option>
+                                </select>
+                            </div>
+                            <div id="zone-list-container">
+                                <!-- Dynamically generated zone rows -->
+                            </div>
+                            <button class="btn-add-story" onclick="addZone()">+ 존 추가</button>
+                            <!-- Zone plan view (2D top-down) -->
+                            <div class="form-group" style="margin-top:10px;">
+                                <label>평면도 (위에서 본 배치)</label>
+                                <canvas id="zone-plan-canvas" width="320" height="260"
+                                        style="width:100%;aspect-ratio:4/3.2;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sections -->
+                    <div class="form-section">
+                        <h4>Sections</h4>
+                        <div class="form-group">
+                            <label>Column</label>
+                            <div class="input-with-action">
+                                <select id="input-col-section">
+                                    <option value="H-300x300">H-300x300</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('column')" title="전체 기둥 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Beam X</label>
+                            <div class="input-with-action">
+                                <select id="input-beamx-section">
+                                    <option value="H-400x200">H-400x200</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('beam_x')" title="전체 X보 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Beam Y</label>
+                            <div class="input-with-action">
+                                <select id="input-beamy-section">
+                                    <option value="H-400x200">H-400x200</option>
+                                </select>
+                                <button class="btn-apply-all" onclick="applyGlobalSection('beam_y')" title="전체 Y보 일괄 적용 + 재해석">전체 적용</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Material & Options -->
+                    <div class="form-section">
+                        <h4>Material & Options</h4>
+                        <div class="form-group">
+                            <label>Material</label>
+                            <select id="input-material">
+                                <option value="SS275">SS275</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Supports</label>
+                            <select id="input-supports">
+                                <option value="fixed">Fixed</option>
+                                <option value="pinned">Pinned</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Region</label>
+                            <input type="text" id="input-region" value="서울" placeholder="서울, 부산, ...">
+                        </div>
+                        <div class="form-group">
+                            <label>Importance</label>
+                            <select id="input-importance">
+                                <option value="II" selected>II (일반)</option>
+                                <option value="I">I (중요)</option>
+                                <option value="특">특 (특수)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Seismic Method</label>
+                            <select id="input-seismic-method" onchange="document.getElementById('rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                <option value="ELF" selected>ELF (등가정적)</option>
+                                <option value="RSA">RSA (응답스펙트럼)</option>
+                            </select>
+                        </div>
+                        <div id="rsa-options" style="display:none;">
+                            <div class="form-group">
+                                <label>Modal Combination</label>
+                                <select id="input-rsa-combination">
+                                    <option value="CQC" selected>CQC</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Direction Rule</label>
+                                <select id="input-rsa-direction">
+                                    <option value="30pct" selected>30% Rule (KDS)</option>
+                                    <option value="SRSS">SRSS</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary btn-block" onclick="runAnalysis()">
+                            해석 실행 (Analyze)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ══ Natural Language Tab ══ -->
+                <div id="tab-nl" class="tab-content">
+                    <!-- Claude API warning -->
+                    <div id="nl-api-warning" class="nl-warning" style="display:none;">
+                        Claude API 키가 설정되지 않았습니다.
+                    </div>
+
+                    <div class="form-section">
+                        <h4>자연어 입력</h4>
+                        <textarea id="nl-input" class="nl-textarea" rows="4"
+                            placeholder="예: 서울 강남, 1층 근생, 2~5층 오피스, 3×2 경간"></textarea>
+                    </div>
+
+                    <!-- Example prompts -->
+                    <div class="nl-examples">
+                        <span class="nl-examples-label">예시:</span>
+                        <a href="#" onclick="fillNLExample(0); return false;">5층 오피스</a>
+                        <a href="#" onclick="fillNLExample(1); return false;">복합용도</a>
+                        <a href="#" onclick="fillNLExample(2); return false;">주차+사무실</a>
+                    </div>
+
+                    <div class="form-actions" style="margin-top:8px;">
+                        <button class="btn btn-primary btn-block" id="btn-nl-parse" onclick="parseBuilding()">
+                            Claude로 변환
+                        </button>
+                    </div>
+
+                    <!-- Resolution Report -->
+                    <div id="nl-resolution-report" style="display:none;">
+                        <hr>
+                        <h4 class="form-section" style="margin-bottom:4px;">변환 결과</h4>
+                        <div id="nl-report-content"></div>
+
+                        <div class="form-actions" style="margin-top:8px; display:flex; gap:6px;">
+                            <button class="btn btn-secondary" style="flex:1;" onclick="applyResolvedConfig()">
+                                직접 입력으로 수정
+                            </button>
+                            <button class="btn btn-primary" style="flex:1;" onclick="runAnalysisFromNL()">
+                                바로 해석
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══ IFC Upload Tab (3-Step Wizard) ══ -->
+                <div id="tab-ifc" class="tab-content">
+                    <!-- Step Indicator -->
+                    <div class="ifc-wizard-steps">
+                        <div class="ifc-step-circle active" data-step="1">1</div>
+                        <div class="ifc-step-line"></div>
+                        <div class="ifc-step-circle" data-step="2">2</div>
+                        <div class="ifc-step-line"></div>
+                        <div class="ifc-step-circle" data-step="3">3</div>
+                    </div>
+                    <div class="ifc-step-labels">
+                        <span class="active">Upload</span>
+                        <span>Geometry</span>
+                        <span>Config</span>
+                    </div>
+
+                    <!-- Step 1: Upload -->
+                    <div id="ifc-step-1" class="ifc-step-content active">
+                        <div class="form-section">
+                            <h4>IFC 파일 업로드</h4>
+                            <div id="ifc-dropzone" class="ifc-dropzone">
+                                <div class="ifc-dropzone-icon">&#x1F4C1;</div>
+                                <p class="ifc-dropzone-text">클릭하거나 파일을 드래그하세요</p>
+                                <p class="ifc-dropzone-hint">.ifc 파일 (Revit, ArchiCAD 등)</p>
+                                <input type="file" id="ifc-file-input" accept=".ifc" style="display:none;">
+                            </div>
+                            <div id="ifc-filename" class="ifc-filename" style="display:none;"></div>
+                        </div>
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="btn btn-primary btn-block" id="btn-ifc-upload" onclick="uploadIFC()" disabled>
+                                업로드 & 파싱
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Tool Palette (replaces geometry preview) -->
+                    <div id="ifc-step-2" class="ifc-step-content">
+
+                        <!-- Model Info (compact) -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Model Info</div>
+                            <div id="tool-model-info" class="tool-info-grid"></div>
+                        </div>
+
+                        <!-- Geometry Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Geometry</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="addNode" onclick="setEditMode('addNode')" title="Add Node">
+                                    <span class="tool-icon">+</span>
+                                    <span>Node</span>
+                                </button>
+                                <button class="tool-btn" data-mode="addElement" onclick="setEditMode('addElement')" title="Add Element">
+                                    <span class="tool-icon">/</span>
+                                    <span>Element</span>
+                                </button>
+                                <button class="tool-btn" data-mode="delete" onclick="setEditMode('delete')" title="Delete">
+                                    <span class="tool-icon">&times;</span>
+                                    <span>Delete</span>
+                                </button>
+                                <button class="tool-btn" data-mode="move" onclick="setEditMode('move')" title="Move Node">
+                                    <span class="tool-icon">&#x21C4;</span>
+                                    <span>Move</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Properties Tools -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Properties</div>
+                            <div class="tool-button-grid">
+                                <button class="tool-btn" data-mode="release" onclick="setEditMode('release')" title="Beam Release (6-DOF)">
+                                    <span class="tool-icon">&#x2B21;</span>
+                                    <span>Release</span>
+                                </button>
+                                <button class="tool-btn" data-mode="support" onclick="setEditMode('support')" title="Support Conditions">
+                                    <span class="tool-icon">&#x25BC;</span>
+                                    <span>Support</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Display Options -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Display</div>
+                            <div class="tool-options">
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-grid-snap-tool" checked onchange="toggleGridSnap()"> Grid Snap
+                                    <select id="grid-spacing-tool" style="width:55px;margin-left:4px" onchange="document.getElementById('grid-spacing').value=this.value;updateSnapGrid()">
+                                        <option value="0.5">0.5m</option>
+                                        <option value="1.0" selected>1.0m</option>
+                                        <option value="2.0">2.0m</option>
+                                        <option value="4.0">4.0m</option>
+                                    </select>
+                                </label>
+                                <label class="tool-option">
+                                    <button class="tool-mini-btn" id="btn-label-id-tool" onclick="setLabelMode('id')">ID</button>
+                                    <button class="tool-mini-btn" id="btn-label-full-tool" onclick="setLabelMode('full')">XYZ</button>
+                                    Labels
+                                </label>
+                                <label class="tool-option">
+                                    <input type="checkbox" id="chk-solid-section" onchange="toggleSolidSection()"> Solid Section (3D)
+                                </label>
+                                <label class="tool-option">
+                                    Z Level:
+                                    <select id="edit-z-level-tool" style="width:90px;margin-left:4px" onchange="document.getElementById('edit-z-level').value=this.value"></select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Selected Element Info -->
+                        <div class="tool-section">
+                            <div class="tool-section-title">Selected</div>
+                            <div id="tool-selected-info" class="tool-selected-empty">
+                                Use <b>Select</b> mode — click or drag to select members
+                            </div>
+                        </div>
+
+                        <!-- Undo/Redo + Navigation -->
+                        <div class="tool-section">
+                            <div class="tool-button-row">
+                                <button class="btn btn-secondary" onclick="editUndo()" style="flex:1">↩ Undo</button>
+                                <button class="btn btn-secondary" onclick="editRedo()" style="flex:1">↪ Redo</button>
+                            </div>
+                        </div>
+
+                        <hr style="margin:12px 0">
+
+                        <div class="ifc-nav-buttons">
+                            <button class="btn btn-secondary" onclick="goToIFCStepSafely(1)">&#x2190; 이전</button>
+                            <button class="btn btn-primary" onclick="goToIFCStep(3)">다음: Config &#x2192;</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Supplementary Config -->
+                    <div id="ifc-step-3" class="ifc-step-content">
+                        <!-- NL Helper (optional) -->
+                        <div class="form-section ifc-nl-helper">
+                            <h4>자연어 보조 입력 (선택)</h4>
+                            <textarea id="ifc-nl-input" class="nl-textarea" rows="2"
+                                placeholder="예: 1층 근생, 2~5층 오피스, 서울 강남"></textarea>
+                            <button class="btn btn-secondary btn-block" style="margin-top:4px;" onclick="applyNLToIFCForm()">
+                                NL 적용
+                            </button>
+                        </div>
+                        <hr>
+                        <!-- Per-story usage -->
+                        <div class="form-section">
+                            <h4>층별 용도</h4>
+                            <div id="ifc-story-usage-container"></div>
+                        </div>
+                        <!-- Region, Importance -->
+                        <div class="form-section">
+                            <h4>지역 / 중요도</h4>
+                            <div class="form-group">
+                                <label>지역</label>
+                                <input type="text" id="ifc-region" value="서울" placeholder="서울, 부산, ...">
+                            </div>
+                            <div class="form-group">
+                                <label>중요도</label>
+                                <select id="ifc-importance">
+                                    <option value="II" selected>II (일반)</option>
+                                    <option value="I">I (중요)</option>
+                                    <option value="특">특 (특수)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Sections, Material, Supports -->
+                        <div class="form-section">
+                            <h4>단면 / 재료</h4>
+                            <div class="form-group">
+                                <label>기둥</label>
+                                <select id="ifc-col-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>보 X</label>
+                                <select id="ifc-beamx-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>보 Y</label>
+                                <select id="ifc-beamy-section"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>재료</label>
+                                <select id="ifc-material"></select>
+                            </div>
+                            <div class="form-group">
+                                <label>지지 조건</label>
+                                <select id="ifc-supports">
+                                    <option value="fixed">Fixed</option>
+                                    <option value="pinned">Pinned</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Seismic Analysis Method -->
+                        <div class="form-section">
+                            <h4>지진해석 방법</h4>
+                            <div class="form-group">
+                                <label>Method</label>
+                                <select id="ifc-seismic-method" onchange="document.getElementById('ifc-rsa-options').style.display = this.value === 'RSA' ? 'block' : 'none'">
+                                    <option value="ELF" selected>ELF (등가정적)</option>
+                                    <option value="RSA">RSA (응답스펙트럼)</option>
+                                </select>
+                            </div>
+                            <div id="ifc-rsa-options" style="display:none;">
+                                <div class="form-group">
+                                    <label>Modal Combination</label>
+                                    <select id="ifc-rsa-combination">
+                                        <option value="CQC" selected>CQC</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Direction Rule</label>
+                                    <select id="ifc-rsa-direction">
+                                        <option value="30pct" selected>30% Rule (KDS)</option>
+                                        <option value="SRSS">SRSS</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ifc-nav-buttons">
+                            <button class="btn btn-secondary" onclick="goToIFCStepSafely(2)">&#x2190; 이전</button>
+                            <button class="btn btn-primary" onclick="runAnalysisFromIFCWizard()">해석 실행 (Analyze)</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: 3D Viewer -->
+        <div class="panel panel-center">
+            <div class="panel-header">
+                <div class="viewer-tabs">
+                    <button class="vtab-btn active" data-vtab="3d" onclick="switchViewerTab('3d')">3D Model</button>
+                    <button class="vtab-btn" data-vtab="drift" onclick="switchViewerTab('drift')">Story Drift</button>
+                </div>
+                <div class="viewer-controls">
+                    <button class="btn-icon" onclick="resetCamera()" title="Reset View">&#x21BA;</button>
+                    <button class="btn-icon" onclick="toggleWireframe()" title="Wireframe">&#x25A1;</button>
+                    <button class="btn-icon" onclick="toggleAxes()" title="Axes">&#x2725;</button>
+                    <span class="view-separator"></span>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('front')" title="Front (XZ)">F</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('right')" title="Right (YZ)">R</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('top')" title="Top (XY)">T</button>
+                    <button class="btn-icon btn-view-preset" onclick="setViewPreset('iso')" title="Isometric">3D</button>
+                    <label class="toggle-label" title="설계검토 결과 색상 표시 (OK=녹색, NG=적색, 경계=황색)">
+                        <input type="checkbox" id="toggle-dc-colors" onchange="toggleDesignCheckColors()">
+                        <span>DC Colors</span>
+                    </label>
+                    <label class="toggle-label" title="3D 단면 실제 형상 표시">
+                        <input type="checkbox" id="chk-solid-section-top" onchange="toggleSolidSectionTop()">
+                        <span>Solid</span>
+                    </label>
+                    <button class="btn-icon" id="btn-filter-panel" onclick="toggleFilterPanel()" title="Display Filters" style="font-size:11px; padding:2px 6px; min-width:auto;">Filter ▼</button>
+                </div>
+            </div>
+            <!-- Display Filter Panel (접이식) -->
+            <div id="display-filter-panel" style="display:none; position:absolute; top:36px; right:4px; z-index:100; background:var(--bg-card,#fff); border:1px solid var(--border-input,#ccc); border-radius:6px; padding:8px 10px; font-size:11px; box-shadow:0 2px 8px rgba(0,0,0,0.15); min-width:240px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <b>Display Filters</b>
+                    <button onclick="toggleFilterPanel()" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--text-secondary);">✕</button>
+                </div>
+                <!-- Loads -->
+                <div style="margin-bottom:6px;">
+                    <div style="font-weight:600; color:var(--text-secondary); margin-bottom:2px;">Loads</div>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="DL" onchange="onFilterChange()"> <span style="color:#00bcd4;">■</span> DL</label>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="LL" onchange="onFilterChange()"> <span style="color:#ff9800;">■</span> LL</label>
+                    <label style="margin-right:8px;"><input type="checkbox" data-filter="load" value="EQ" onchange="onFilterChange()"> <span style="color:#f44336;">■</span> EQ</label>
+                    <label><input type="checkbox" data-filter="load" value="Wind" onchange="onFilterChange()"> <span style="color:#9c27b0;">■</span> Wind</label>
+                    <br>
+                    <label style="margin-top:2px;"><input type="checkbox" id="toggle-reactions" onchange="onFilterChange()"> <span style="color:#ff6f00;">■</span> Reactions</label>
+                </div>
+                <!-- Story -->
+                <div style="margin-bottom:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:var(--text-secondary);">Story</span>
+                        <span>
+                            <button onclick="filterSelectAll('story',true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                            <button onclick="filterSelectAll('story',false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                        </span>
+                    </div>
+                    <div id="filter-story-checks" style="margin-top:2px;"></div>
+                </div>
+                <!-- Type -->
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:var(--text-secondary);">Member Type</span>
+                        <span>
+                            <button onclick="filterSelectAll('type',true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                            <button onclick="filterSelectAll('type',false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                        </span>
+                    </div>
+                    <div style="margin-top:2px;">
+                        <label style="margin-right:8px;"><input type="checkbox" data-filter="type" value="column" onchange="onFilterChange()" checked> Column</label>
+                        <label style="margin-right:8px;"><input type="checkbox" data-filter="type" value="beam" onchange="onFilterChange()" checked> Beam</label>
+                        <label><input type="checkbox" data-filter="type" value="brace" onchange="onFilterChange()" checked> Brace</label>
+                    </div>
+                </div>
+                <!-- Numbers (Node / Member IDs) -->
+                <div style="margin-top:6px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                    <div style="font-weight:600; color:var(--text-secondary); margin-bottom:2px;">Numbers</div>
+                    <label style="margin-right:8px;"><input type="checkbox" id="toggle-node-numbers" onchange="toggleNodeNumbers()"> <span style="color:#2e7d32;">■</span> Node #</label>
+                    <label><input type="checkbox" id="toggle-member-numbers" onchange="toggleMemberNumbers()"> <span style="color:#6a1b9a;">■</span> Member #</label>
+                </div>
+            </div>
+            <div id="viewer-drift-wrap" style="display:flex; flex:1; overflow:hidden;">
+            <div id="viewer-container" style="position:relative; flex:1;">
+                <!-- Copy/Mirror 플로팅 패널 -->
+                <div id="copy-mirror-panel" style="display:none; position:absolute; top:50px; left:20px; z-index:200; background:var(--bg-card,#fff); border:1px solid var(--border-input,#ccc); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); width:280px; font-size:11px;">
+                    <div id="cm-titlebar" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--accent,#1976d2); color:#fff; border-radius:7px 7px 0 0; cursor:move; user-select:none;">
+                        <span style="font-weight:600;">Copy / Mirror</span>
+                        <button onclick="closeCopyMirrorPanel()" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;padding:0;line-height:1;">✕</button>
+                    </div>
+                    <div style="padding:8px 10px;">
+                        <!-- 모드 탭 -->
+                        <div style="display:flex; gap:2px; margin-bottom:8px;">
+                            <button class="cm-tab active" data-cmtab="offset" onclick="switchCMTab('offset')">Copy+Offset</button>
+                            <button class="cm-tab" data-cmtab="mirror" onclick="switchCMTab('mirror')">Mirror</button>
+                            <button class="cm-tab" data-cmtab="story" onclick="switchCMTab('story')">Story Copy</button>
+                        </div>
+                        <!-- Copy+Offset -->
+                        <div class="cm-content" data-cmtab="offset">
+                            <div style="display:grid; grid-template-columns:50px 1fr 20px; gap:4px; align-items:center;">
+                                <label>X</label><input type="number" id="cm-dx" value="0" step="0.5" style="width:100%;padding:3px;"><span>m</span>
+                                <label>Y</label><input type="number" id="cm-dy" value="0" step="0.5" style="width:100%;padding:3px;"><span>m</span>
+                                <label>Z</label><input type="number" id="cm-dz" value="0" step="0.5" style="width:100%;padding:3px;"><span>m</span>
+                            </div>
+                        </div>
+                        <!-- Mirror -->
+                        <div class="cm-content" data-cmtab="mirror" style="display:none;">
+                            <div style="margin-bottom:6px;">
+                                <label style="margin-right:10px;"><input type="radio" name="cm-axis" value="X" checked> X축 대칭</label>
+                                <label><input type="radio" name="cm-axis" value="Y"> Y축 대칭</label>
+                            </div>
+                            <div style="display:grid; grid-template-columns:80px 1fr 20px; gap:4px; align-items:center;">
+                                <label>대칭면 좌표</label><input type="number" id="cm-mirror-val" value="0" step="0.5" style="width:100%;padding:3px;"><span>m</span>
+                            </div>
+                        </div>
+                        <!-- Story Copy -->
+                        <div class="cm-content" data-cmtab="story" style="display:none;">
+                            <div style="display:grid; grid-template-columns:60px 1fr; gap:4px; align-items:center;">
+                                <label>원본 층</label><input type="number" id="cm-from-story" value="1" min="1" style="width:100%;padding:3px;">
+                                <label>대상 층</label><input type="number" id="cm-to-story" value="2" min="1" style="width:100%;padding:3px;">
+                            </div>
+                        </div>
+                        <!-- 선택 정보 + 버튼 -->
+                        <div style="margin-top:8px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                            <div id="cm-selection-info" style="color:var(--text-secondary); margin-bottom:6px;">선택: 0 elements</div>
+                            <button onclick="applyCopyMirror()" class="btn btn-primary btn-block" style="font-size:11px;">Apply</button>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                .cm-tab { flex:1; padding:4px; font-size:10px; font-weight:600; background:var(--bg-input,#f5f5f5); border:1px solid var(--border-input,#ccc); border-radius:3px; cursor:pointer; color:var(--text-secondary); }
+                .cm-tab.active { background:var(--accent,#1976d2); color:#fff; border-color:var(--accent); }
+                #copy-mirror-panel input[type=number] { background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary); font-size:11px; }
+                </style>
+
+                <!-- V2 Edit Toolbar -->
+                <div id="edit-toolbar" style="display:none;">
+                    <button class="edit-btn active" data-mode="view" onclick="setEditMode('view')" title="View (orbit/zoom)">View</button>
+                    <button class="edit-btn" data-mode="select" onclick="setEditMode('select')" title="Select (click/drag to select members)">Select</button>
+                    <button class="edit-btn" data-mode="copy" onclick="setEditMode('copy')" title="Copy/Mirror (선택 후 복사)">Copy</button>
+                    <button class="edit-btn" id="btn-back-to-edit" onclick="backToEditMode()" title="편집 모드로 돌아가기 (Ctrl+Z)" style="display:none; margin-left:auto; background:#ff9800; color:#fff; border-color:#ff9800;">&#x270E; Edit</button>
+                    <span class="edit-separator"></span>
+                    <span id="select-options" style="display:none;">
+                        <select id="select-filter" class="select-filter" title="Selection filter">
+                            <option value="all">All</option>
+                            <option value="elements">Elements only</option>
+                            <option value="nodes">Nodes only</option>
+                            <option value="column">Columns</option>
+                            <option value="beam">Beams</option>
+                        </select>
+                        <select id="select-story" class="select-filter" title="Select by story" onchange="selectByStory(this.value)">
+                            <option value="">Story...</option>
+                        </select>
+                    </span>
+                    <span class="edit-separator"></span>
+                    <span id="edit-hint" class="edit-hint">View mode</span>
+                    <span id="addnode-options" style="display:none;margin-left:6px;">
+                        <select id="edit-z-level" style="padding:2px 6px;font-size:12px"></select>
+                        <label style="font-size:11px;cursor:pointer;margin-left:4px">
+                            <input type="checkbox" id="chk-grid-snap" checked onchange="toggleGridSnap()"> Grid
+                        </label>
+                        <select id="grid-spacing" style="padding:2px 4px;font-size:11px;width:55px" onchange="updateSnapGrid()">
+                            <option value="0.5">0.5m</option>
+                            <option value="1.0" selected>1.0m</option>
+                            <option value="2.0">2.0m</option>
+                            <option value="4.0">4.0m</option>
+                        </select>
+                        <button class="edit-btn" onclick="showCoordInputPanel()" title="좌표 직접 입력 (N)">XYZ</button>
+                    </span>
+                </div>
+                <!-- Coordinate Input Panel -->
+                <div id="coord-input-panel" style="display:none;">
+                    <div class="coord-panel-inner">
+                        <h4>Node Coordinate Input</h4>
+                        <div class="coord-row">
+                            <label>X</label><input type="number" id="coord-x" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Y</label><input type="number" id="coord-y" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Z</label><input type="number" id="coord-z" step="0.1" value="0"> m
+                        </div>
+                        <div class="coord-row">
+                            <label>Support</label>
+                            <select id="coord-support">
+                                <option value="">None</option>
+                                <option value="fixed">Fixed</option>
+                                <option value="pinned">Pinned</option>
+                            </select>
+                        </div>
+                        <div class="coord-buttons">
+                            <button class="btn-ok" onclick="createNodeFromCoords()">Create (Enter)</button>
+                            <button class="btn-cancel" onclick="hideCoordInputPanel()">Close (Esc)</button>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="three-canvas"></canvas>
+                <!-- Mouse coordinate display -->
+                <div id="mouse-coords" style="display:none;">
+                    X: <span id="mc-x">0.0</span>&nbsp;&nbsp;
+                    Y: <span id="mc-y">0.0</span>&nbsp;&nbsp;
+                    Z: <span id="mc-z">0.0</span>
+                </div>
+                <!-- Preview badge -->
+                <div id="preview-badge" class="ifc-preview-badge" style="display:none;">PREVIEW</div>
+                <!-- Loading overlay -->
+                <div id="loading-overlay" style="display:none;">
+                    <div class="spinner"></div>
+                    <p id="loading-text">Analyzing...</p>
+                </div>
+                <!-- Mode shape color legend -->
+                <div id="mode-color-legend" style="display:none;">
+                    <div class="legend-title" id="legend-title">VIBRATION MODE</div>
+                    <div class="legend-bar-wrap">
+                        <div class="legend-bar" id="legend-bar"></div>
+                        <div class="legend-labels" id="legend-labels"></div>
+                    </div>
+                    <div class="legend-info" id="legend-info"></div>
+                </div>
+            </div>
+            <!-- Story Drift Panel (3D 옆에 열림) -->
+            <div id="drift-panel" style="display:none; width:40%; min-width:280px; border-left:1px solid var(--border-input,#ddd); overflow-y:auto; padding:12px; background:var(--bg-card,#fff);">
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:10px; color:var(--text-secondary);">Case</label>
+                    <select id="drift-case-selector" onchange="onDriftCaseChange()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        <option value="__envelope__">Envelope (Max)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <label style="font-size:10px; color:var(--text-secondary);">Allowable Drift</label>
+                    <select id="drift-limit-selector" onchange="onDriftLimitChange()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                        <option value="0.005">1/200 (KDS General / Wind)</option>
+                        <option value="0.020">1/50 (KDS Seismic - II)</option>
+                        <option value="0.015">1/67 (KDS Seismic - I)</option>
+                        <option value="0.010">1/100 (KDS Seismic - Special)</option>
+                        <option value="0.0033">1/300 (Strict)</option>
+                    </select>
+                </div>
+                <h4 style="font-size:12px; margin-bottom:4px; color:var(--text-primary);">Drift X</h4>
+                <canvas id="canvas-drift-x" width="400" height="200" style="width:100%; border:1px solid var(--border-input); border-radius:3px; margin-bottom:12px;"></canvas>
+                <h4 style="font-size:12px; margin-bottom:4px; color:var(--text-primary);">Drift Y</h4>
+                <canvas id="canvas-drift-y" width="400" height="200" style="width:100%; border:1px solid var(--border-input); border-radius:3px;"></canvas>
+                <div id="drift-info" style="margin-top:10px; font-size:10px; color:var(--text-secondary); line-height:1.5;"></div>
+
+                <!-- Drift Profile Chart (수직 높이 방향) -->
+                <h4 style="font-size:12px; margin:16px 0 4px; color:var(--text-primary);">Drift Profile</h4>
+                <canvas id="canvas-drift-profile" width="400" height="300" style="width:100%; border:1px solid var(--border-input); border-radius:3px;"></canvas>
+
+                <!-- Drift Detail Table -->
+                <h4 style="font-size:12px; margin:16px 0 4px; color:var(--text-primary);">Detail</h4>
+                <div id="drift-table-wrap" style="overflow-x:auto;"></div>
+            </div>
+            </div><!-- /viewer-drift-wrap -->
+        </div>
+
+        <!-- Right: Property Panel -->
+        <div class="panel panel-right" id="property-panel">
+            <div class="panel-header">
+                <h3>Properties</h3>
+            </div>
+            <div class="panel-body">
+                <!-- No selection state -->
+                <div id="prop-empty" class="prop-section">
+                    <p class="hint">Click a member in the 3D view to inspect properties.</p>
+                </div>
+
+                <!-- Single node properties -->
+                <div id="prop-node" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type node">Node</span>
+                        <span class="prop-id" id="prop-node-id">#1</span>
+                    </div>
+                    <table class="prop-table">
+                        <tr><td>X</td><td id="prop-node-x">0.0</td></tr>
+                        <tr><td>Y</td><td id="prop-node-y">0.0</td></tr>
+                        <tr><td>Z</td><td id="prop-node-z">0.0</td></tr>
+                        <tr><td>Support</td><td id="prop-node-support">free</td></tr>
+                    </table>
+                </div>
+
+                <!-- Single member properties -->
+                <div id="prop-member" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type" id="prop-elem-type">Column</span>
+                        <span class="prop-id" id="prop-elem-id">#1</span>
+                    </div>
+
+                    <table class="prop-table">
+                        <tr><td>Section</td><td id="prop-section">H-300x300</td></tr>
+                        <tr><td>Material</td><td id="prop-material">SS275</td></tr>
+                        <tr><td>Node i</td><td id="prop-node-i">1</td></tr>
+                        <tr><td>Node j</td><td id="prop-node-j">2</td></tr>
+                        <tr><td>Length</td><td id="prop-length">4.0 m</td></tr>
+                    </table>
+
+                    <!-- Design Check -->
+                    <div id="prop-dc" style="display:none;">
+                        <h4>Design Check</h4>
+                        <div id="prop-dc-banner" class="dc-banner">OK</div>
+                        <table class="prop-table">
+                            <tr><td>Interaction Ratio</td><td id="prop-dc-ratio">0.00</td></tr>
+                            <tr><td>Governing</td><td id="prop-dc-governing">-</td></tr>
+                        </table>
+                    </div>
+
+                    <!-- 개별 부재 SFD/BMD 다이어그램 -->
+                    <div id="prop-member-diagrams" style="display:none; margin-top:8px;">
+                        <h4 style="margin-bottom:4px;">Force Diagrams</h4>
+                        <div style="font-size:10px; color:var(--text-secondary); margin-bottom:2px;" id="prop-dgm-combo">-</div>
+                        <canvas id="canvas-axial" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                        <canvas id="canvas-shear" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                        <canvas id="canvas-moment" width="240" height="50" style="width:100%;height:50px;border:1px solid var(--border-input,#ddd);border-radius:3px;margin-bottom:3px;"></canvas>
+                    </div>
+
+                    <hr>
+                    <h4>Modify Section</h4>
+                    <p id="prop-edit-scope" class="edit-scope-hint"></p>
+                    <div class="form-group">
+                        <select id="prop-new-section"></select>
+                    </div>
+                    <div id="modify-story-wrap" style="margin-top:6px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+                            <span style="font-size:10px; color:var(--text-secondary);">Story (선택 층 적용 시)</span>
+                            <span style="display:flex; gap:3px;">
+                                <button onclick="storySelAll(true)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">All</button>
+                                <button onclick="storySelAll(false)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">None</button>
+                                <button onclick="storySelCurrent()" title="이 부재가 속한 층만 체크 (하위 층 기준)" style="font-size:9px;padding:0 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">이 부재 층</button>
+                            </span>
+                        </div>
+                        <div id="modify-story-checks" style="display:flex; flex-wrap:wrap; gap:6px; font-size:10px; padding:4px; background:var(--bg-input,#f7f7f7); border:1px solid var(--border-input,#ddd); border-radius:3px; min-height:24px;"></div>
+                    </div>
+                    <div style="display:flex; gap:4px; margin-top:6px;">
+                        <button id="btn-apply-member" class="btn btn-secondary" style="flex:1; font-size:10px;" onclick="applyMemberChange()">
+                            전체 적용
+                        </button>
+                        <button id="btn-apply-story" class="btn btn-secondary" style="flex:1; font-size:10px;" onclick="applyStorySection()">
+                            선택 층
+                        </button>
+                        <button class="btn btn-primary" style="flex:1; font-size:10px;" onclick="applySingleMemberChange()">
+                            이 부재만
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Multi-selection panel -->
+                <div id="prop-multi" class="prop-section" style="display:none;">
+                    <div class="prop-header">
+                        <span class="prop-type multi">Multi</span>
+                        <span class="prop-id" id="prop-multi-count">0 selected</span>
+                    </div>
+
+                    <table class="prop-table" id="prop-multi-summary"></table>
+
+                    <hr>
+                    <h4>Bulk Edit</h4>
+
+                    <div class="bulk-edit-group">
+                        <label>Section</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-section"><option value="">— keep —</option></select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplySection()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group">
+                        <label>Material</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-material">
+                                <option value="">— keep —</option>
+                                <option value="SS275">SS275</option>
+                                <option value="SS400">SS400</option>
+                                <option value="SM490">SM490</option>
+                                <option value="SM520">SM520</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyMaterial()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group">
+                        <label>Type</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-type">
+                                <option value="">— keep —</option>
+                                <option value="column">Column</option>
+                                <option value="beam">Beam</option>
+                                <option value="brace">Brace</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyType()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group" id="bulk-release-group" style="display:none;">
+                        <label>Release (elements)</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-release">
+                                <option value="">— keep —</option>
+                                <option value="fixed">All Fixed</option>
+                                <option value="pin_i">Pin i-end</option>
+                                <option value="pin_j">Pin j-end</option>
+                                <option value="pin_both">Pin Both ends</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplyRelease()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="bulk-edit-group" id="bulk-support-group" style="display:none;">
+                        <label>Support (nodes)</label>
+                        <div class="bulk-edit-row">
+                            <select id="bulk-support">
+                                <option value="">— keep —</option>
+                                <option value="fixed">Fixed (6-DOF)</option>
+                                <option value="pinned">Pinned (3-DOF)</option>
+                                <option value="roller_x">Roller X</option>
+                                <option value="roller_y">Roller Y</option>
+                                <option value="free">Free</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="bulkApplySupport()">Apply</button>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <button class="btn btn-secondary btn-block" style="font-size:10px; margin-bottom:4px;" onclick="openCopyMirrorPanel()" title="복사/미러/층 복사">
+                        📋 Copy / Mirror / Story Copy
+                    </button>
+                    <button class="btn btn-danger btn-block" onclick="bulkDeleteSelected()">
+                        Delete Selected
+                    </button>
+                </div>
+
+                <!-- Results Summary (탭 구조) -->
+                <div id="prop-results" class="prop-section" style="display:none;">
+                    <!-- 탭 버튼 그룹 -->
+                    <div style="display:flex; gap:2px; margin-bottom:8px; border-bottom:2px solid var(--border-input,#ddd); padding-bottom:0;">
+                        <button class="rtab-btn active" data-rtab="results" onclick="switchResultTab('results')" style="flex:1;">Results</button>
+                        <button class="rtab-btn" data-rtab="modal" onclick="switchResultTab('modal')" style="flex:1;">Modal</button>
+                        <button class="rtab-btn" data-rtab="dc" onclick="switchResultTab('dc')" style="flex:1;">DC</button>
+                        <button class="rtab-btn" data-rtab="recommend" onclick="switchResultTab('recommend')" style="flex:1;">Recs</button>
+                    </div>
+
+                    <!-- TAB: Results -->
+                    <div class="rtab-content" data-rtab="results">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                            <span style="font-weight:600; font-size:11px;">Analysis Results</span>
+                            <span id="model-source-tag" class="model-source-tag"></span>
+                        </div>
+                        <div id="case-selector-wrap" style="display:none; margin-bottom:6px;">
+                            <select id="case-selector" onchange="onCaseSelect()" style="width:100%; padding:4px 6px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);">
+                                <option value="__envelope__">Envelope (전체 조합)</option>
+                            </select>
+                        </div>
+                        <!-- Diagram + Deformed 버튼 그룹 -->
+                        <div id="diagram-btn-wrap" style="display:none; margin-bottom:6px;">
+                            <div style="display:flex; gap:12px; align-items:flex-start;">
+                                <div style="flex:1;">
+                                    <div style="font-size:10px; color:var(--text-secondary); margin-bottom:2px;">Diagram</div>
+                                    <div style="display:flex; gap:2px;">
+                                        <button class="dgm-btn active" data-dgm="off" onclick="setDiagramMode('off')">Off</button>
+                                        <button class="dgm-btn" data-dgm="axial" onclick="setDiagramMode('axial')">N</button>
+                                        <button class="dgm-btn" data-dgm="shear" onclick="setDiagramMode('shear')">V</button>
+                                        <button class="dgm-btn" data-dgm="moment" onclick="setDiagramMode('moment')">M</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:10px; color:var(--text-secondary); margin-bottom:2px;">Options</div>
+                                    <label style="display:flex; align-items:center; gap:3px; cursor:pointer;">
+                                        <input type="checkbox" id="toggle-deformed" onchange="toggleDeformedShape()">
+                                        <span style="font-size:10px;">Deform</span>
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:3px; cursor:pointer; margin-top:1px;">
+                                        <input type="checkbox" id="toggle-dgm-values" onchange="onDiagramValuesToggle()" checked>
+                                        <span style="font-size:10px;">Values</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <!-- Diagram Scale -->
+                            <div id="diagram-scale-wrap" style="display:none; margin-top:6px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                                <div style="display:flex; align-items:center; justify-content:space-between;">
+                                    <span style="font-size:10px; color:var(--text-secondary);">Diagram Scale</span>
+                                    <span id="diagram-scale-val" style="font-size:10px; font-weight:600;">1.00×</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:4px; margin-top:2px;">
+                                    <span style="font-size:9px;">0.1×</span>
+                                    <input type="range" id="diagram-scale-slider" min="0" max="100" value="50" step="1"
+                                           style="flex:1; accent-color:var(--accent);" oninput="onDiagramScaleChange(this.value)">
+                                    <span style="font-size:9px;">10×</span>
+                                    <button onclick="resetDiagramScale()" style="font-size:9px;padding:1px 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">Auto</button>
+                                </div>
+                            </div>
+                        </div>
+                        <style>
+                        .dgm-btn {
+                            flex:1; padding:3px 0; font-size:10px; font-weight:600; text-align:center;
+                            background:var(--bg-input,#f5f5f5); border:1px solid var(--border-input,#ccc);
+                            border-radius:3px; cursor:pointer; color:var(--text-secondary,#888);
+                            transition: all 0.15s;
+                        }
+                        .dgm-btn.active { background:var(--accent,#1976d2); color:#fff; border-color:var(--accent,#1976d2); }
+                        .dgm-btn:hover:not(.active) { background:var(--bg-hover,#eee); }
+                        </style>
+                        <table class="prop-table" id="results-table"></table>
+                        <!-- ELF vs RSA (RSA 해석 시에만) -->
+                        <div id="elf-rsa-comparison" style="display:none; margin-top:8px;">
+                            <span style="font-weight:600; font-size:11px;">ELF vs RSA</span>
+                            <table class="prop-table" id="elf-rsa-table"></table>
+                        </div>
+                        <!-- Deformation Scale -->
+                        <div id="deform-scale-wrap" style="display:none; margin-top:8px; padding-top:6px; border-top:1px solid var(--border-input,#ddd);">
+                            <div style="display:flex; align-items:center; justify-content:space-between;">
+                                <span style="font-size:10px; color:var(--text-secondary);">Deformation Scale</span>
+                                <span id="deform-scale-val" style="font-size:10px; font-weight:600;">50×</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:4px; margin-top:2px;">
+                                <span style="font-size:9px;">1×</span>
+                                <input type="range" id="deform-scale-slider" min="0" max="100" value="50" step="1"
+                                       style="flex:1; accent-color:var(--accent);" oninput="onDeformScaleChange(this.value)">
+                                <span style="font-size:9px;">500×</span>
+                                <button onclick="autoDeformScale()" style="font-size:9px;padding:1px 4px;background:none;border:1px solid #ccc;border-radius:2px;cursor:pointer;">Auto</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB: Modal -->
+                    <div class="rtab-content" data-rtab="modal" style="display:none;">
+                        <div id="modal-section">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Modal Analysis</span>
+                                <button id="btn-mode-animate" class="btn-icon" onclick="toggleModeAnimation()" title="애니메이션 재생/정지" style="font-size:14px; background:none; border:none; cursor:pointer; color:var(--text-secondary);">&#9654;</button>
+                            </div>
+                            <select id="mode-selector" onchange="onModeSelect()" style="width:100%; padding:4px 6px; margin:4px 0; font-size:11px; background:var(--bg-input); border:1px solid var(--border-input); border-radius:3px; color:var(--text-primary);"></select>
+                            <table class="prop-table" id="modal-table"></table>
+                        </div>
+                    </div>
+
+                    <!-- TAB: Design Check + Interpretation -->
+                    <div class="rtab-content" data-rtab="dc" style="display:none;">
+                        <div id="dc-summary">
+                            <div id="dc-overall-banner" class="dc-banner" style="margin-bottom:6px;">-</div>
+                            <table class="prop-table" id="dc-summary-table"></table>
+                        </div>
+                        <div id="interp-summary" style="margin-top:8px;">
+                            <span style="font-weight:600; font-size:11px;">Interpretation</span>
+                            <p id="interp-text" class="interp-text"></p>
+                        </div>
+                    </div>
+
+                    <!-- TAB: Issues & Recommendation Candidates -->
+                    <div class="rtab-content" data-rtab="recommend" style="display:none;">
+                        <div id="rec-issues-section" style="margin-bottom:10px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Issues</span>
+                                <span id="rec-issues-count" style="font-size:10px; color:var(--text-secondary);">0</span>
+                            </div>
+                            <div id="rec-issues-list" class="rec-issues-list"></div>
+                        </div>
+
+                        <div id="rec-candidates-section">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <span style="font-weight:600; font-size:11px;">Candidates</span>
+                                <span id="rec-candidates-count" style="font-size:10px; color:var(--text-secondary);">0</span>
+                            </div>
+                            <div id="rec-candidates-list" class="rec-candidates-list"></div>
+                        </div>
+
+                        <div id="rec-eval-wrap" style="margin-top:10px; display:none;">
+                            <button id="rec-eval-btn" onclick="runRecommendationEvaluation()"
+                                    class="btn btn-primary btn-block" style="width:100%; padding:6px;">
+                                Evaluate Candidates (Reanalysis)
+                            </button>
+                            <div id="rec-eval-progress" style="margin-top:6px; display:none; font-size:10px; color:var(--text-secondary); text-align:center;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Report Button (항상 하단 고정) -->
+                    <div id="report-link" style="display:none; margin-top:10px; border-top:1px solid var(--border-input,#ddd); padding-top:8px;">
+                        <button type="button" id="cover-input-btn" onclick="openCoverModal()" class="btn btn-block"
+                                style="width:100%; text-align:center; display:block; margin-bottom:6px; background:#fff; color:#16335c; border:1px solid #b6bcc6; padding:8px; border-radius:6px; font-weight:600; cursor:pointer;">
+                            📋 표지·도장란 입력
+                        </button>
+                        <a id="report-url" href="#" target="_blank" class="btn btn-primary btn-block" style="text-align:center; text-decoration:none; display:block;">
+                            상세 리포트 (HTML Report)
+                        </a>
+                    </div>
+                </div>
+
+                <style>
+                .rtab-btn {
+                    padding: 4px 8px; font-size: 11px; font-weight: 600;
+                    background: none; border: none; border-bottom: 2px solid transparent;
+                    cursor: pointer; color: var(--text-secondary, #888);
+                    transition: all 0.15s;
+                }
+                .rtab-btn.active {
+                    color: var(--accent, #1976d2);
+                    border-bottom-color: var(--accent, #1976d2);
+                }
+                .rtab-btn:hover { color: var(--text-primary, #333); }
+                </style>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Status Bar (3-zone: info+metrics | log console | coords/units) -->
+    <div id="app-statusbar">
+        <div id="status-left">
+            <span class="status-text">Ready</span>
+            <div class="editor-bottombar" id="bottom-bar" style="display:none;">
+                <div class="bottom-item"><span class="bottom-label">Drift X</span><span class="bottom-value" id="bot-drift-x">-</span></div>
+                <div class="bottom-item"><span class="bottom-label">Drift Y</span><span class="bottom-value" id="bot-drift-y">-</span></div>
+                <div class="bottom-item"><span class="bottom-label">Disp X</span><span class="bottom-value" id="bot-disp-x">-</span></div>
+                <div class="bottom-item"><span class="bottom-label">Disp Y</span><span class="bottom-value" id="bot-disp-y">-</span></div>
+                <div class="bottom-item"><span class="bottom-label">Mmax</span><span class="bottom-value" id="bot-moment">-</span></div>
+                <div class="bottom-item"><span class="bottom-label">DC</span><span class="bottom-value" id="bot-dc">-</span></div>
+            </div>
+        </div>
+        <div id="console-log" aria-live="polite"></div>
+        <div id="status-right">
+            <span id="sb-coords">X 0.0&nbsp;&nbsp;Y 0.0&nbsp;&nbsp;Z 0.0</span>
+            <span id="sb-units">kN · m</span>
+        </div>
+    </div>
+
+    <!-- Recommendation diff preview modal (Phase 2) -->
+    <div id="rec-diff-modal" class="rec-modal" style="display:none;">
+        <div class="rec-modal-backdrop" data-rec-action="modal-close"></div>
+        <div class="rec-modal-panel">
+            <div class="rec-modal-header">
+                <span id="rec-diff-title">Preview change</span>
+                <button type="button" class="rec-modal-close"
+                        data-rec-action="modal-close"
+                        aria-label="Close">×</button>
+            </div>
+            <div class="rec-modal-body">
+                <div id="rec-diff-summary"></div>
+                <div id="rec-diff-table-wrap"></div>
+                <div id="rec-diff-error" style="display:none;"></div>
+            </div>
+            <div class="rec-modal-footer">
+                <button type="button" id="rec-diff-cancel"
+                        class="btn btn-secondary"
+                        data-rec-action="modal-close">Cancel</button>
+                <button type="button" id="rec-diff-apply"
+                        class="btn btn-primary"
+                        data-rec-action="apply-confirm">Apply to editor</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recommendation explanation modal (Phase 3A) -->
+    <div id="rec-explain-modal" class="rec-modal" style="display:none;">
+        <div class="rec-modal-backdrop" data-rec-action="explain-modal-close"></div>
+        <div class="rec-modal-panel rec-explain-panel">
+            <div class="rec-modal-header">
+                <span id="rec-explain-title">추천 근거 설명</span>
+                <button type="button" class="rec-modal-close"
+                        data-rec-action="explain-modal-close"
+                        aria-label="Close">×</button>
+            </div>
+            <div class="rec-modal-body">
+                <div id="rec-explain-body"></div>
+            </div>
+            <div class="rec-modal-footer">
+                <button type="button" class="btn btn-secondary"
+                        data-rec-action="explain-modal-close">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating toast container for Apply/rollback feedback (Phase 2) -->
+    <div id="rec-toast-container"></div>
+
+    <!-- 표지·도장란 입력 모달 (step 2) — cover_info 수집 후 리포트 재생성 -->
+    <div id="cover-modal" onclick="if(event.target===this) closeCoverModal()"
+         style="display:none; position:fixed; inset:0; z-index:9000;
+         background:rgba(15,26,45,0.55); align-items:flex-start; justify-content:center; padding:32px 16px; overflow:auto;">
+      <style>
+        #cover-modal .cv-card{ width:100%; max-width:680px; background:#fff; border-radius:8px;
+          box-shadow:0 12px 40px rgba(0,0,0,0.32); overflow:hidden; font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif; color:#1f2733; font-size:14px; }
+        #cover-modal .cv-head{ background:#16335c; color:#fff; padding:16px 22px; }
+        #cover-modal .cv-head h1{ margin:0; font-size:16px; font-weight:600; }
+        #cover-modal .cv-head .cv-sub{ margin:4px 0 0; font-size:12px; color:#c7d2e2; }
+        #cover-modal .cv-help{ background:#eef2f8; border-bottom:1px solid #d4d8de; color:#33445f; font-size:12px; padding:9px 22px; }
+        #cover-modal .cv-help b{ color:#16335c; }
+        #cover-modal .cv-body{ padding:6px 22px 4px; max-height:62vh; overflow:auto; }
+        #cover-modal .cv-sec{ padding:14px 0; border-bottom:1px solid #eceef1; }
+        #cover-modal .cv-sec:last-child{ border-bottom:none; }
+        #cover-modal .cv-sec-title{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#16335c; margin:0 0 12px; }
+        #cover-modal .cv-bar{ width:4px; height:14px; background:#16335c; border-radius:2px; display:inline-block; }
+        #cover-modal .cv-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; }
+        #cover-modal .cv-field{ display:flex; flex-direction:column; }
+        #cover-modal .cv-field.full{ grid-column:1 / -1; }
+        #cover-modal label{ font-size:12px; font-weight:600; color:#2c3440; margin-bottom:5px; }
+        #cover-modal .req{ color:#c0392b; margin-left:2px; }
+        #cover-modal input[type=text], #cover-modal input[type=date], #cover-modal input[type=number], #cover-modal select{
+          width:100%; padding:7px 9px; border:1px solid #d4d8de; border-radius:5px; font-size:13px; font-family:inherit; color:#1f2733; background:#fff; }
+        #cover-modal input:focus, #cover-modal select:focus{ outline:none; border-color:#16335c; box-shadow:0 0 0 2px rgba(22,51,92,0.12); }
+        #cover-modal .cv-help-text{ font-size:11px; color:#6b7280; margin-top:4px; }
+        #cover-modal .cv-invalid input, #cover-modal .cv-invalid select{ border-color:#c0392b; }
+        #cover-modal .cv-stamp{ border:1px solid #d4d8de; border-radius:6px; padding:11px 13px; margin-bottom:10px; background:#f7f8fa; }
+        #cover-modal .cv-stamp:last-child{ margin-bottom:0; }
+        #cover-modal .cv-stamp-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+        #cover-modal .cv-role{ font-size:12px; font-weight:700; color:#16335c; }
+        #cover-modal .cv-role .opt{ font-weight:500; color:#6b7280; font-size:11px; margin-left:4px; }
+        #cover-modal .cv-seal{ width:42px; height:42px; border:1.5px dashed #b6bcc6; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#9aa1ab; background:#fff; }
+        #cover-modal .cv-stamp-fields{ display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:9px 11px; }
+        #cover-modal .cv-stamp-fields label{ font-size:11px; }
+        #cover-modal .cv-foot{ display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:14px 22px; background:#fafbfc; border-top:1px solid #d4d8de; }
+        #cover-modal .cv-btn{ font-family:inherit; font-size:13px; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
+        #cover-modal .cv-btn-primary{ background:#16335c; color:#fff; border-color:#16335c; }
+        #cover-modal .cv-btn-primary:hover{ background:#0f2545; }
+        #cover-modal .cv-btn-ghost{ background:#fff; color:#46505e; border-color:#b6bcc6; }
+        #cover-modal .cv-btn-ghost:hover{ background:#f1f3f6; }
+        @media (max-width:560px){ #cover-modal .cv-grid{ grid-template-columns:1fr; } #cover-modal .cv-stamp-fields{ grid-template-columns:1fr; } }
+      </style>
+      <div class="cv-card">
+        <div class="cv-head">
+          <h1>구조계산서 표지·도장란 입력</h1>
+          <p class="cv-sub">입력값은 구조계산서 표지·도장란에 반영됩니다. <b style="color:#fff;">재해석 없이</b> 리포트만 갱신됩니다.</p>
+        </div>
+        <div class="cv-help">필수: <b>공사명·작성일·작성자 성명</b>. 미입력 항목은 리포트에 <b>[입력]</b> 으로 표기됩니다.</div>
+        <div class="cv-body">
+
+          <!-- A. 표지 정보 -->
+          <div class="cv-sec">
+            <h2 class="cv-sec-title"><span class="cv-bar"></span>A. 표지 정보</h2>
+            <div class="cv-grid">
+              <div class="cv-field full" data-required>
+                <label>공사명 (프로젝트명)<span class="req">*</span></label>
+                <input type="text" id="cv-project_name" placeholder="예) ○○ 업무시설 신축공사">
+              </div>
+              <div class="cv-field full">
+                <label>대지위치 (주소)</label>
+                <input type="text" id="cv-location" placeholder="예) 서울특별시 강남구 ○○로 12">
+              </div>
+              <div class="cv-field">
+                <label>건축주</label>
+                <input type="text" id="cv-client" placeholder="예) ○○개발(주)">
+              </div>
+              <div class="cv-field">
+                <label>구조형식</label>
+                <input type="text" id="cv-structure_type" placeholder="강구조 보통모멘트골조">
+                <span class="cv-help-text">해석 결과에서 자동 입력됨, 수정 가능</span>
+              </div>
+              <div class="cv-field">
+                <label>연면적 (m²)</label>
+                <input type="number" id="cv-gross_floor_area" min="0" step="0.1" placeholder="미입력 시 외곽치수×층수 자동">
+                <span class="cv-help-text">정확값 입력 시 자동산정값을 덮어씀</span>
+              </div>
+              <div class="cv-field" data-required>
+                <label>작성일<span class="req">*</span></label>
+                <input type="date" id="cv-date">
+              </div>
+              <div class="cv-field">
+                <label>회사명 (작성업체)</label>
+                <input type="text" id="cv-firm" placeholder="예) ○○구조엔지니어링">
+              </div>
+              <div class="cv-field full">
+                <label>회사 로고/직인 이미지 (선택)</label>
+                <input type="file" id="cv-logo" accept="image/*" onchange="_cvReadImage('cv-logo','logo')">
+                <span class="cv-help-text" id="cv-logo-status">표지 상단에 표시 · 300KB 이하 이미지</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- B. 도장란 -->
+          <div class="cv-sec">
+            <h2 class="cv-sec-title"><span class="cv-bar"></span>B. 도장란 (서명·날인)</h2>
+
+            <div class="cv-stamp" data-required>
+              <div class="cv-stamp-head"><span class="cv-role">작성자<span class="req">*</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field" data-required><label>성명<span class="req">*</span></label><input type="text" id="cv-author_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-author_qual"><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-author_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-author_seal" accept="image/*" onchange="_cvReadImage('cv-author_seal','author_seal')">
+                <span class="cv-help-text" id="cv-author_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+
+            <div class="cv-stamp">
+              <div class="cv-stamp-head"><span class="cv-role">검토자<span class="opt">(선택)</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field"><label>성명</label><input type="text" id="cv-reviewer_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-reviewer_qual"><option value="">선택</option><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-reviewer_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-reviewer_seal" accept="image/*" onchange="_cvReadImage('cv-reviewer_seal','reviewer_seal')">
+                <span class="cv-help-text" id="cv-reviewer_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+
+            <div class="cv-stamp">
+              <div class="cv-stamp-head"><span class="cv-role">승인자<span class="opt">(선택)</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field"><label>성명</label><input type="text" id="cv-approver_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-approver_qual"><option value="">선택</option><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-approver_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-approver_seal" accept="image/*" onchange="_cvReadImage('cv-approver_seal','approver_seal')">
+                <span class="cv-help-text" id="cv-approver_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="cv-foot">
+          <button type="button" class="cv-btn cv-btn-ghost" onclick="closeCoverModal()">취소</button>
+          <button type="button" class="cv-btn cv-btn-primary" id="cv-submit" onclick="submitCoverInfo()">구조계산서 생성</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/editor3d_lab.js?v=1"></script>
+    <script src="/static/js/lab_edit.js?v=1"></script>
+    <script src="/static/js/lab_tools.js?v=1"></script>
+
+    <!-- Phase A.4: AI Assistant floating chat widget -->
+    <link rel="stylesheet" href="/static/css/chat_widget.css?v=2">
+    <script src="/static/js/chat_widget.js?v=2"></script>
+</body>
+</html>

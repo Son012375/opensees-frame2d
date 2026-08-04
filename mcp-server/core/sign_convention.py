@@ -419,9 +419,12 @@ def swap_element_forces(
 # Frame Member Force Diagram Data Structure
 # ==============================================================================
 
+# NOTE: frame_3d.member_forces (localForce 기반)의 실제 축력 부호규약은
+# **압축 양(+), 인장 음(−)** 이다 (gravity 기둥 +, 전도 시 풍상측 기둥 − 로 검증됨,
+# 2026-06). design_check.B3(_governing_member_forces)가 이 규약(N<0=인장)에 의존한다.
 MEMBER_FORCE_FIELDS = {
     "s_m": "Position along member (m) from i-end",
-    "N_kN": "Axial force (kN), tension positive - OpenSees convention",
+    "N_kN": "Axial force (kN): compression positive, tension negative (frame_3d localForce)",
     "V_kN": "Shear force (kN) - OpenSees local y convention",
     "M_kNm": "Bending moment (kN·m) - OpenSees convention",
 }

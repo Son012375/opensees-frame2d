@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "purpose": "Frozen input for KDS load hand-check (Paper 1, Appendix A / Table A1)",
+    "source_section": "Paper §4.1 Example Building Description",
+    "notes": [
+      "Three-story regular steel frame, 3x2 bay (4.0m x 5.0m), 3.0m uniform story height.",
+      "1F retail (finish 1.5 kN/m^2), 2-3F office (finish 1.0 kN/m^2).",
+      "Seoul, site class S3, importance II (IE=1.0), ordinary steel moment frame, exposure B.",
+      "MEP allowance (0.5 kN/m^2) is hard-coded in load_generator._generate_gravity_loads."
+    ]
+  },
+
+  "stories": [
+    {"height": 3.0, "usage": "retail", "dead_load_finish": 1.5, "slab_thickness": 0.15},
+    {"height": 3.0, "usage": "office", "dead_load_finish": 1.0, "slab_thickness": 0.15},
+    {"height": 3.0, "usage": "office", "dead_load_finish": 1.0, "slab_thickness": 0.15}
+  ],
+
+  "bays_x": [4.0, 4.0, 4.0],
+  "bays_y": [5.0, 5.0],
+
+  "column_section": "H-300x300",
+  "beam_x_section": "H-400x200",
+  "beam_y_section": "H-400x200",
+  "material_name": "SS275",
+
+  "supports": "fixed",
+
+  "region": "서울",
+  "site_class": "S3",
+  "importance": "II",
+
+  "seismic_system": "ordinary_moment_frame",
+  "seismic_direction": "both",
+
+  "exposure_category": "B",
+
+  "auto_combinations": true,
+  "rigid_diaphragm": false,
+  "geometric_nonlinearity": "linear"
+}

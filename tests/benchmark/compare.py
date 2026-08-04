@@ -30,16 +30,20 @@ def compare_metrics(
     extracted: list[dict],
     midas: dict | None,
     tolerance_pct: float = 1.0,
+    fail_threshold_pct: float | None = 5.0,
 ) -> list[dict]:
     """Compare OpenSees metrics against Midas Gen results.
 
     Args:
         extracted: list of {"metric", "unit", "opensees"} dicts
         midas: dict of {"metric_name": value} from Midas Gen (or None)
-        tolerance_pct: acceptable difference percentage (default 1%)
+        tolerance_pct: ≤ this percent → OK (default 1%)
+        fail_threshold_pct: > this percent → FAIL. Default 5%. Pass None to
+            disable FAIL (legacy 2-level OK/CHECK behavior).
 
     Returns:
-        list of comparison rows with diff_pct and status
+        list of comparison rows with diff_pct and status. Status is one of
+        OK / CHECK / FAIL / PENDING.
     """
     rows = []
     for item in extracted:
@@ -65,7 +69,12 @@ def compare_metrics(
             if ref > 1e-12:
                 diff = abs(ops_val - m_val) / ref * 100.0
                 row["diff_pct"] = diff
-                row["status"] = "OK" if diff <= tolerance_pct else "CHECK"
+                if diff <= tolerance_pct:
+                    row["status"] = "OK"
+                elif fail_threshold_pct is not None and diff > fail_threshold_pct:
+                    row["status"] = "FAIL"
+                else:
+                    row["status"] = "CHECK"
             else:
                 row["diff_pct"] = 0.0
                 row["status"] = "OK"
@@ -98,9 +107,10 @@ def format_table(case_name: str, rows: list[dict]) -> str:
     total = len(rows)
     ok = sum(1 for r in rows if r['status'] == 'OK')
     check = sum(1 for r in rows if r['status'] == 'CHECK')
+    fail = sum(1 for r in rows if r['status'] == 'FAIL')
     pending = sum(1 for r in rows if r['status'] == 'PENDING')
     lines.append("-" * 80)
-    lines.append(f"  Total: {total} | OK: {ok} | CHECK: {check} | PENDING: {pending}")
+    lines.append(f"  Total: {total} | OK: {ok} | CHECK: {check} | FAIL: {fail} | PENDING: {pending}")
 
     return "\n".join(lines)
 

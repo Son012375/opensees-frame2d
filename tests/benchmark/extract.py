@@ -212,6 +212,25 @@ def extract_case1_udl(results: dict) -> list[dict]:
     return extract_case1(results)
 
 
+def extract_case6_lshape(results: dict) -> list[dict]:
+    """Extract comparison metrics for Case 6 (3D L-Shape decision-gate).
+
+    The runner returns a flat dict where keys already match the schema agreed
+    in scripts/_case6_lshape_spec.md. Internal _meta_* keys are stripped.
+    """
+    rows = []
+    for metric, value in results.items():
+        if metric.startswith("_meta_"):
+            continue
+        # Unit is embedded in the metric name in parentheses; preserve "—" for
+        # readability if absent.
+        unit = "—"
+        if "(" in metric and ")" in metric:
+            unit = metric[metric.rfind("(") + 1: metric.rfind(")")]
+        rows.append({"metric": metric, "unit": unit, "opensees": value})
+    return rows
+
+
 EXTRACTORS = {
     "case1": extract_case1,
     "case1_udl": extract_case1_udl,
@@ -219,4 +238,5 @@ EXTRACTORS = {
     "case3": extract_case3,
     "case4": extract_case4,
     "case5": extract_case5,
+    "case6_lshape": extract_case6_lshape,
 }

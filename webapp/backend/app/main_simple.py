@@ -4,8 +4,11 @@ Simplified FastAPI app - No Redis/Celery required
 Runs analysis synchronously (blocking)
 """
 import logging
+import os
 import sys
 import json
+import threading
+import time
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -28,9 +31,11 @@ logger.setLevel(logging.INFO)
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse, FileResponse, StreamingResponse, RedirectResponse,
+)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 from app.models.schemas import JobStatus
@@ -95,8 +100,13 @@ def _build_recommendation_block(
 
 
 class NaturalLanguageInput(BaseModel):
-    """Natural language input for Claude parsing"""
-    text: str
+    """Natural language input for Claude parsing.
+
+    The length cap is a billing control, not a usability one: this text is sent
+    straight to a paid LLM from an unauthenticated endpoint. A building
+    description never approaches 2000 characters.
+    """
+    text: str = Field(max_length=2000)
 
 
 class ParseResponse(BaseModel):
@@ -111,15 +121,221 @@ class BuildingInput(BaseModel):
     config: Dict[str, Any]
 
 
+# ── Public-demo master switch ────────────────────────────────────────────────
+# One flag instead of five: a public deployment must not depend on the operator
+# remembering every individual guard env var — forgetting one is what leaves the
+# API docs or the chat router exposed. DEMO_MODE=1 turns on the whole posture
+# (closed docs, no chat, dev editors hidden, conservative caps); every explicit
+# env var still wins over it. Default OFF, so local/dev behaviour is unchanged.
+DEMO_MODE = os.environ.get("DEMO_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+if DEMO_MODE:
+    # The KDS reference tables are a frozen code edition, so a public demo
+    # should read the local snapshot rather than a Supabase project that
+    # auto-pauses and turns every analysis into a DNS error. Set here, before
+    # anything under core/ is imported, because kds_cache resolves its mode at
+    # import time. An explicit KDS_CACHE_MODE still wins.
+    os.environ.setdefault("KDS_CACHE_MODE", "prefer")
+
+
+def _env_int(name: str, demo_default: int, plain_default: int = 0) -> int:
+    """Env override, else the DEMO_MODE-aware default.
+
+    Deliberately NOT ``int(os.environ.get(name, d) or 0)``: that idiom turns an
+    empty or malformed value into 0, which for these names means "guard off" —
+    a typo in a deployment env file would silently unlock the resource limits.
+    """
+    raw = (os.environ.get(name) or "").strip()
+    default = demo_default if DEMO_MODE else plain_default
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer — using %d", name, raw, default)
+        return default
+
+
+# ── Public-demo resource guard ───────────────────────────────────────────────
+# Measured peak RSS: 3-story preset ~0.7 GB, 10-story preset ~6 GB. A container
+# sized for the demo is OOM-killed by one oversized request, which takes down
+# every other visitor's session with it. Reject early with a readable message
+# instead. DEMO_MAX_MEMBERS=0 disables the guard (local/desktop use).
+#
+# Measured preset sizes: 3-story 63, 5-story-mixed 105, 5-story 145,
+# 10-story 400 members. The DEMO_MODE default of 250 clears every preset except
+# the 10-story one — the ~6 GB case the guard exists for. (400 would let it
+# through by exactly one member.)
+DEMO_MAX_MEMBERS = _env_int("DEMO_MAX_MEMBERS", demo_default=250, plain_default=0)
+
+#: Enforced while streaming the upload, not after it is already in memory.
+IFC_MAX_UPLOAD_MB = _env_int("IFC_MAX_UPLOAD_MB", demo_default=20, plain_default=20)
+
+# ── Rate limit for the paid-LLM endpoint ─────────────────────────────────────
+# /api/claude/parse-building is anonymous, uncached and billed per call. Without
+# a ceiling one script can spend the author's credits without limit. Per-IP and
+# global daily caps; 0 disables (local use).
+LLM_CALLS_PER_IP_PER_HOUR = _env_int("LLM_CALLS_PER_IP_PER_HOUR", demo_default=5)
+LLM_CALLS_PER_DAY = _env_int("LLM_CALLS_PER_DAY", demo_default=100)
+
+_llm_hits: dict[str, list[float]] = {}
+_llm_day: list[float] = []
+_llm_lock = threading.Lock()
+
+
+def _enforce_llm_quota(request: Request) -> None:
+    if not (LLM_CALLS_PER_IP_PER_HOUR or LLM_CALLS_PER_DAY):
+        return
+    now = time.time()
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else "unknown"))
+    with _llm_lock:
+        if LLM_CALLS_PER_DAY:
+            _llm_day[:] = [t for t in _llm_day if now - t < 86400]
+            if len(_llm_day) >= LLM_CALLS_PER_DAY:
+                raise HTTPException(
+                    status_code=429,
+                    detail=("오늘 자연어 변환 사용량이 소진되었습니다. "
+                            "직접 입력 또는 예제 IFC로 계속 진행하실 수 있습니다."))
+        if LLM_CALLS_PER_IP_PER_HOUR:
+            hits = [t for t in _llm_hits.get(ip, []) if now - t < 3600]
+            if len(hits) >= LLM_CALLS_PER_IP_PER_HOUR:
+                _llm_hits[ip] = hits
+                raise HTTPException(
+                    status_code=429,
+                    detail=("자연어 변환 요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요. "
+                            "직접 입력 또는 예제 IFC는 제한이 없습니다."))
+            hits.append(now)
+            _llm_hits[ip] = hits
+        if LLM_CALLS_PER_DAY:
+            _llm_day.append(now)
+
+
+def _grid_member_count(n_story: int, nx: int, ny: int) -> int:
+    """Members in a rectangular nx-by-ny grid over n_story storeys."""
+    gx, gy = nx + 1, ny + 1
+    return gx * gy * n_story + nx * gy * n_story + ny * gx * n_story
+
+
+def _zone_member_bound(config: Dict[str, Any]) -> int:
+    """Upper bound on members for a zoned (irregular) plan, by arithmetic only.
+
+    Summing the zones double-counts members on shared boundaries, so this is an
+    over-estimate — the safe direction for a guard, since it can refuse a model
+    that would have fit but never admits one that would not. Measured on the
+    editor's L-shape payloads it runs about 11% high (150 against 135).
+
+    Arithmetic on purpose. Building the real IR to find out costs whatever the
+    request asks it to cost: a 5.3 KB body of 40 storeys x 4 zones x 12x12 bays
+    materialises 584,000 elements in 13 s and 434 MB before anything is in a
+    position to reject it, on the one event loop that serves every visitor.
+    """
+    total = 0
+    n_story_default = (len(config.get("stories") or [])
+                       or int(config.get("num_stories") or 0) or 1)
+    for z in config.get("zones") or []:
+        if not isinstance(z, dict):
+            continue
+        try:
+            nx = len(z.get("bays_x") or []) or int(z.get("num_bays_x") or 0)
+            ny = len(z.get("bays_y") or []) or int(z.get("num_bays_y") or 0)
+            lo = int(z.get("story_from") or 1)
+            hi = int(z.get("story_to") or n_story_default)
+        except (TypeError, ValueError):
+            continue
+        spread = max(0, hi - lo + 1)
+        if nx and ny and spread:
+            total += _grid_member_count(spread, nx, ny)
+    return total
+
+
+def _estimate_member_count(config: Dict[str, Any]) -> int:
+    """Members a config will generate, without running the solver.
+
+    ``zones`` is checked FIRST and takes over completely. An irregular config
+    (L-shape / T-shape / setback) still carries top-level bays_x/bays_y — the
+    editor fills them from the first zone as a fallback
+    (editor3d_figma.js:2281-2283) — so the rectangular arithmetic would
+    otherwise answer for one zone and silently ignore the rest. Measured
+    undercount on the payload the editor actually sends: 36% (an 8-story
+    L-shape estimated 232 against 360 real elements, i.e. it slipped past a cap
+    of 250 while building a model half again as large).
+
+    The zoned bound is deliberately arithmetic. The exact IR is built only when
+    the bound lands close enough to the cap that its ~11% slack could decide the
+    answer — and by then the model is small by construction, so the build is
+    bounded work rather than whatever the request asked for.
+    """
+    if config.get("zones"):
+        bound = _zone_member_bound(config)
+        if not DEMO_MAX_MEMBERS or bound <= DEMO_MAX_MEMBERS:
+            # Over-estimate already fits, so the exact count fits too.
+            return bound
+        if bound > DEMO_MAX_MEMBERS * 3:
+            return bound            # not close; no build can rescue it
+        try:
+            if str(MCP_SERVER_PATH) not in sys.path:
+                sys.path.insert(0, str(MCP_SERVER_PATH))
+            from core.structural_model import StructuralModel
+            return len(StructuralModel.from_building_config(config).elements or {})
+        except Exception as exc:
+            # A config we cannot even build is not one to hand to the solver.
+            logger.warning("member-count estimate failed for a zone config: %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail="모델 구성을 해석할 수 없습니다. 입력값을 확인해 주세요.",
+            )
+
+    try:
+        n_story = len(config.get("stories") or []) or int(config.get("num_stories") or 0)
+        nx = len(config.get("bays_x") or []) or int(config.get("num_bays_x") or 0)
+        ny = len(config.get("bays_y") or []) or int(config.get("num_bays_y") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+    if not (n_story and nx and ny):
+        return 0
+    return _grid_member_count(n_story, nx, ny)
+
+
+def _enforce_demo_size(member_count: int, what: str = "모델") -> None:
+    if not DEMO_MAX_MEMBERS or member_count <= DEMO_MAX_MEMBERS:
+        return
+    raise HTTPException(
+        status_code=413,
+        detail=(
+            f"{what} 규모가 이 공개 데모의 한도를 넘습니다 "
+            f"(부재 {member_count}개 > 한도 {DEMO_MAX_MEMBERS}개). "
+            "더 작은 모델로 시도해 주시거나, 저장소를 내려받아 로컬에서 실행해 주세요."
+        ),
+    )
+
+
 # Application
-app = FastAPI(title="OpenSees Structural Analysis Platform")
+#
+# DEMO_MODE closes /docs, /openapi.json and /redoc: the schema enumerates every
+# route, which hands a visitor the shortest path to the dev-only and
+# unauthenticated surfaces before they ever see the demo itself.
+app = FastAPI(
+    title="OpenSees Structural Analysis Platform",
+    docs_url=None if DEMO_MODE else "/docs",
+    openapi_url=None if DEMO_MODE else "/openapi.json",
+    redoc_url=None if DEMO_MODE else "/redoc",
+)
 
 # Phase A.1 — chat router (sessions + NDJSON stream). Imported here so
 # the include_router call sits right next to app creation; chat_router
 # does its own MCP_SERVER_PATH injection so importing it is safe even
 # before main_simple's endpoints run.
+#
+# Not mounted in DEMO_MODE: without an API key the chat provider is
+# unreachable and the visitor is shown a raw
+# "ConnectError: All connection attempts failed", and
+# GET /api/v2/chat/audit/{id} answers with operator-level detail and no auth —
+# it can dump copyrighted KDS quotations to anyone who guesses a session id.
 from app.chat_router import router as chat_router  # noqa: E402
-app.include_router(chat_router)
+if not DEMO_MODE:
+    app.include_router(chat_router)
 
 # Demo auth - disabled for now
 # from app.core.auth import check_demo_auth, make_auth_response, set_auth_cookie
@@ -128,6 +344,18 @@ app.include_router(chat_router)
 BASE_DIR = Path(__file__).resolve().parent.parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+# The landing page is a self-contained static bundle at the repo root
+# (built by scripts/build_landing.py). It is served here so a single-origin
+# deployment works out of the box; hosting it separately is also supported —
+# see the app-base <meta> in landing/index.template.html.
+LANDING_DIR = BASE_DIR.parent.parent / "landing"
+if (LANDING_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=LANDING_DIR / "assets"),
+              name="landing-assets")
+if (LANDING_DIR / "files").is_dir():
+    app.mount("/files", StaticFiles(directory=LANDING_DIR / "files"),
+              name="landing-files")
 
 # In-memory job storage.
 #
@@ -167,6 +395,7 @@ from app.services.recommendation_jobs import (
     _eval_executor,
     _rehydrate_candidate,
 )
+from app.services.solver_pool import run_solver, queue_depth
 
 
 # Marker on each ``analysis_context_cache`` entry that tells the
@@ -218,8 +447,25 @@ def _assert_full_context_for_recommendations(ctx: dict, analysis_id: str) -> Non
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Home — V2 3D Building Editor"""
-    return templates.TemplateResponse(request, "editor_v2.html")
+    """Landing page.
+
+    The bare domain used to serve the editor, so anyone given the root URL
+    landed in a tool with no explanation and no way back to the pitch. The
+    editor now lives at /editor-figma, which the landing links into.
+    """
+    index = LANDING_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index), media_type="text/html")
+    # Landing not built yet (scripts/build_landing.py) — fall back to the editor
+    # rather than 404ing a local dev session.
+    return templates.TemplateResponse(request, "editor_figma.html",
+                                      {"demo_mode": DEMO_MODE})
+
+
+@app.get("/landing", response_class=HTMLResponse)
+async def landing(request: Request):
+    """Kept so existing links keep working; the landing is now the root."""
+    return RedirectResponse(url="/", status_code=307)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -233,8 +479,10 @@ async def claude_status():
 
 
 @app.post("/api/claude/parse-building")
-async def parse_building_natural_language(input_data: NaturalLanguageInput):
+async def parse_building_natural_language(request: Request,
+                                          input_data: NaturalLanguageInput):
     """Parse natural language to BuildingIntent, then resolve to config"""
+    _enforce_llm_quota(request)
     try:
         # Step 1: Claude → BuildingIntent
         intent = parse_building(input_data.text)
@@ -282,10 +530,30 @@ async def resolve_building_config_api(body: BuildingResolveInput):
 # 3D Building Editor
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# /editor-v2 and /editor-lab are the author's working surfaces, not the demo —
+# the routes stay registered (nothing else has to change) but refuse in
+# DEMO_MODE so a visitor only ever meets /editor-figma.
 @app.get("/editor-v2", response_class=HTMLResponse)
 async def editor_v2_page(request: Request):
     """V2 3D Building Editor (alias for /)"""
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "editor_v2.html")
+
+
+@app.get("/editor-lab", response_class=HTMLResponse)
+async def editor_lab_page(request: Request):
+    """ETABS-style UI redesign (isolated clone of V2; shares all /api endpoints)."""
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(request, "editor_lab.html")
+
+
+@app.get("/editor-figma", response_class=HTMLResponse)
+async def editor_figma_page(request: Request):
+    """Figma UI Lab: isolated redesign of V2 (own html/css/js copies; shares all /api endpoints)."""
+    return templates.TemplateResponse(request, "editor_figma.html",
+                                      {"demo_mode": DEMO_MODE})
 
 
 @app.get("/api/sections/list")
@@ -357,9 +625,132 @@ async def list_materials():
                 "fallback": True, "error": str(e)}
 
 
+# 재료 팝업(Define Materials) 표시용 상수 — KDS 14 31 05 강구조 공통 물성.
+# 해석 코어는 ν=0.3(G=E/2.6) 가정을 그대로 쓰므로 여기 값과 정합(frame_3d).
+_STEEL_POISSON = 0.3
+_STEEL_THERMAL_PER_C = 1.2e-5
+_GRAVITY_M_S2 = 9.80665
+
+
+def _steel_material_entry(name, standard, E_MPa, density_kg_m3, fy_bands,
+                          fu_min=None, fu_max=None, elongation_min=None):
+    """강종 1건을 Material 팝업 JSON으로 (파생값 G/단위중량 포함)."""
+    return {
+        "name": name,
+        "type": "Steel",
+        "standard": standard,
+        "E_MPa": E_MPa,
+        "poisson": _STEEL_POISSON,
+        "G_MPa": round(E_MPa / (2.0 * (1.0 + _STEEL_POISSON)), 1),
+        "thermal_coeff_per_C": _STEEL_THERMAL_PER_C,
+        "density_kg_m3": density_kg_m3,
+        "unit_weight_kN_m3": round(density_kg_m3 * _GRAVITY_M_S2 / 1000.0, 2),
+        "fy_by_thickness": fy_bands,           # [{t_min, t_max, fy}] mm/MPa
+        "fu_MPa": fu_min,
+        "fu_max_MPa": (None if fu_max in (None, 999) else fu_max),
+        "elongation_min_pct": elongation_min,
+    }
+
+
+@app.get("/api/materials/detail")
+async def materials_detail():
+    """KS 강재 카탈로그 상세 — Material 팝업용.
+
+    Supabase materials 테이블(강종 × 두께구간 fy)을 등급 단위로 그룹핑하고
+    표시/파생값(단위중량 kN/m³, G, ν, 열팽창계수)을 붙여 반환한다.
+    """
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.simple_beam import get_supabase
+        rows = (get_supabase().table("materials")
+                .select("*").order("name").order("t_min").execute().data) or []
+        grouped: dict[str, dict] = {}
+        for r in rows:
+            g = grouped.get(r["name"])
+            if g is None:
+                g = _steel_material_entry(
+                    name=r["name"],
+                    standard=r.get("standard"),
+                    E_MPa=r.get("e") or 205000.0,
+                    density_kg_m3=r.get("density") or 7850.0,
+                    fy_bands=[],
+                    fu_min=r.get("fu_min"),
+                    fu_max=r.get("fu_max"),
+                    elongation_min=r.get("elongation_min"),
+                )
+                grouped[r["name"]] = g
+            g["fy_by_thickness"].append(
+                {"t_min": r.get("t_min"), "t_max": r.get("t_max"), "fy": r.get("fy")})
+        if not grouped:
+            raise RuntimeError("materials table empty")
+        return {"materials": list(grouped.values()),
+                "constants": {"poisson": _STEEL_POISSON,
+                              "thermal_coeff_per_C": _STEEL_THERMAL_PER_C}}
+    except Exception as e:
+        # Supabase 불가 시 최소 폴백 (해석 폴백 DEFAULT_MATERIALS와 동일 강종)
+        fb = [
+            _steel_material_entry("SS275", "KS D 3503", 205000.0, 7850.0,
+                                  [{"t_min": 0, "t_max": 16, "fy": 275},
+                                   {"t_min": 16, "t_max": 40, "fy": 265},
+                                   {"t_min": 40, "t_max": 100, "fy": 245}],
+                                  fu_min=410, fu_max=550, elongation_min=21),
+            _steel_material_entry("SS235", "KS D 3503", 205000.0, 7850.0,
+                                  [{"t_min": 0, "t_max": 16, "fy": 235},
+                                   {"t_min": 16, "t_max": 40, "fy": 225}],
+                                  fu_min=330, fu_max=450, elongation_min=26),
+        ]
+        return {"materials": fb, "fallback": True, "error": str(e),
+                "constants": {"poisson": _STEEL_POISSON,
+                              "thermal_coeff_per_C": _STEEL_THERMAL_PER_C}}
+
+
+# Load 팝업(Live) 표시용 활하중 캐시 — Supabase 콜드콜(수 초) 반복 방지.
+_LIVE_PREVIEW_CACHE: dict | None = None
+
+
+@app.get("/api/loads/live-preview")
+async def live_load_preview():
+    """용도별 KDS 41 12 00 활하중 미리보기 — 하중 정의 팝업(Live)용.
+
+    해석 시 load_generator가 조회하는 것과 동일한 경로
+    (_query_live_load_traced)를 쓰므로 팝업 표시값 == 실제 적용값이 보장된다.
+    반환: {"live_loads": {usage: {value, source, db_primary_key, db_secondary_key}}}
+    """
+    global _LIVE_PREVIEW_CACHE
+    if _LIVE_PREVIEW_CACHE is not None:
+        return _LIVE_PREVIEW_CACHE
+    usages = ["office", "retail", "residential", "parking", "storage",
+              "hospital", "school", "assembly", "corridor", "mechanical_room", "roof"]
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core.load_generator import _query_live_load_traced
+        out = {u: _query_live_load_traced(u) for u in usages}
+        resp = {"live_loads": out, "source_code": "KDS 41 12 00 표 3.2-1"}
+        # DB 폴백으로 채워진 응답은 캐시하지 않음 (다음 요청에서 재시도)
+        if all(v.get("source") == "db_lookup" for v in out.values() if v):
+            _LIVE_PREVIEW_CACHE = resp
+        return resp
+    except Exception as e:
+        return {"live_loads": {}, "fallback": True, "error": str(e)}
+
+
 @app.post("/api/building/analyze")
 async def analyze_building_api(input_data: BuildingInput):
     """Run 3D building analysis and return results for the editor"""
+    # The V1 analyse path. No editor posts here any more — every front end
+    # (figma, v2, lab) goes to /api/v2/analyze — so on a public deployment this
+    # is an unauthenticated way to start a full solve that nothing needs.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Only pay for the estimate when a cap exists to compare it against;
+    # Python evaluates the argument before the call, so an unconditional
+    # estimate would do work even with the guard switched off.
+    if DEMO_MAX_MEMBERS:
+        _enforce_demo_size(_estimate_member_count(input_data.config), "요청하신 모델")
+
     job_id = str(uuid.uuid4())
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -389,7 +780,7 @@ async def analyze_building_api(input_data: BuildingInput):
         jobs_db[job_id]["progress"] = 20
 
         # 2. Auto load generation
-        load_result = generate_all_loads(model)
+        load_result = await run_solver(generate_all_loads, model)
         jobs_db[job_id]["progress"] = 40
 
         # 3. Run 3D analysis
@@ -398,7 +789,9 @@ async def analyze_building_api(input_data: BuildingInput):
         kwargs["load_combinations"] = load_result["load_combinations"]
         kwargs["modal_analysis"] = True
 
-        multi = analyze_frame_3d_multi(**kwargs)
+        # Solver thread: serialises OpenSees global state and keeps the event
+        # loop free while this multi-second run proceeds.
+        multi = await run_solver(analyze_frame_3d_multi, **kwargs)
         jobs_db[job_id]["progress"] = 70
 
         # 4. Design check
@@ -407,7 +800,7 @@ async def analyze_building_api(input_data: BuildingInput):
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result["reports"].get("seismic")
-            dc_result = run_design_check(multi, model, seismic_rpt)
+            dc_result = await run_solver(run_design_check, multi, model, seismic_rpt)
         except Exception as dc_err:
             logger.warning("Building design check failed: %s", dc_err, exc_info=True)
             warnings.append(f"design_check_failed: {dc_err}")
@@ -417,9 +810,28 @@ async def analyze_building_api(input_data: BuildingInput):
         if dc_result is not None:
             try:
                 from core.result_interpreter import interpret_results
-                interpretation = interpret_results(
-                    dc_result, multi,
+                interpretation = await run_solver(
+                    interpret_results, dc_result, multi,
                     modal_analysis=multi.modal_analysis or None,
+                )
+                # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
+                from core.narrative_interpreter import narrate_interpretation
+                from core.narrative_llm import make_narrator_from_env
+                interpretation = await run_solver(
+                    narrate_interpretation,
+                    interpretation, dc_result, llm=make_narrator_from_env(),
+                    load_result=load_result,
+                    model_info={
+                        "num_stories": getattr(multi, "num_stories", None),
+                        "total_height_m": getattr(multi, "total_height", None),
+                        "material": getattr(multi, "material_name", None),
+                        "column_section": getattr(multi, "column_section", None),
+                        "beam_x_section": getattr(multi, "beam_x_section", None),
+                        "rigid_diaphragm": getattr(model, "rigid_diaphragm", None),
+                    },
+                    analysis_metadata=getattr(multi, "analysis_metadata", None),
+                    seismic_method=input_data.config.get("seismic_method", "ELF"),
+                    analysis_id=job_id,
                 )
             except Exception as interp_err:
                 logger.warning(
@@ -580,6 +992,7 @@ async def analyze_building_api(input_data: BuildingInput):
                     "interaction_ratio": interaction,
                     "governing": mem.get("governing_combo", ""),
                     "type": mem.get("type", ""),
+                    "story": mem.get("story", ""),
                     "section": mem.get("section", ""),
                 }
                 # viewer member IDs match design check member_id (both 1-based structural members)
@@ -627,14 +1040,30 @@ async def analyze_building_api(input_data: BuildingInput):
         # Generate HTML report
         report_url = None
         try:
-            from core.visualization_3d import plot_frame_3d_interactive
             report_path = str(job_dir / "report.html")
-            plot_frame_3d_interactive(
-                multi,
-                output_path=report_path,
-                design_check=dc_result,
-                interpretation=interpretation,
-            )
+            # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
+            try:
+                from core.visualization_calc_report import plot_frame_3d_calc_report
+                await run_solver(
+                    plot_frame_3d_calc_report,
+                    multi,
+                    output_path=report_path,
+                    design_check=dc_result,
+                    interpretation=interpretation,
+                    load_result=load_result,
+                    cover_info=input_data.config.get("cover_info"),
+                    data_out_path=str(job_dir / "calc_data.json"),
+                )
+            except Exception as calc_err:
+                logger.warning(
+                    "Calc report failed; fallback to tab report (job %s): %s",
+                    job_id, calc_err, exc_info=True,
+                )
+                from core.visualization_3d import plot_frame_3d_interactive
+                plot_frame_3d_interactive(
+                    multi, output_path=report_path,
+                    design_check=dc_result, interpretation=interpretation,
+                )
             report_url = f"/api/jobs/{job_id}/report"
             jobs_db[job_id]["report_url"] = report_url
         except Exception as report_err:
@@ -743,16 +1172,36 @@ async def get_building_result(job_id: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/v2/parse-ifc")
-async def parse_ifc_v2_api(file: UploadFile = File(...)):
+async def parse_ifc_v2_api(request: Request, file: UploadFile = File(...)):
     """V2: IFC → Node-Element StructuralModel 변환"""
     import tempfile, os
 
     if not file.filename.lower().endswith(".ifc"):
         raise HTTPException(status_code=400, detail="IFC 파일(.ifc)만 업로드할 수 있습니다.")
 
-    content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="파일 크기가 50MB를 초과합니다.")
+    # Read in chunks with a running limit. `await file.read()` pulled the whole
+    # upload into memory BEFORE the size check, so an oversized POST killed the
+    # container before the check could reject it.
+    max_bytes = IFC_MAX_UPLOAD_MB * 1024 * 1024
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기가 {IFC_MAX_UPLOAD_MB}MB를 초과합니다.")
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"파일 크기가 {IFC_MAX_UPLOAD_MB}MB를 초과합니다.")
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".ifc")
     try:
@@ -773,10 +1222,16 @@ async def parse_ifc_v2_api(file: UploadFile = File(...)):
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             viewer_dir = JOBS_DIR / "v2_viewers"
             viewer_dir.mkdir(parents=True, exist_ok=True)
+            # Unguessable name. A second-resolution timestamp is only 86,400
+            # candidates a day, and /api/v2/viewer/{filename} has no ownership
+            # check — so anyone could enumerate another visitor's uploaded
+            # model. The uuid also removes the same-second overwrite collision.
+            # The original filename is deliberately NOT put in the title: it
+            # leaks the uploader's project name to whoever opens the viewer.
             viewer_path = generate_model_viewer(
                 model,
-                output_path=str(viewer_dir / f"model_{ts}.html"),
-                title=f"IFC Model: {file.filename}",
+                output_path=str(viewer_dir / f"model_{ts}_{uuid.uuid4().hex}.html"),
+                title="IFC Model",
             )
         except Exception as viewer_err:
             logger.warning(
@@ -877,6 +1332,9 @@ async def analyze_v2_api(request: Request):
     body = await request.json()
     model_json = body.get("model")
     user_config = body.get("config", {})
+    # 표지·도장란 — 분석 요청에 동반되면 첫 리포트부터 반영. 없으면 None(=placeholder),
+    # 이후 /api/jobs/{job_id}/report-cover 로 재해석 없이 주입 가능.
+    cover_info = body.get("cover_info") or user_config.get("cover_info")
 
     if str(MCP_SERVER_PATH) not in sys.path:
         sys.path.insert(0, str(MCP_SERVER_PATH))
@@ -895,11 +1353,24 @@ async def analyze_v2_api(request: Request):
                 status_code=400,
                 detail="model 또는 config 중 하나가 필요합니다.",
             )
+        # Arithmetic gate BEFORE materialising anything. A config is a
+        # description, not a model: measured, a 5.3 KB body of 40 storeys x 4
+        # zones x 12x12 bays expands to 76,960 elements in 4.9 s and 124 MB,
+        # and the element-count check below would only see that number after
+        # paying for it — on the event loop that serves every other visitor.
+        # The uploaded-model branch above needs no equivalent: its elements
+        # arrive already enumerated, so counting them is free.
+        if DEMO_MAX_MEMBERS:
+            _enforce_demo_size(_estimate_member_count(user_config), "요청하신 모델")
         # config-only 진입 시 user_config가 곧 BuildingModel 입력
         model = StructuralModel.from_building_config(user_config)
         config_built = True
 
     warnings: list[str] = []  # 부분 실패 정보 (success 응답에 포함)
+
+    # An uploaded/edited V2 model carries its elements directly, so count them
+    # rather than estimating from a grid config.
+    _enforce_demo_size(len(getattr(model, "elements", {}) or {}), "이 모델")
 
     if not config_built:
         # 요소 분류 확인 + 자동 분류 (IFC는 elem_type이 누락된 경우가 있음)
@@ -923,6 +1394,13 @@ async def analyze_v2_api(request: Request):
                 "[V2] Created %d intersection nodes, model: %d nodes, %d elems",
                 intersections, len(model.nodes), len(model.elements),
             )
+
+        # Re-check now that topology processing has run. The count above was
+        # taken from the uploaded file; splitting beams at intersections ADDS
+        # elements, so a model that arrived under the cap can be over it by the
+        # time it reaches the solver — which is the only place the cap actually
+        # matters. Cheap, and the only gate that sees the real number.
+        _enforce_demo_size(len(model.elements or {}), "분할 후 이 모델")
     else:
         logger.info(
             "[V2] config-built model: %d nodes, %d elems (post-process skipped)",
@@ -961,12 +1439,13 @@ async def analyze_v2_api(request: Request):
         building_model = model.to_building_model()
 
         from core.load_generator import generate_all_loads
-        load_result = generate_all_loads(building_model)
+        load_result = await run_solver(generate_all_loads, building_model)
         load_cases = load_result["load_cases"]
         load_combinations = load_result.get("load_combinations", {})
 
         # ── Step 2: 해석 ──
-        multi = analyze_from_model(model, load_cases, load_combinations)
+        # Solver thread — see the V1 endpoint above.
+        multi = await run_solver(analyze_from_model, model, load_cases, load_combinations)
 
         # ── Step 3: 설계검토 ──
         dc_result = None
@@ -976,7 +1455,8 @@ async def analyze_v2_api(request: Request):
         try:
             from core.design_check import run_design_check
             seismic_rpt = load_result.get("reports", {}).get("seismic")
-            dc_result = run_design_check(multi, building_model, seismic_rpt)
+            dc_result = await run_solver(run_design_check, multi, building_model,
+                                         seismic_rpt)
         except Exception as dc_err:
             logger.warning("V2 design check failed: %s", dc_err, exc_info=True)
             warnings.append(f"design_check_failed: {dc_err}")
@@ -986,6 +1466,25 @@ async def analyze_v2_api(request: Request):
             if dc_result:
                 interpretation = interpret_results(dc_result, multi,
                     modal_analysis=getattr(multi, 'modal_analysis', None) or None)
+                # 결과 해설 LLM (역할 #3) — NARRATOR_API_KEY 있으면 Opus 산문, 없으면 identity.
+                from core.narrative_interpreter import narrate_interpretation
+                from core.narrative_llm import make_narrator_from_env
+                interpretation = await run_solver(
+                    narrate_interpretation,
+                    interpretation, dc_result, llm=make_narrator_from_env(),
+                    load_result=load_result,
+                    model_info={
+                        "num_stories": getattr(multi, "num_stories", None),
+                        "total_height_m": getattr(multi, "total_height", None),
+                        "material": getattr(multi, "material_name", None),
+                        "column_section": getattr(multi, "column_section", None),
+                        "beam_x_section": getattr(multi, "beam_x_section", None),
+                        "rigid_diaphragm": getattr(model, "rigid_diaphragm", None),
+                    },
+                    analysis_metadata=getattr(multi, "analysis_metadata", None),
+                    seismic_method=user_config.get("seismic_method", "ELF"),
+                    analysis_id=job_id,
+                )
         except Exception as interp_err:
             logger.warning("V2 result interpretation failed: %s", interp_err, exc_info=True)
             warnings.append(f"result_interpretation_failed: {interp_err}")
@@ -993,9 +1492,20 @@ async def analyze_v2_api(request: Request):
         # ── Step 4: HTML 리포트 ──
         report_path = str(job_dir / "report.html")
         try:
-            from core.visualization_3d import plot_frame_3d_interactive
-            plot_frame_3d_interactive(multi, output_path=report_path,
-                                      design_check=dc_result, interpretation=interpretation)
+            # 문서형 구조계산서 리포트 우선, 실패 시 기존 탭 리포트로 폴백.
+            try:
+                from core.visualization_calc_report import plot_frame_3d_calc_report
+                await run_solver(plot_frame_3d_calc_report, multi,
+                                 output_path=report_path,
+                                 design_check=dc_result, interpretation=interpretation,
+                                 load_result=load_result, cover_info=cover_info,
+                                 data_out_path=str(job_dir / "calc_data.json"))
+            except Exception as calc_err:
+                logger.warning("V2: calc report failed; fallback to tab report: %s",
+                               calc_err, exc_info=True)
+                from core.visualization_3d import plot_frame_3d_interactive
+                plot_frame_3d_interactive(multi, output_path=report_path,
+                                          design_check=dc_result, interpretation=interpretation)
         except Exception as viz_err:
             logger.warning(
                 "V2: primary HTML report failed (%s); falling back to V2 viewer.",
@@ -1096,6 +1606,12 @@ async def analyze_v2_api(request: Request):
                 member_checks[str(mem.get("member_id", ""))] = {
                     "status": mem.get("status", "OK"),
                     "interaction_ratio": mem.get("ratios", {}).get("interaction", 0),
+                    # 설계검토 결과표의 지배조합/부재/층/단면 열이 이 네 값으로 채워진다.
+                    # 없으면 뷰어가 빈 칸을 그린다.
+                    "governing": mem.get("governing_combo", ""),
+                    "type": mem.get("type", ""),
+                    "story": mem.get("story", ""),
+                    "section": mem.get("section", ""),
                 }
 
         # Recommendation pipeline foundation — deterministic layer only.
@@ -1381,6 +1897,12 @@ async def post_recommendations_evaluate(request: Request):
         {"job_id": "rec_eval_<uuid>", "status": "queued",
          "num_total": int, "num_applicable_requested": int}
     """
+    # Off in DEMO_MODE: this queues one full reanalysis per candidate onto the
+    # single shared solver thread with no size guard, so one submission holds
+    # the whole demo hostage for every other visitor.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     body = await request.json()
     analysis_id = body.get("analysis_id")
     candidate_ids = body.get("candidate_ids") or []
@@ -1454,6 +1976,10 @@ async def post_recommendations_evaluate(request: Request):
 @app.get("/api/v2/recommendations/evaluate/{eval_job_id}")
 async def get_recommendations_evaluate(eval_job_id: str):
     """Poll the state of a batch evaluation job."""
+    # Nothing to poll while POST /evaluate is disabled.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     with _EVAL_JOBS_LOCK:
         job = eval_jobs_db.get(eval_job_id)
         if job is None:
@@ -1665,6 +2191,11 @@ async def post_recommendations_explain(request: Request):
         404  — candidate_id not found in the analysis context
         410  — analysis context expired (TTL)
     """
+    # Off in DEMO_MODE: the explanation path reaches the same keyless LLM/RAG
+    # stack as chat, and its KDS evidence block quotes clauses verbatim.
+    if DEMO_MODE:
+        raise HTTPException(status_code=404)
+
     body = await request.json()
     analysis_id = body.get("analysis_id")
     candidate_id = body.get("candidate_id")
@@ -1794,6 +2325,56 @@ async def serve_job_report(job_id: str):
             ),
         )
     return FileResponse(str(report_path), media_type="text/html")
+
+
+@app.post("/api/jobs/{job_id}/report-cover")
+async def update_report_cover(job_id: str, request: Request):
+    """표지·도장란(cover_info)을 주입하여 문서형 구조계산서 리포트를 재생성.
+
+    재해석 없이 ``calc_data.json`` 사이드카(분석 시 plot_frame_3d_calc_report가
+    저장)만 다시 렌더한다. 사이드카가 없으면(=폴백 탭 리포트가 떴거나 구버전
+    잡) 409 — 재해석을 안내한다.
+
+    Body: ``{"cover_info": {...}}`` 또는 cover_info dict 자체(평탄형) 모두 허용.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="유효한 JSON 본문이 필요합니다.")
+    cover_info = body.get("cover_info") if isinstance(body, dict) and "cover_info" in body else body
+    if cover_info is not None and not isinstance(cover_info, dict):
+        raise HTTPException(status_code=400, detail="cover_info는 객체(dict)여야 합니다.")
+
+    job_dir = JOBS_DIR / job_id
+    data_path = job_dir / "calc_data.json"
+    report_path = job_dir / "report.html"
+
+    if not data_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "표지 정보를 주입할 문서형 리포트 데이터(calc_data.json)가 없습니다. "
+                "문서형 구조계산서가 생성된 해석에만 적용되며, 서버 재시작 등으로 "
+                "잡 산출물이 사라졌을 수 있습니다. 해석을 다시 실행해 주세요."
+            ),
+        )
+
+    if str(MCP_SERVER_PATH) not in sys.path:
+        sys.path.insert(0, str(MCP_SERVER_PATH))
+
+    try:
+        with open(data_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        from core.visualization_calc_report import render_calc_report_from_data
+        render_calc_report_from_data(data, cover_info, output_path=str(report_path))
+    except Exception as e:
+        logger.error("report-cover regeneration failed (job %s): %s", job_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"리포트 재생성 실패: {e}")
+
+    if job_id in jobs_db:
+        jobs_db[job_id]["cover_info"] = cover_info
+
+    return {"status": "success", "report_url": f"/api/jobs/{job_id}/report"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2773,6 +3354,47 @@ async def export_dxf(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "mode": "simple (no Redis)"}
+
+
+@app.get("/api/health/demo")
+async def health_demo():
+    """Is it worth sending a visitor into a live run right now?
+
+    The landing page calls this before opening the "run it yourself" door. A
+    visitor whose first click ends in a timeout or a raw error concludes the
+    tool does not work — better to say "busy, come back" than to hand them a
+    request that will sit behind three others.
+    """
+    depth = queue_depth()
+    kds_offline = None
+    try:
+        if str(MCP_SERVER_PATH) not in sys.path:
+            sys.path.insert(0, str(MCP_SERVER_PATH))
+        from core import kds_cache
+        kds_offline = kds_cache.is_offline()
+        kds_mode = kds_cache.mode()
+    except Exception:
+        kds_mode = "unknown"
+
+    # Busy is not broken: the run still works, it just queues.
+    ready = depth <= 2
+    return {
+        "ready": ready,
+        "queue_depth": depth,
+        "kds_source": "snapshot" if (kds_mode in ("prefer", "only") or kds_offline)
+                      else "database",
+        "kds_mode": kds_mode,
+        "demo_mode": DEMO_MODE,
+        "demo_max_members": DEMO_MAX_MEMBERS or None,
+        # Measured end-to-end for the 3-story bench model the landing links to
+        # (10.4 s with the KDS snapshot); rounded up rather than down so the
+        # number the visitor is quoted is one they beat, not one they miss.
+        "expected_seconds": 12,
+        "message": (
+            "지금 바로 실행할 수 있습니다." if ready else
+            f"현재 {depth}건이 대기 중입니다. 잠시 후 다시 시도해 주세요."
+        ),
+    }
 
 
 if __name__ == "__main__":

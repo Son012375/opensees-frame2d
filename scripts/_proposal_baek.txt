@@ -1,0 +1,699 @@
+Pages: 20
+
+===PAGE 1===
+2026년도 핵심연구(유형A) 신규과제
+연구계획서(연구내용)
+과제명
+국문
+멀티모달 물리정보 그래프 신경망을 활용한 
+노후 건축물 구조안전성 평가 기술 개발
+영문
+Development of Structural Safety Assessment Technology 
+for Aging Buildings using Multimodal Physics-Informed 
+Graph Neural Networks
+
+
+===PAGE 2===
+- 1 -
+1. 연구과제의 필요성
+Ÿ
+국내 건축물의 노후화 추세 및 필로티 건축물 사고 현황: 국내 건축물의 노후화가 급격히 진행되어 2024년 기준 
+30년 이상 경과 노후주택이 557만호(전체의 28.0%)에 달하며, 2023년 대비 53만호 증가하였다. 20년 이상 노후
+주택은 1,091만호로 전체의 54.9%에 이른다[1]. 특히 단독주택의 노후 비율은 57.9%로 더욱 심각한 상황이다. 
+2017년 포항 지진(규모 5.4)에서는 내진설계가 미비한 노후 필로티 건물들이 1층 기둥의 전단파괴로 인해 붕괴 
+위험 판정을 받아 다수가 철거되었다[2, 3]. 당시 피해 조사 결과, 필로티 구조의 비틀림 비정형과 연약층 효과가 
+손상의 주요 원인으로 분석되었으며[3], 이는 국내 노후 필로티 건축물의 구조안전성 문제가 심각함을 보여준다.
+Ÿ
+시설물 안전관리에 의한 특별별 개정: 2025년 12월 4일 시행된 「시설물의 안전 및 유지관리에 관한 특별법」 개
+정(법률 제20553호)으로 제2·3종 시설물까지 정밀안전진단 대상이 확대되고, 보수·보강 조치 기한이 단축(5년→3
+년)되어 진단 수요가 급증할 전망이다[4, 5]. 안전진단 시장은 2017년 2,900억원에서 2021년 5,200억원으로 5년
+간 약 80% 성장하였으며, 안전진단 전문기관의 수도 최근 5년간 약 40% 증가하였다[6]. 특히 전문 인력 부족 문
+제가 심화되고 있어, 안전진단 업무를 위한 AI 기반 자동화 기술의 필요성이 더욱 증가하고 있다. 
+Ÿ
+현행 정밀안전진단 업무의 한계점: 그러나 현행 정밀안전진단 업무 중 가장 많은 시간과 비용이 소요되는 단계는 
+현장 조사 및 구조해석 모델링 단계이며, 현행 정밀안전진단 체계는 다음과 같은 한계를 지닌다.
+구분
+현행 정밀안전진단 업무의 한계점
+본 연구의 해결 방안
+수작업 의존
+전문가가 낡은 도면과 보고서를 대조하며 해석 모델 수동 작성
+Scan-to-Analysis 자동화
+휴먼 에러
+여러 문서에서 부재 치수, 배근 정보 추출 시 오류 빈번
+LLM기반 자동 추출
+비용 과다
+1동 모델링에 숙련된 구조엔지니어 장시간 투입
+GNN모델의 해석속도 향상
+불완전 정보 환경
+노후 건축물의 도면 미비, 이력 누락 빈번
+LLM기반 불완전 정보 추론
+Ÿ
+본 연구의 가설: 대형언어모델(Large Language Model, LLM)과 비전(Vision) 기술을 융합하여 필로티 구조물의 
+구조해석을 위한 비정형 도면과 보고서 및 사진 정보를 자동 수집·분석하는 멀티모달 인공지능을 개발하고, 물리
+정보 그래프 신경망(PI-GNN)으로 정합성을 검증하여 구조해석 수행 및 구조 안전성 평가 자동화 할 수 있다.
+그림 1. 본 연구의 연구가설 및 연구가설의 도출근거
+  
+Ÿ
+본 연구가설의 근거: 최근 진화된 대형언어모델은 프롬프트 엔지니어링, 검색증강생성(Retrival Augmented 
+Generation, RAG) 시스템, Model Context Protocol(MCP) 서버 등 핵심 기술을 기반으로 활용성이 증대되고 
+있다. 대형언어모델의 비정형 데이터 처리능력(Fig. 1(a)), 외부 시스템과 연동 능력(Fig. 1(b)), 환각문제 해결 능
+력(Fig. 1(d))은 각각 구조해석 자료입력 단계, 구조해석 수행 단계, 구조해석 검증 단계에서 활용될 수 있다. 또
+한, 구조해석 입력-응답 데이터를 학습한 그래프 신경망(GNN) 모델(Fig. 1(c))은 구조해석 프로그램을 대체하여 
+구조해석의 속도를 가속화하는 도구로 활용될 수 있다.
+
+
+===PAGE 3===
+- 2 -
+2. 연구과제의 목표 및 내용
+ 1) 연구과제의 최종 목표
+노후 필로티 건축물의 도면, 보고서 및 사진으로부터 구조해석 모델을 자동생성하고 그래프 인공신경망 모델 기반 
+구조해석 응답을 기초로 설계기준을 만족하는 구조안전성 평가를 지원하는 인공지능 시스템을 개발
+ 2) 연구과제의 내용
+  본 연구의 목표를 달성하기 위해 연차별 목표 5가지를 도출하였으며, 연구의 내용은 다음과 같다.
+Ÿ
+1차년도: 멀티모달 AI 기반 노후 건축물 구조정보 자동 추출 기술 개발
+   노후 건축물의 도면(LayoutLMv3[16]), 점검보고서, 현장사진(Vision Transformer[17])을 통합 분석하는 
+멀티모달 AI를 개발한다. 각 모달리티에서 추출된 구조정보(부재 치수, 재료강도, 배근정보 등)를 Cross-Modal 
+Attention[18]을 통해 융합하고, 텍스트-도면-사진 간 동일 부재를 매칭하는 Entity Alignment 기술[19]을 
+구현하여 통합 구조정보 데이터베이스를 구축한다.
+Ÿ
+2차년도: GNN-Midas 병렬 구조모델 생성 및 RAG 설계기준 검색 시스템 개발
+   (1) 멀티모달 AI에서 추출된 구조정보를 기반으로 구조물의 부재-접합부 관계를 Heterogeneous Graph[20]로 
+표현하고, Message Passing 기반 GNN 모델을 학습하여 노후 필로티 구조물의 구조응답을 예측하는 모델을 
+개발한다. (2) GNN 검증을 위한 참값(Ground Truth) 획득을 위해 Model Context Protocol(MCP)[10]을 
+활용하여 상용 구조해석 소프트웨어(MidasGen)와 자동 연동하는 시스템을 병렬 개발한다. (3) 건축구조 
+그림 2 연구과제의 최종목표 및 내용
+
+
+===PAGE 4===
+- 3 -
+설계기준(KDS[21])을 검색하는 RAG 시스템[22]을 구축하여 후속 자가교정 단계에 설계기준 정보를 제공한다.
+Ÿ
+3차년도: Physics-Informed Self-Correction(PISC) 2단계 자가교정 시스템 개발
+   대형언어모델의 환각현상[23]을 방지하기 위해 GNN 예측 결과와 MidasGen 해석 결과를 비교하여 불일치 시 
+2단계 자가교정을 수행하는 PISC 시스템을 개발한다. (1) Loop 1에서는 물리법칙(평형조건, 적합조건, 
+구성방정식)을 기준으로 GNN 출력의 역학적 타당성을 검증하고, (2) Loop 1 실패 시 Loop 2에서 RAG 
+설계기준을 활용하여 입력정보의 이상 여부(재료강도, 단면치수 등)를 검출 및 교정한다.
+Ÿ
+4차년도: 통합 구조성능 평가 엔진 완성 및 예비 실증
+   멀티모달 AI, GNN, PISC 모듈을 통합하여 End-to-End 구조성능 평가 엔진을 완성한다. 소규모 예비 
+실증(3동)을 통해 실제 노후 필로티 건축물에 시스템을 적용하고, 전문가 피드백을 수집하여 시스템 안정화 및 
+사용성을 개선한다.
+Ÿ
+5차년도: 현장 본 실증 및 Human-in-the-loop 프로세스 구현 및 검증
+   노후 RC 필로티 건축물 본 실증(5~10동)을 수행하여 시스템의 실용성을 검증한다. AI 1차 스크리닝 결과를 
+구조기술사가 검토·보완하는 Human-in-the-loop[24] 프로세스를 구현하고, 최종 안전등급 판정의 정확도(목표: 
+전문가 판정 대비 85% 이상 일치)를 평가하여 기술이전 및 상용화를 추진한다.
+3. 연구과제의 추진전략․방법 및 추진체계
+ 1) 연구과제의 추진전략·방법
+  본 연구의 성공적인 목표 달성을 위한 총 4가지 추진전략은 그림 3과 같이 유기적으로 연동된다. 
+    
+그림 3 연구과제의 추진 전략 및 방법 
+  (1) 구조공학 특화 LLM 학습: 기존 범용 LLM의 구조공학 도메인 한계 극복을 위해 구조설계 도면, 정밀안전진단 보
+고서, KDS/KBC 설계기준 데이터셋으로 Fine-tuning 수행하여 구조공학에 적합한 대형언어모델을 개발한다. 효
+율적인 데이터생성을 위해 RAG 시스템을 활용하며 대형언어모델의 효과적이고 학습을 위해 소규모 컴퓨팅 파워
+로도 학습이 가능한 LoRA[25] 및 QLoRA[26] 기법을 활용한다.
+  (2) 필로티 구조물 특화 GNN 모델 고도화: 노후 구조물의 불완전한 정보에 대응하고 신속한 구조응답을 도출하기 위
+해 필로티 구조물과 그 해석응답을 학습하는 필로티 구조물 특화 그래프 인공신경망을 개발한다. 특히, 이종의 구
+조물도 학습가능한 Heterogeneous 그래프 인공신경망[20] 기반으로 다양한 형태를 가진 필로티 공동주택의 여러 
+유형을 학습하여 예측 정확도를 향상시킨다. 
+  (3) MCP 연동 기반의 GNN-Midas 비교검증 체계 구축: Midas Gen 등 구조설계 소프트웨어를 활용하여 나온 구조해
+석 응답 데이터는 GNN 예측결과와 비교 및 검증 단계에서 필수적이다. 대형언어모델의 최신 기술인 MCP(Model 
+Context Protocol) 기술로 LLM-GNN-Midas 연동 체계를 구축하고 참값(Ground Truth)을 효율적으로 확보하
+
+
+===PAGE 5===
+- 4 -
+고, GNN 예측응답과 Midas 해석응답의 정량 비교 프레임워크 개발한다.
+  (4) 실증 기반 Self-Correction Loop 최적화: 대형언어모델의 환각현상[23]을 방지하기 위해 구조해석 및 설계 결과
+의 검증은 필수적이다. 본 연구에서는 ① Loop 1: 물리법칙(평형·적합·구성) 기반 GNN 모델 검증 ② Loop 2: 
+RAG 설계기준 기반 입력정보 검증 단계(3차년도)를 거치며, 4차년도에 예비 노후 필로티 건축물 대상과 5차년도
+에 실증 노후 필로티 건축물 대상으로 루프 파라미터 튜닝 수행으로 시스템을 고도화한다.
+2) 연구과제의 추진체계
+  본 연구의 목표를 달성하기 위해 노후주택 DB, 도면·보고서·사진 등 실증 자료, 상용 소프트웨어와 연동을 위한 API 
+키 제공 등이 필요하다. 이에 따라 본 연구팀은 공공영역(LH 또는 SH공사, 정밀안전진단 기관), 산업영역(상용 소프트
+웨어 개발부)과 협력체계를 구축(그림 4)하여 안전진단 업무의 효율화·자동화의 달성을 추진한다.
+그림 4. 연구과제의 추진체계 
+ 3) 연구기간 및 연구비 적정성
+  본 연구는 557만 호에 달하는 노후 건축물의 구조안전 평가 효율화 및 자동화를 위한 중요한 연구로, 구조해석을 위
+한 DB 구축(1차년도), GNN 모델의 충분한 학습과 상용 소프트웨어와 연동(2차년도), 물리제약 검증 시스템의 신뢰성 확
+보(3차년도), 전체 파이프라인 통합과 시스템 구축(4차년도) 및 현장 실증을 통한 실용화(5차년도)를 목적으로, 최소 5년
+의 연구기간이 필요할 것으로 판단하였다.
+Ÿ
+기술개발 연구환경 구축을 위한 GPU 클라우드 사용비가 직접연구비의 약 25%로 편성됨.
+    - 고성능 GPU 클라우드(Amazon Web Service/Google Cloud Platform) 사용비: LLM, GNN, PISC 모델을 개발
+하고 대규모 학습을 수행하는 과정에서 수많은 연산이 소요되므로, 연구 효율을 증대시키고 제한된 시간 내 연
+구목표를 달성하기 위하여 GPU 클라우드 사용이 반드시 필요함.
+    - 교내 High Performance Computing(HPC) Cluaster 병행 활용: 비용 효율화를 위해 교내 HPC 클러스터를 병
+행 활용하고, LoRA/QLoRA[25, 26] 기법 적용으로 Full Fine-tuning 대비 GPU 비용 절감을 추진함.
+Ÿ
+데이터 레이블링(Labeling)과 어노테이션(Annotation) 등 LLM 및 GNN의 지도학습을 위한 학습 데이터 구축 소
+요를 고려하여 학생인건비가 직접연구비의 약 40%로 편성됨.
+Ÿ
+구조안전진단 전문기관의 점검보고서 및 구조도면 수집과 현장 실증을 위한 연구활동비가 직접연구비의 약 17%
+로 편성됨.
+    - 노후 건축물 구조모델 자동 생성 검증에서 실제 점검보고서 및 구조도면에 대한 방대하고 다양한 데이터 수집이 
+필수적이며, 협력기관 방문 및 데이터 수집을 위한 연구활동비가 요구됨.
+    - 실제 노후 RC 필로티 건축물 5동 이상을 대상으로 한 현장 실증이 필요하며, 구조기술사 및 안전진단 전문가를 
+대상으로 한 시스템 사용성 평가 및 자문수렴이 필요함.
+
+
+===PAGE 6===
+- 5 -
+4. 연구자의 연구 수행역량
+  연구책임자는 최근 5년(2021-2025)간 국제 저명 학회지에 20편의 SCIE급 논문을 게재하였다. 건축구조, 건축시공 및 
+건설관리 등 건설분야 전반에 대한 지식과 경험을 바탕으로, 건설산업에 인공지능을 적용하여 안전성 및 생산성을 향상
+시키기 위한 연구를 다년간 수행하였다. 최신 인공지능 기술을 건축 분야 뿐 아니라 타 분야(화학분야)에 적용하였으며, 
+TC-AICI(Technical Committee - Artificial Intelligence in Concrete Industry) 부위원장으로 활동하는 등 건설산업
+에 인공지능을 적용·확산을 위한 활발한 활동을 수행 중이다. 
+연구책임자의 연구과제 및 활동 내역
+발주처
+기간
+본 연구 연관성
+딥러닝 및 클라우드 기반의 건설중장비 운용에 따른 
+안전사고 저감방안 연구
+한국연구재단
+(기본연구)
+2019~2022
+딥러닝 기반 안전 평가 
+기초 기술 확보
+3차원 자세 추정 딥러닝 및 클라우드 컴퓨팅을 
+활용한 건설현장 안전사고 저감 연구
+한국연구재단
+(기본연구)
+2022~2025
+영상처리 및 클라우드 기술의 
+멀티모달 확장
+인공지능 기반 스마트 메가스트럭처 연구실
+한국연구재단
+(기본연구)
+2023~2026
+대규모 구조물에 대한 
+AI 해석 및 데이터 처리 경험
+물리정보 기반 그래프 신경망을 활용한 구조물 응답 
+예측 및 확률론적 성능평가 연구
+한국연구재단
+(신진씨앗연구)
+2025~2026
+본 연구 핵심 방법론
+(GNN+PINN) 직접 연계 
+미지테러물질 추적·확인·제거 방법 마련
+(딥러닝 기반 NMR 스펙트럼 예측)
+화학물질안전원
+(육군사관학교)
+2021~2024
+타분야(화학) 딥러닝 
+융합 적용 및 문제해결 역량
+아시아콘크리트연맹(ACF) TC-AICE 부위원장
+ACF
+2024~현재
+건설 AI 가이드라인 
+수립 및 국제적 확산 주도
+International Journal of Concrete Structures 
+and Materials (SCIE) 편집자
+IJCSM
+2020~현재
+AI 및 건설 융합 분야 
+최신 연구 동향 파악
+  이렇듯 연구책임자는 건축분야에 인공지능 적용 위한 풍부한 연구경험을 바탕으로 "물리정보 기반 그래프 신경망을 
+활용한 구조물 응답 예측 연구(한국연구재단[씨앗연구], 2025-2026)" 연구를 통해 GNN과 PINN의 구조공학 적용에 대한 
+기반 기술을 확보하였다. 본 핵심연구는 기존연구에서 검증된 방법론을 노후 필로티 건축물이라는 실제 문제로 확장하
+여, LLM 기반 Scan-to-Analysis 기술을 통해 현장 적용 기술 개발을 목표로 한다.
+5. 연구과제의 활용방안 및 기대효과
+ 1) 연구과제의 활용방안
+Ÿ
+응용분야: 국내 557만호 노후 건축물의 정밀안전진단, 긴급안전점검, 재건축 판정 등 구조안전 평가 전반에 적용 
+가능. AI가 1차 분석을 수행하고 전문가가 최종 판정하는 Human-in-the-loop 체계로 운영.
+Ÿ
+활용범위
+   1) 안전진단 전문기관: 구조모델링 소요시간 80% 단축, 중·소규모 기관도 고급 구조해석 역량 확보 
+   2) 지자체·공공기관: 관할 노후 건축물 위험도 1차 스크리닝, 제한된 예산 내 정밀진단 우선순위 결정  
+   3) 건축주·시행사: 재건축 타당성 검토, 리모델링 vs 철거 의사결정 근거 제공
+ 2) 연구과제의 기대효과
+구분
+핵심 기대효과
+정량적 목표
+과학·기술적
+• LLM-PI-GNN 통합 프레임워크 제시
+• 물리법칙기반 LLM 환각 방지 기술(PISC) 확립 
+• 불완전 정보 구조평가 방법론 정립 
+SCIE 논문 7편, 특허 3편
+경제적
+• 구조모델링 시간 단축 및 진단 비용 절감 
+• 추가 센서 없이 기존 문서만으로 분석 가능
+시간 80%, 비용 50% 단축
+산업적
+• 중소규모 진단기관의 고급 해석 역량 확보 
+• 지자체 노후 건축물 스크리닝 체계 구축 
+안전등급 일치율 90% 수준
+사회적
+• 557만 호 노후 건축물 붕괴 사고 예방 및 국민 안전 제고 
+• 불필요한 보강/철거 감소, 국민 안전 제고
+박사급 고급 인력 5명 양성
+
+
+===PAGE 7===
+- 6 -
+6. 기타
+- 없음.
+
+
+===PAGE 8===
+- 7 -
+- 참고문헌(Reference)
+[1] 국토교통부, "2024년 인구주택총조사 결과," 국토교통부 보도자료, 2024.
+[2] KBS 뉴스, "지진 8년 흘렀지만…여전한 지진의 상처," KBS 뉴스, 2025년 11월 16일.
+[3] K. Hwang and H. Lee, "2017.11.15. 포항 흥해지진의 저층 RC 비틀림 비정형 건축물의 피해 및 손상 
+특성," 대한지진공학회 논문집, vol. 22, no. 3, pp. 103-111, 2018.
+https://doi.org/10.5000/EESK.2018.22.3.103
+[4] 시설물의 안전 및 유지관리에 관한 특별법 (Special Act on the Safety and Maintenance of 
+Facilities), 법률 제20553호, 2024년 12월 3일 일부개정.
+[5] 대한민국 정책브리핑, "정밀안전진단 의무화 시행," 정책브리핑, 2024년 12월.
+[6] 대한경제, "전문성 확보 한계…진단결과 조작 우려도," 대한경제, 2024년 11월 6일.
+[7] B. Hope, J. Bracey, S. Choukir, and D. Warner, "Assessment of ChatGPT for Engineering 
+Statics Analysis," arXiv preprint, arXiv:2502.00562, Feb. 2025.
+https://doi.org/10.48550/arXiv.2502.00562
+[8] Z. Qiu, J. Liu, Y. Wu, P. Liu, H. Qi, H. Liang, and Y. Xia, "LLM-based framework for 
+automated and customized floor plan design," Automation in Construction, vol. 180, p. 106512, 
+2025. https://doi.org/10.1016/j.autcon.2025.106512
+[9] C. Du, S. Esser, S. Nousias, and A. Borrmann, "Text2BIM: Generating Building Models Using a 
+Large Language Model-Based Multiagent Framework," Journal of Computing in Civil Engineering, 
+vol. 40, no. 2, 2026. https://doi.org/10.1061/JCCEE5.CPENG-6386
+[10] Anthropic, "Introducing the Model Context Protocol," Anthropic News, Nov. 25, 2024. 
+https://www.anthropic.com/news/model-context-protocol
+[11] GreatApo, "FEA-MCP: FEA AI MCP Server (for LUSAS, ETABS etc)," GitHub Repository, Apr. 
+2025. https://github.com/GreatApo/FEA-MCP
+[12] L.-H. Song, C. Wang, J.-S. Fan, and H.-M. Lu, "Elastic structural analysis based on graph 
+neural network without labeled data," Computer-Aided Civil and Infrastructure Engineering, vol. 
+38, no. 10, pp. 1307-1323, 2023. https://doi.org/10.1111/mice.12944
+[13] Y.-T. Chou, W.-T. Chang, J. G. Jean, K.-H. Chang, Y.-N. Huang, and C.-S. Chen, 
+"StructGNN: An efficient graph neural network framework for static structural analysis," 
+Computers and Structures, vol. 299, p. 107385, 2024.
+https://doi.org/10.1016/j.compstruc.2024.107385
+[14] R. Kamoi, Y. Zhang, N. Zhang, J. Han, and R. Zhang, "When Can LLMs Actually Correct 
+Their Own Mistakes? A Critical Survey of Self-Correction of LLMs," Transactions of the 
+Association for Computational Linguistics, vol. 12, pp. 1417-1440, 2024. 
+https://doi.org/10.1162/tacl_a_00713
+[15] A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. 
+Prabhumoye, Y. Yang, S. Gupta, B. P. Majumder, K. Hermann, S. Welleck, A. Yazdanbakhsh, and 
+P. Clark, "Self-Refine: Iterative Refinement with Self-Feedback," in Advances in Neural 
+Information Processing Systems (NeurIPS 2023), 2023. https://arxiv.org/abs/2303.17651
+[16] Y. Huang, T. Lv, L. Cui, Y. Lu, and F. Wei, "LayoutLMv3: Pre-training for Document AI with 
+Unified Text and Image Masking," in Proceedings of the 30th ACM International Conference on 
+Multimedia, pp. 4083-4091, 2022. https://doi.org/10.1145/3503161.3548112
+[17] J. Li, D. Li, S. Savarese, and S. Hoi, "BLIP-2: Bootstrapping Language-Image Pre-training 
+with Frozen Image Encoders and Large Language Models," in Proceedings of the 40th 
+
+
+===PAGE 9===
+International 
+Conference 
+on 
+Machine 
+Learning 
+(ICML 
+2023), 
+pp. 
+19730-19742, 
+2023. 
+https://arxiv.org/abs/2301.12597
+[18] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. 
+Mishkin, J. Clark, G. Krueger, and I. Sutskever, "Learning Transferable Visual Models From 
+Natural Language Supervision," in Proceedings of the 38th International Conference on Machine 
+Learning (ICML 2021), pp. 8748-8763, 2021. https://arxiv.org/abs/2103.00020
+[19] J. Li, A. Sun, J. Han, and C. Li, "A Survey on Deep Learning for Named Entity Recognition," 
+IEEE Transactions on Knowledge and Data Engineering, vol. 34, no. 1, pp. 50-70, 2022.
+https://doi.org/10.48550/arXiv.1812.09449
+[20] L. Song, C. Wang, and J. Fan, "Efficient Full-Range Nonlinear Analyses of Structural 
+Systems 
+Based 
+on 
+Heterogeneous 
+Graph 
+Learning," 
+Engineering, 
+In 
+Press, 
+2025. 
+https://doi.org/10.1016/j.eng.2025.07.001
+[21] 국토교통부, "건축구조기준 (KDS 41 00 00)," 국토교통부고시 제2024-846호, 2024년 12월 24일 개정.
+[22] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küttler, M. Lewis, W. 
+Yih, 
+T. 
+Rocktäschel, 
+S. 
+Riedel, 
+and 
+D. 
+Kiela, 
+"Retrieval-Augmented 
+Generation 
+for 
+Knowledge-Intensive NLP Tasks," in Advances in Neural Information Processing Systems 
+(NeurIPS), vol. 33, pp. 9459-9474, 2020.
+https://doi.org/10.48550/arXiv.2005.11401
+[23] L. Huang, W. Yu, W. Ma, W. Zhong, Z. Feng, H. Wang, Q. Chen, W. Peng, X. Feng, B. Qin, 
+and T. Liu, "A Survey on Hallucination in Large Language Models: Principles, Taxonomy, 
+Challenges, and Open Questions," ACM Transactions on Information Systems (TOIS), vol. 42, no. 
+6, pp. 1-55, 2024. https://doi.org/10.1145/3703155
+[24] X. Wu, L. Xiao, Y. Sun, J. Zhang, T. Ma, and L. He, "A Survey of Human-in-the-loop for 
+Machine Learning," Future Generation Computer Systems, vol. 135, pp. 364-381, 2022.
+https://doi.org/10.48550/arXiv.2108.00941
+[25] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, "LoRA: 
+Low-Rank Adaptation of Large Language Models," in International Conference on Learning 
+Representations (ICLR), 2022. https://doi.org/10.48550/arXiv.2106.09685
+[26] T. Dettmers, A. Pagnoni, A. Holtzman, and L. Zettlemoyer, "QLoRA: Efficient Finetuning of 
+Quantized LLMs," in Advances in Neural Information Processing Systems, vol. 36, 2023.
+https://doi.org/10.48550/arXiv.2305.14314
+
+
+===PAGE 10===
+                
+                
+과제명
+국문
+멀티모달 물리정보 그래프 신경망을 활용한 
+노후 건축물 구조안전성 평가 기술 개발
+영문
+Development of Structural Safety Assessment Technology 
+for Aging Buildings using Multimodal Physics-Informed 
+Graph Neural Networks
+대표적 연구실적 요약문 및 증빙자료
+
+
+===PAGE 11===
+< 대표적 연구실적 요약문 >
+연구실적 제목
+A data-driven approach for spectrum-matched earthquake ground motions with 
+physics-informed neural networks
+연구실적 유형 (택 1)
+논문실적정보
+▣
+게재지(저널명)
+Developments in the Built Environment
+ISSN
+2666-1659
+게재년월
+202503
+역할(제1, 교신, 참여)
+교신
+참여자수
+4명
+특허실적정보
+□
+구분
+등록(출원) 
+국가
+등록(출원) 번호
+등록(출원)일
+등록(출원)자 성명
+발명자 
+성명
+기타실적정보
+□
+연구실적 유형
+저서( ) 역서( ) 국제학회 초청강연( ) 학술지 편집위원 참여( ) 
+기술이전( ) 학술대회프로시딩( ) 기타( )
+□ 연구 요약
+  본 연구는 Physics-Informed Neural Networks(PINNs)를 활용하여 스펙트럼 일치(Spectrum 
+Matching)가 된 지진 지반운동을 생성하는 새로운 데이터 기반 접근법을 제안한다. 본 방법론은 
+실제 기록된 지진 데이터를 활용하고, 특이값 분해(Singular Value Decomposition)를 통해 차
+원을 축소함으로써 시간적으로 상관된 패턴을 포착하는 고유 운동(Eigen Motions)을 추출한다. 
+PINN과 이러한 고유 운동을 결합함으로써 물리적으로 해석 가능한 방식으로 스펙트럼 일치를 달
+성한다.  생성된 지반운동은 기존의 선형 스케일링과 스펙트럼 일치 기법 사이의 균형을 이루며, 
+일치 정도는 입력된 운동에 따라 달라진다. 이 과정에서도 입력 데이터 고유의 비정상
+(non-stationary) 특성은 유지된다. 생성된 운동의 적합성은 다양한 평가 지표 및 점증적 동적 
+해석(Incremental Dynamic Analysis)을 통해 분석되었으며, 스펙트럼 일치 과정에서 발생할 수 
+있는 편향 여부를 평가하였다.
+  분석 결과, 일부 스펙트럼 형상에서의 편차는 존재하지만, 전체적으로 스펙트럼 일치된 지반운
+동의 성능은 수용 가능한 수준이며, 유의미한 편향은 발생하지 않는 것으로 나타났다.
+□ 연구성능, 효과 및 대표적 연구실적의 이유
+ 본 연구자의 PINN 기반 스펙트럼 일치 지진운동 생성 연구는 물리법칙(응답스펙트럼 적합성)을 
+신경망 
+학습에 
+내재화하는 
+핵심 
+방법론을 
+검증하였으며, 
+이는 
+본 
+과제에서 
+제안하는 
+Physics-Informed Self-Correction(PISC) 시스템의 이론적 기반이 된다. 특히, 물리적 제약조
+건을 손실함수에 통합하여 비물리적 예측을 억제하는 기법은 LLM의 환각(hallucination) 방지 
+및 GNN 기반 구조응답 예측의 역학적 타당성 검증에 직접 적용될 수 있다. 이를 통해 노후 건
+축물의 불완전 정보 환경에서도 신뢰성 있는 구조안전성 평가가 가능하다. 
+
+
+===PAGE 12===
+- 11 -
+< 대표적 연구실적 사본 >
+
+
+===PAGE 13===
+- 12 -
+< 대표적 연구실적 요약문 >
+연구실적 제목
+Targeted Discrepancy Attacks: Crafting Selective Adversarial Examples in Graph 
+Neural Networks
+연구실적 유형 (택 1)
+논문실적정보
+▣
+게재지(저널명)
+IEEE Access
+ISSN
+2169-3536
+게재년월
+202501
+역할(제1, 교신, 참여)
+교신
+참여자수
+2명
+특허실적정보
+□
+구분
+등록(출원) 
+국가
+등록(출원) 번호
+등록(출원)일
+등록(출원)자 성명
+발명자 
+성명
+기타실적정보
+□
+연구실적 유형
+저서( ) 역서( ) 국제학회 초청강연( ) 학술지 편집위원 참여( ) 
+기술이전( ) 학술대회프로시딩( ) 기타( )
+□ 연구 요약
+  본 연구에서는 그래프 신경망(Graph Neural Networks, GNNs)에 대한 적대적 공격
+(adversarial attacks)을 위한 새로운 접근 방식을 제안하며, 그래프 데이터가 지닌 고유한 도전 
+과제들을 해결하고자 한다. 기존의 적대적 공격은 입력 데이터를 교란시켜 대상 모델의 오분류를 
+유도하는 데 목적이 있었던 반면, 본 연구의 접근은 모델 간의 행동 차이를 전략적으로 활용할 
+수 있도록 적대적 예제를 설계하는 데 중점을 둔다. 본 연구에서는 선택적 적대적 예제라는 개념
+을 도입한다. 이는 “우호적인(friendly)” 모델에서는 올바르게 분류되지만, “적대적인
+(adversary)” 모델에서는 오분류되는 사례를 의미한다. 이를 위해, 우리는 우호적 모델에서의 
+올바른 분류 확률을 최대화하고, 적대적 모델에서의 올바른 분류 확률을 최소화하는 새로운 손실 
+함수(loss function)를 제안한다. 이 접근 방식은 입력 그래프에 대한 교란을 최소화하면서도 효
+과적인 적대적 예제를 생성할 수 있게 하며, 결과적으로 미세하지만 강력한 공격을 가능케 한다. 
+본 논문에서는 제안한 기법의 원리와 구조를 체계적으로 설명하고, Reddit, ogbn-product, 
+Citeseer 데이터셋을 활용한 GNN 실험을 통해 그 성능을 평가하였다.
+  실험 결과는 제안한 방법이 선택적 적대적 예제를 생성하는 데 효과적임을 보여주며, 특히 적
+대적 모델을 선택적으로 타격할 수 있는 능력이 중요한 군사적 환경에서의 응용 가능성을 부각
+시킨다. 아울러, 공격의 특성을 보다 잘 이해할 수 있도록 그래프 적대적 예제에 대한 시각화도 
+제공한다. 
+□ 연구성능, 효과 및 대표적 연구실적의 이유
+  본 논문에서 개발한 GNN 적대적 공격 기법(Targeted Discrepancy Attacks)은 그래프 신경망
+의 예측 취약점과 민감도를 체계적으로 분석하는 방법론을 제시한다. 이는 본 연구에서 개발하는 
+구조응답 예측 GNN 모델의 견고성(robustness) 검증에 직접 활용될 수 있다. 특히, 적대적 섭
+동에 대한 모델 민감도 분석 결과는 PISC(Physics-Informed Self-Correction) 자가교정 시스
+템의 검증 기준 설정에 기여할 수 있으며, 구조정보 입력 데이터의 불확실성이 예측 결과에 미치
+는 영향을 정량화하는 데 핵심적인 기반 기술로 적용된다.
+
+
+===PAGE 14===
+- 13 -
+< 대표적 연구실적 사본 >
+
+
+===PAGE 15===
+< 대표적 연구실적 요약문 >
+연구실적 제목Cyclic loading test for brick masonry veneer anchored to reinforced concrete walls
+연구실적 유형 (택 1)
+논문실적정보
+▣
+게재지(저널명)
+Journal of Building Engineering
+ISSN
+2352-7102
+게재년월
+202411
+역할(제1, 교신, 참여)
+제1
+참여자수
+4명
+특허실적정보
+□
+구분
+등록(출원) 
+국가
+등록(출원) 번호
+등록(출원)일
+등록(출원)자 성명
+발명자 
+성명
+기타실적정보
+□
+연구실적 유형
+저서( ) 역서( ) 국제학회 초청강연( ) 학술지 편집위원 참여( ) 
+기술이전( ) 학술대회프로시딩( ) 기타( )
+□ 연구 요약
+  철근콘크리트(RC) 배면벽에 고정된 벽돌조 외장재(brick masonry veneer)의 내진 설계는 중
+요함에도 불구하고, 이러한 비구조 부재의 내진 성능에 영향을 미치는 여러 설계 변수들의 효과
+는 아직 충분히 규명되지 않았다. 본 연구에서는 벽돌조 외장재가 RC 배면벽에 고정된 연결부의 
+내진 성능을 평가하기 위해 재료 시험 및 반복하중(cyclic loading) 실험을 수행하였다. 우선, 연
+결부를 구성하는 각 요소의 기본 재료 강도를 파악하기 위해 인장 시험을 실시하였고, 이어서 지
+진 하중에 노출되는 단위 연결부의 내진 성능을 평가하기 위해 벽돌-타이-콘크리트 소조립체
+(subassembly)를 대상으로 반복하중 실험을 수행하였다. 주요 실험 변수로는 외장재 앵커의 종
+류와 매입 깊이, 기계적 패스너의 종류, 콘크리트의 압축 강도, 단열재의 사용 여부 등이 포함되
+었다. 재료 강도 및 단위 시험체의 강도에 기초하여, 콘크리트 블록에 고정된 벽돌 외장재 연결
+부의 파괴 형상과 내진 성능을 분석하였다. 실험 결과, 단열재의 존재 여부가 연결부의 내진 성
+능에 상당한 영향을 미치는 것으로 나타났다. 이러한 결과를 바탕으로, 현재 관행의 처방식 설계 
+또는 일반 설계를 개선하기 위한 설계 권고사항을 제시하였다.
+□ 연구성능, 효과 및 대표적 연구실적의 이유
+  
+  본 연구에서 수행된 RC 배면벽-벽돌조 외장재 연결부의 반복하중 실험은 노후 건축물 비구조
+요소 평가를 위한 핵심 기초자료를 제공한다. 실험을 통해 획득한 앵커 종류별 강성, 매입깊이에 
+따른 인발강도, 단열재 유무에 따른 접합부 거동 특성은 Heterogeneous GNN 모델에서 '구조체
+-연결부-외장재' 노드 간 엣지 속성(강성, 강도, 연성)을 정의하는 물리적 근거가 된다. 또한, 
+반복하중 하 비선형 이력거동 데이터는 PINN의 물리 제약조건 설정 시 외장재 연결부의 손상 진
+전 및 에너지 소산 메커니즘을 반영하는 데 직접 활용되어, 노후 건축물 외장재 탈락 위험도 평
+가의 정확도를 향상시킨다.
+
+
+===PAGE 16===
+- 15 -
+< 대표적 연구실적 사본 >
+
+
+===PAGE 17===
+- 16 -
+< 대표적 연구실적 요약문 >
+연구실적 제목
+Text Select-Backdoor: Selective Backdoor Attack for Text Recognition Systems
+연구실적 유형 (택 1)
+논문실적정보
+▣
+게재지(저널명)
+IEEE Access
+ISSN
+2169-3536
+게재년월
+202411
+역할(제1, 교신, 참여)
+교신저자
+참여자수
+2명
+특허실적정보
+□
+구분
+등록(출원) 
+국가
+등록(출원) 번호
+등록(출원)일
+등록(출원)자 성명
+발명자 
+성명
+기타실적정보
+□
+연구실적 유형
+저서( ) 역서( ) 국제학회 초청강연( ) 학술지 편집위원 참여( ) 
+기술이전( ) 학술대회프로시딩( ) 기타( )
+□ 연구 요약
+  깊은 신경망은 이미지, 음성, 텍스트 및 패턴 인식 성능에서 뛰어난 성과를 보인다. 그러나 이
+들은 적대적 공격 및 백도어 공격에 취약하다. 백도어 공격에서는 특정 트리거가 포함되지 않은 
+입력 데이터를 식별할 수 있지만, 특정 트리거가 포함된 데이터를 잘못 인식하게 된다. 백도어 
+공격에서는 공격자가 특정 트리거를 사용하여 공격을 시작한다. 본 논문에서는 "친구" 텍스트 인
+식 모델이 정확히 인식하지만 적의 텍스트 인식 모델에서 잘못 인식하는 선택적 백도어 샘플을 
+제안하였다. 제안된 방법은 특정 트리거가 포함된 백도어 문장에 대해 친구 모델과 적 모델을 훈
+련시키는 방식이다. 친구 모델은 이러한 샘플을 정확히 분류하는 반면, 적 모델은 이를 잘못 식
+별하였다. 실험 평가에서는 TensorFlow 라이브러리와 영화 리뷰(MR 및 IMDB)와 관련된 두 개
+의 데이터셋을 사용하였다. 실험에서 제안된 방법은 훈련 데이터에 약 1%의 백도어 샘플이 있을 
+때, 문장 앞에 트리거를 넣은 백도어 샘플을 사용하여 적의 모델에 대해 100%의 공격 성공률을 
+달성하였다. 또한, 친구 모델은 백도어 샘플과 원본 샘플의 정확도를 각각 85.2%와 86.5%(MR 
+데이터셋), 90.6%와 91.2%(IMDB 데이터셋)로 유지하였다.
+□ 연구성능, 효과 및 대표적 연구실적의 이유
+  본 논문에서 수행한 텍스트 인식 시스템의 보안 취약점 분석 연구는 본 과제의 LLM 기반 구
+조정보 추출 파이프라인의 신뢰성 확보에 직접적으로 기여한다. 노후 건축물 점검보고서와 구조
+도면에서 LayoutLMv3 및 OCR을 통해 추출된 텍스트 정보는 후속 구조해석의 입력값으로 활용
+되므로, 인식 오류나 적대적 입력에 대한 강건성이 필수적이다. 본 연구에서 제안하는 
+PISC(Physics-Informed Self-Correction) 시스템은 추출된 구조정보가 물리법칙을 위반하는지 
+검증하여 LLM 환각 및 이상 입력을 탐지하며, 이는 본 논문의 백도어 공격 탐지 연구와 "입력-
+출력 일관성 검증"이라는 공통된 방법론적 기반을 공유한다.
+
+
+===PAGE 18===
+- 17 -
+< 대표적 연구실적 사본 >
+
+
+===PAGE 19===
+- 18 -
+< 대표적 연구실적 요약문 >
+연구실적 제목
+Shaking table test for dimension stone cladding with dowel pin connection
+연구실적 유형 (택 1)
+논문실적정보
+▣
+게재지(저널명)
+Journal of Building Engineering
+ISSN
+2352-7102
+게재년월
+202307
+역할(제1, 교신, 참여)
+제1
+참여자수
+4명
+특허실적정보
+□
+구분
+등록(출원) 
+국가
+등록(출원) 번호
+등록(출원)일
+등록(출원)자 성명
+발명자 
+성명
+기타실적정보
+□
+연구실적 유형
+저서( ) 역서( ) 국제학회 초청강연( ) 학술지 편집위원 참여( ) 
+기술이전( ) 학술대회프로시딩( ) 기타( )
+□ 연구 요약
+  지진 하중이 작용할 경우, 건물 외장 석재가 탈락하면서 경제적 손실과 인명 피해를 유발할 수 
+있다. 본 연구에서는 핀 연결방식을 적용한 석재 외장 시스템의 내진 성능과 수요를 평가하기 위
+해 진동대 실험을 수행하였다. 실제 지진 조건을 모사하기 위해, 철근콘크리트 구조체에 고정된 
+석재 패널을 대상으로 지반운동을 적용하였고, 총 19가지 조합의 석재 패널을 활용하여 실무에
+서 고려되는 주요 시공 변수들을 반영하였다.
+  실험 결과, 대부분의 시험체에서 석재 파괴 이전에 핀 연결부의 풀아웃(Pull-out) 파괴가 먼저 
+발생하여 석재가 탈락하는 현상이 관찰되었다. 단열재가 없는 석재 패널의 경우, 지진 요구력보
+다 내진강도이 훨씬 커서 강도-요구비(capacity-to-demand ratio)가 4.00-12.60에 이르렀다. 
+반면, 단열재는 있으나 지지재가 없는 석재 디테일에서는 이 비율이 0.37-2.66에 불과해, 해당 
+디테일에 대해 특별한 주의가 필요함을 나타낸다. 이러한 실험 결과를 바탕으로, 다월 핀 연결 
+방식 석재 패널에 대한 설계 및 시방 기준 개선을 위한 권고사항을 제안하였다.
+□ 연구성능, 효과 및 대표적 연구실적의 이유
+  본 연구에서 수행된 진동대 실험은 19가지 석재 외장 디테일 조합에 대한 실제 지진 조건 하 
+거동 데이터를 체계적으로 확보하였으며, 이는 노후 건축물 외장재 시스템의 PI-GNN 모델 개
+발에 핵심적 기여를 한다. 첫째, 핀 연결부의 하중-변위 관계 및 파손 모드 데이터는 
+Heterogeneous GNN의 외장재-구조체 접합부 노드 특성 정의에 직접 활용될 수 있다. 둘째, 
+강도-요구비(capacity-to-demand ratio) 분석 결과는 PINN의 물리 기반 제약 조건 설정 및 
+손상 임계값 검증에 활용되어 모델의 물리적 타당성을 확보한다. 셋째, 다양한 디테일 조합별 실
+험 데이터는 모델의 일반화 성능 검증을 위한 고품질 벤치마크로 기능한다. 특히, 석재의 탈락 
+여부와 같은 국부적 파괴 데이터를 통해 구조물의 국소적 손상 전파를 시뮬레이션할 수 있으며, 
+GNN의 공간적 추론 능력을 활용해 구조물 전체 시스템의 연쇄 반응도 예측할 수 있다.
+
+
+===PAGE 20===
+- 19 -
+< 대표적 연구실적 사본 >
+

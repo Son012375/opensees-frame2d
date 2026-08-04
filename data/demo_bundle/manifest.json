@@ -1,0 +1,85 @@
+{
+ "generated_at": "2026-08-03T13:45:26+09:00",
+ "git_commit": "d0d12a4",
+ "mcp_root": "d:/tmp/os-paper/mcp-server",
+ "base_config": {
+  "stories": [
+   {
+    "height": 4.0,
+    "usage": "office"
+   },
+   {
+    "height": 3.5,
+    "usage": "office"
+   },
+   {
+    "height": 3.5,
+    "usage": "office"
+   }
+  ],
+  "bays_x": [
+   8,
+   8
+  ],
+  "bays_y": [
+   8,
+   8
+  ],
+  "column_section": "H-300x300",
+  "beam_x_section": "H-400x200",
+  "beam_y_section": "H-400x200",
+  "material_name": "SS275",
+  "supports": "fixed",
+  "region": "서울",
+  "importance": "II",
+  "auto_combinations": true,
+  "geometric_nonlinearity": "linear",
+  "seismic_method": "ELF"
+ },
+ "ladder": [
+  {
+   "variant": "H-250x250",
+   "file": "variant_h250x250.json",
+   "overall_status": "NG",
+   "max_interaction_ratio": 2.1809,
+   "ng": 24,
+   "total": 63,
+   "ng_groups": [
+    "부재강도",
+    "층간변위",
+    "풍하중 사용성"
+   ]
+  },
+  {
+   "variant": "H-300x300",
+   "file": "variant_h300x300.json",
+   "overall_status": "NG",
+   "max_interaction_ratio": 1.4933,
+   "ng": 10,
+   "total": 63,
+   "ng_groups": [
+    "부재강도",
+    "풍하중 사용성"
+   ]
+  },
+  {
+   "variant": "H-350x350",
+   "file": "variant_h350x350.json",
+   "overall_status": "OK",
+   "max_interaction_ratio": 0.9658,
+   "ng": 0,
+   "total": 63,
+   "ng_groups": []
+  },
+  {
+   "variant": "H-400x400",
+   "file": "variant_h400x400.json",
+   "overall_status": "OK",
+   "max_interaction_ratio": 0.9295,
+   "ng": 0,
+   "total": 63,
+   "ng_groups": []
+  }
+ ],
+ "note": "모든 값은 이 스크립트가 실행한 실제 해석 결과입니다. 브라우저에서 재계산하지 않습니다."
+}

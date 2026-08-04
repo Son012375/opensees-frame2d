@@ -31,7 +31,10 @@ _supabase_client: Optional[Client] = None
 def _get_supabase() -> Client:
     global _supabase_client
     if _supabase_client is None:
-        _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        from core.kds_cache import wrap as _kds_wrap
+        # Wrapped so a paused/unreachable database falls back to the local
+        # snapshot instead of raising. Transparent while the DB answers.
+        _supabase_client = _kds_wrap(create_client(SUPABASE_URL, SUPABASE_KEY))
     return _supabase_client
 
 
@@ -69,48 +72,74 @@ def _get_zone_coefficient(region_name: str) -> tuple[float, str]:
     return z, desc
 
 
+# DB secondary_key → 표 4.2-8 anchor point (유효수평지반가속도 S)
+_Z_ANCHORS: tuple[tuple[str, float], ...] = (
+    ("z_le_0.1", 0.1),
+    ("z_0.2", 0.2),
+    ("z_0.3", 0.3),
+)
+
+
+def _linear_interp_z(z: float, anchors: list[tuple[float, float]]) -> float:
+    """KDS 17 10 00 §4.2.1 ②: 표 4.2-8 값을 z 기준 직선보간.
+
+    KDS 원문 ("S의 값이 중간 값에 해당할 경우 직선보간하여 결정한다") 준수.
+    anchors: [(z_value, coefficient), ...] (z 오름차순).
+    범위 밖(z < 0.1 또는 z > 0.3)은 표 경계값으로 clamp (KDS 외삽 미규정).
+    """
+    anchors = sorted(anchors, key=lambda t: t[0])
+    if z <= anchors[0][0]:
+        return anchors[0][1]
+    if z >= anchors[-1][0]:
+        return anchors[-1][1]
+    for (z_lo, v_lo), (z_hi, v_hi) in zip(anchors[:-1], anchors[1:]):
+        if z_lo <= z <= z_hi:
+            t = (z - z_lo) / (z_hi - z_lo)
+            return v_lo + t * (v_hi - v_lo)
+    return anchors[-1][1]  # unreachable, defensive
+
+
 def _get_site_coefficients(site_class: str, z: float) -> tuple[float, float]:
-    """지반종류와 구역계수로 Fa, Fv 조회.
+    """지반종류와 구역계수로 Fa, Fv 조회 (KDS 17 10 00 표 4.2-8 직선보간).
+
+    KDS 17 10 00 §4.2.1 ②는 단주기/장주기 지반증폭계수를 표 4.2-8 anchor
+    (S ≤ 0.1, S = 0.2, S = 0.3) 사이에서 직선보간하도록 명시한다. 이전
+    구현은 z를 버킷화하여 anchor 값을 그대로 사용했으나, 본 함수는 세 anchor
+    행을 DB에서 모두 조회한 뒤 실제 z로 보간한다.
 
     Args:
         site_class: "S1"~"S5"
-        z: 구역계수 (0.07 or 0.11)
+        z: 구역계수 (예: 서울 0.11, 부산 0.07)
 
     Returns:
-        (Fa, Fv)
+        (Fa, Fv) — z에서 직선보간된 값.
     """
     site_class = site_class.upper()
     if site_class not in ("S1", "S2", "S3", "S4", "S5"):
         raise ValueError(f"지반종류 '{site_class}'은 S1~S5 중 하나여야 합니다.")
 
-    # z값에 따른 secondary_key 결정
-    if z <= 0.1:
-        z_key = "z_le_0.1"
-    elif z <= 0.2:
-        z_key = "z_0.2"
-    else:
-        z_key = "z_0.3"
-
     supabase = _get_supabase()
 
-    # Fa 조회
-    fa_result = supabase.table("load_params").select("value").eq(
-        "param_subtype", "site_coefficient_Fa"
-    ).eq("primary_key", site_class).eq("secondary_key", z_key).execute()
+    fa_anchors: list[tuple[float, float]] = []
+    fv_anchors: list[tuple[float, float]] = []
 
-    if not fa_result.data:
-        raise ValueError(f"Fa를 찾을 수 없습니다: {site_class}, {z_key}")
-    Fa = fa_result.data[0]["value"]
+    for sec_key, z_anchor in _Z_ANCHORS:
+        fa_row = supabase.table("load_params").select("value").eq(
+            "param_subtype", "site_coefficient_Fa"
+        ).eq("primary_key", site_class).eq("secondary_key", sec_key).execute()
+        if not fa_row.data:
+            raise ValueError(f"Fa anchor 조회 실패: {site_class}, {sec_key}")
+        fa_anchors.append((z_anchor, fa_row.data[0]["value"]))
 
-    # Fv 조회
-    fv_result = supabase.table("load_params").select("value").eq(
-        "param_subtype", "site_coefficient_Fv"
-    ).eq("primary_key", site_class).eq("secondary_key", z_key).execute()
+        fv_row = supabase.table("load_params").select("value").eq(
+            "param_subtype", "site_coefficient_Fv"
+        ).eq("primary_key", site_class).eq("secondary_key", sec_key).execute()
+        if not fv_row.data:
+            raise ValueError(f"Fv anchor 조회 실패: {site_class}, {sec_key}")
+        fv_anchors.append((z_anchor, fv_row.data[0]["value"]))
 
-    if not fv_result.data:
-        raise ValueError(f"Fv를 찾을 수 없습니다: {site_class}, {z_key}")
-    Fv = fv_result.data[0]["value"]
-
+    Fa = _linear_interp_z(z, fa_anchors)
+    Fv = _linear_interp_z(z, fv_anchors)
     return Fa, Fv
 
 

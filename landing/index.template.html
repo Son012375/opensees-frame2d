@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이 3층 골조는 지금 NG입니다 — OpenSees-MCP</title>
+<meta name="description" content="KDS 강구조 골조 해석·설계검토 오픈소스 도구. 실제 해석 결과를 그 자리에서 뒤집어 보세요. 설치도 로그인도 없습니다.">
+<meta property="og:title" content="이 3층 골조는 지금 NG입니다 — OpenSees-MCP">
+<meta property="og:description" content="기둥 단면을 한 단계 키우면 판정이 뒤집힙니다. 실제 OpenSees 해석 결과로 직접 확인해 보세요.">
+<meta property="og:type" content="website">
+<!-- Where the live app lives. Empty = same origin (when the landing is served
+     by the FastAPI app). Set to the app's URL when hosting the landing
+     statically on a different domain. This is the ONLY place to change it. -->
+<meta name="app-base" content="">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231A73E8'/%3E%3Cg stroke='%23fff' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M9 24V10M23 24V10M9 10h14M9 17h14'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/bench.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#top">
+      <span class="brand-dot" aria-hidden="true"></span>OpenSees · MCP
+    </a>
+    <span class="top-actions">
+      <a class="btn btn-ghost btn-sm" href="#feedback">틀린 곳 지적하기</a>
+      <a class="btn btn-solid btn-sm" href="#run">직접 돌려보기</a>
+    </span>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ══════════ HERO = THE BENCH ══════════ -->
+<section class="hero">
+  <div class="wrap hero-grid">
+
+    <div class="hero-text">
+      <span class="eyebrow">오픈소스 · 경희대학교 대학원 연구 프로토타입</span>
+
+      <h1 class="h1">이 3층 골조는<br>지금 <span class="ng-word">NG</span>입니다.</h1>
+
+      <ul class="scope">
+        <li>브라우저에서 도는 <b>KDS 강구조 골조</b> 해석·설계검토 도구입니다. 설치도 로그인도 없습니다.</li>
+        <li><b>RC(철근콘크리트)는 지원하지 않습니다.</b> 강구조 골조 전용이고, 접합부·기초는 검토하지 않습니다.</li>
+        <li><b>숫자는 LLM이 만들지 않습니다.</b> 하중·해석·검토 수치는 전부 OpenSeesPy 솔버와 KDS 표에서 나옵니다.
+            LLM이 하는 일은 입력 문장 해석과, 구조계산서 결론부의 <b>서술 문장</b>을 쓰는 것뿐입니다
+            (그 문단에는 <code>llm_used</code> 표시가 함께 기록됩니다).</li>
+      </ul>
+
+      <p class="lede">
+        이 카드는 에디터 기본 프리셋을 그대로 돌린 <b>실제 해석 결과</b>입니다.<br>
+        왜 NG인지, 어떻게 OK가 되는지 기둥 단면을 직접 바꿔 보세요.
+      </p>
+
+      <p class="lede lede--repro">
+        아래 <a href="#run">직접 돌려보기</a>를 누르면 <b>같은 모델이 그대로 열립니다.</b>
+        ▶ Run 한 번이면 이 카드의 숫자가 재현됩니다 — 다른 예제가 아니라 이 예제입니다.
+      </p>
+
+      <p class="src-chip">
+        <span data-bind="generated-at">—</span> 실제 해석
+        · commit <code data-bind="commit">—</code>
+        · 브라우저에서 재계산하지 않습니다
+      </p>
+    </div>
+
+    <!-- ── bench card ── -->
+    <div class="bench" id="bench">
+      <div class="verdict" data-status="NG">
+        <div class="verdict-head">
+          <span class="dot" aria-hidden="true"></span>
+          <strong class="verdict-label">종합 <span data-bind="overall">NG</span></strong>
+          <span class="verdict-sub">검토 10개 중 <b data-bind="ng-groups">2</b>개 NG</span>
+        </div>
+        <div class="verdict-line">
+          부재강도 <b data-bind="total">63</b>개 중 <b data-bind="ng-members">10</b>개 NG
+          · 최대 상관비 <b class="ratio" data-bind="max-ratio">1.4933</b>
+          <span class="muted" data-bind="member-code-ref">KDS 41 31 00 / AISC 360 H1</span>
+        </div>
+        <div class="verdict-combo">
+          지배조합 <code data-bind="governing-combo">—</code>
+        </div>
+      </div>
+
+      <figure class="frame" aria-describedby="frame-cap">
+        <!--{{FRAME_SVG}}-->
+        <figcaption id="frame-cap" class="frame-cap">
+          3층 · 8m×8m 2×2경간 · 절점 36 · 부재 63
+          <span class="legend">
+            <i class="lg lg--ng"></i>NG
+            <i class="lg lg--hot"></i>상관비 0.9 이상
+            <i class="lg lg--ok"></i>그 외
+          </span>
+        </figcaption>
+      </figure>
+
+      <div class="knob">
+        <label for="sect">기둥 단면</label>
+        <select id="sect" aria-describedby="knob-nudge"></select>
+        <span class="nudge" id="knob-nudge" data-bind="nudge"></span>
+      </div>
+
+      <p class="bench-foot" data-bind="foot"></p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════ THE DELIVERABLE ══════════ -->
+<section class="section" id="output">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">01 · Output</span>
+      <h2 class="h2">이 도구가 최종적으로 내놓는 것은 웹 화면이 아니라 구조계산서입니다</h2>
+      <p class="sec-lede">
+        아래 문서는 위 3층 골조를 해석한 결과로 <b>실제로 생성된 파일</b>입니다.
+        표지·도장란, 10개 번호 섹션, 부록 3개, 표 <b>28개</b>.
+        로그인 없이 지금 열어볼 수 있습니다.
+      </p>
+    </header>
+
+    <div class="doc-grid">
+      <ol class="doc-toc">
+        <li>구조설계 개요</li>
+        <li>적용 기준</li>
+        <li>사용 재료</li>
+        <li>하중 산정 <span class="muted">z=0.11 → Fa=1.68 → SDS=0.462 → Ta=0.493 → Cs=0.1077</span></li>
+        <li>하중 조합 <span class="muted">36개 전개</span></li>
+        <li>해석 개요</li>
+        <li>고유치 / 동적해석</li>
+        <li>부재 검토 <span class="muted">P<sub>u</sub> / M<sub>ux</sub> / M<sub>uy</sub> 및 상관식</span></li>
+        <li>층간변위 검토</li>
+        <li>종합 결론</li>
+        <li class="apx">부록 A.1 전체 부재 검토 일람표</li>
+        <li class="apx">부록 A.2 지점 반력</li>
+        <li class="apx">부록 A.3 하중조합별 포락 요약</li>
+      </ol>
+
+      <div class="doc-card">
+        <a class="btn btn-primary btn-lg btn-block"
+           href="files/report_example.html" target="_blank" rel="noopener">
+          구조계산서 원본 열기 →
+        </a>
+        <p class="doc-note">
+          새 탭에서 열립니다 · <b id="report-size">462 KB</b> ·
+          이 페이지의 3층 골조를 해석해 나온 문서
+        </p>
+        <ul class="run-facts">
+          <li>한국어 문서형. 화면 캡처가 아니라 조판된 계산서입니다</li>
+          <li>모든 수치는 §4~§9의 전개 과정과 함께 실려 있습니다</li>
+          <li>표지의 프로젝트명·작성자·검토자 칸은 비어 있습니다 (데모 모델이라 채우지 않았습니다)</li>
+        </ul>
+        <p class="doc-caveat">
+          §6의 3D 변형형상 뷰어만 plotly를 CDN(<code>cdn.plot.ly</code>)에서 불러옵니다.
+          네트워크가 없으면 그 뷰어 하나가 비고, 표 28개와 모든 수치는 그대로 열립니다.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ LOAD RECEIPT ══════════ -->
+<section class="section section--alt" id="loads">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">02 · Loads</span>
+      <h2 class="h2">이 하중들이 어디서 나왔는지 전부 적어 뒀습니다</h2>
+      <p class="sec-lede">
+        아래는 해석에 실제로 들어간 값이고, 필드 이름도 내부에서 쓰는 그대로입니다.
+        <code>Cs_governed_by</code>가 <code>Cs_max</code>라는 것까지 보이는 이유는,
+        이 값들이 LLM이 쓴 문장이 아니라 <b>KDS 표를 조회한 계산 기록</b>이기 때문입니다.
+      </p>
+    </header>
+
+    <div class="receipts" id="receipts"></div>
+
+    <p class="receipt-foot">
+      층별 지진력 분포 <span class="muted">(수직분포계수 C<sub>vx</sub> · KDS 41 17 00 §7.2.3)</span>
+    </p>
+    <div class="table-scroll">
+      <table class="mini" id="story-forces">
+        <thead>
+          <tr><th>층</th><th class="num">층중량 (kN)</th><th class="num">높이 (m)</th>
+              <th class="num">C<sub>vx</sub></th><th class="num">층지진력 F<sub>x</sub> (kN)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <p class="sec-foot">
+      값을 바꿔 보고 싶다면 —
+      <a class="deep" href="#" data-app-path="/editor-figma?demo=bench&amp;panel=load-live">
+        에디터에서 활하중 표 열기 →</a>
+      <span class="muted">층 용도를 사무실 → 창고로 바꾸면 2.5 → 6.0 kN/m²로 즉시 바뀝니다.
+      단, 바꾼 채로 실행하면 이 페이지의 숫자와 달라집니다.</span>
+    </p>
+  </div>
+</section>
+
+<!-- ══════════ CHECK TABLE ══════════ -->
+<section class="section" id="checks">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">03 · Checks</span>
+      <h2 class="h2">검토 10항목, 판정과 근거 조항까지</h2>
+      <p class="sec-lede">
+        조항 번호는 손으로 적지 않았습니다. 아래 <code>code_ref</code>는 검토 레코드에 기록된 값을 그대로 옮긴 것입니다.
+        이 모델에서 실제로 판정이 난 것은 9개이고, 우발 비틀림은 <b>미평가</b>로 남습니다 — 그것도 그대로 적었습니다.
+      </p>
+      <p class="sec-lede">
+        <b>활용도</b>는 각 검토가 자기 한계 대비 얼마나 찼는지를 <b>1.0 기준</b>으로 정규화한 값입니다
+        (1.0을 넘으면 NG). 옆의 <b>기준 한계값</b>은 그 검토가 참조하는 조항의 원래 수치라
+        단위와 자릿수가 서로 다릅니다 — 예: 층간변위 활용도 0.9297 ↔ 한계값 0.02(=2%h).
+      </p>
+    </header>
+
+    <div class="table-scroll">
+      <table class="checks">
+        <thead>
+          <tr>
+            <th scope="col">검토 항목</th>
+            <th scope="col">판정</th>
+            <th scope="col" class="num">활용도</th>
+            <th scope="col" class="num">기준 한계값</th>
+            <th scope="col">근거 조항 (code_ref)</th>
+            <th scope="col"><span class="sr">이의</span></th>
+          </tr>
+        </thead>
+        <tbody id="checks-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ COMBINATIONS ══════════ -->
+<section class="section section--alt" id="combos">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">04 · Combinations</span>
+      <h2 class="h2">하중조합 <span data-bind="combo-count">36</span>개를 전부 만들고, 전부 풉니다</h2>
+      <p class="sec-lede">
+        지배조합 하나만 고르는 것이 아니라 조합 전체를 해석하고 그 포락으로 검토합니다.
+        아래에서 강조된 것이 이 모델의 부재강도를 지배한 조합입니다.
+      </p>
+    </header>
+
+    <div class="gov-card">
+      <span class="gov-k">부재강도 지배조합</span>
+      <code class="gov-v" data-bind="governing-combo">—</code>
+      <span class="gov-s">
+        최대 상관비 <b data-bind="max-ratio">1.4933</b>이 이 조합에서 나왔습니다.
+        NG 부재는 전체 <b data-bind="ng-members">10</b>개이고, 그중
+        <b data-bind="gov-ng-count">5</b>개가 이 조합에 지배됩니다 —
+        나머지는 다른 조합에서 최대가 나옵니다. 그래서 조합 하나만 풀어서는 안 됩니다.
+      </span>
+    </div>
+
+    <div class="combo-mix" id="combo-mix"></div>
+
+    <details class="disclose" id="combo-disclose">
+      <summary>
+        <b><span data-bind="combo-count">36</span>개 조합 전체 보기</b>
+        <span class="muted">KDS 41 12 00 §1.7 · 지진 직교효과 100/30 · 풍 동반적설 +0.5S 포함</span>
+      </summary>
+      <ol class="combo-list" id="combo-list"></ol>
+    </details>
+  </div>
+</section>
+
+<!-- ══════════ MEMBER ROLL ══════════ -->
+<section class="section" id="members">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">05 · Members</span>
+      <h2 class="h2">부재 <span data-bind="total">63</span>개, 한 줄씩 전부</h2>
+      <p class="sec-lede">
+        요약만 보여드리면 요약을 믿어야 합니다. 상관비 내림차순 전체 목록이고,
+        각 행의 지배조합은 그 부재에서 실제로 최대가 나온 조합입니다.
+      </p>
+    </header>
+
+    <div class="member-tools">
+      <span class="seg" role="group" aria-label="부재 필터">
+        <button type="button" class="seg-btn is-on" data-filter="all">전체</button>
+        <button type="button" class="seg-btn" data-filter="NG">NG만</button>
+        <button type="button" class="seg-btn" data-filter="column">기둥</button>
+        <button type="button" class="seg-btn" data-filter="beam">보</button>
+      </span>
+      <span class="member-count muted" id="member-count"></span>
+    </div>
+
+    <div class="table-scroll">
+      <table class="checks members-table">
+        <thead>
+          <tr>
+            <th scope="col">부재</th>
+            <th scope="col">층</th>
+            <th scope="col">단면</th>
+            <th scope="col">판정</th>
+            <th scope="col" class="num">상관비</th>
+            <th scope="col" class="num">축력비</th>
+            <th scope="col" class="num">전단비</th>
+            <th scope="col">지배조합</th>
+          </tr>
+        </thead>
+        <tbody id="members-body"></tbody>
+      </table>
+    </div>
+    <p class="sec-foot" id="members-more"></p>
+  </div>
+</section>
+
+<!-- ══════════ MODAL ══════════ -->
+<section class="section section--alt" id="modal">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">06 · Modal</span>
+      <h2 class="h2">고유치해석도 같이 돌아갑니다</h2>
+      <p class="sec-lede">
+        주기는 등가정적해석의 <code>Ta</code>(근사식)와 비교하라고 뽑는 값입니다.
+        방향 라벨(TRAN-X / ROTN-Z)과 질량참여율은 솔버가 붙인 것을 그대로 옮겼습니다.
+      </p>
+    </header>
+
+    <div class="modal-grid" id="modal-cards"></div>
+
+    <div class="table-scroll">
+      <table class="mini" id="mode-table">
+        <thead>
+          <tr><th>모드</th><th class="num">주기 (s)</th><th>방향</th>
+              <th class="num">지배 (%)</th><th class="num">X (%)</th>
+              <th class="num">Y (%)</th><th class="num">Rz (%)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="sec-foot" id="modal-foot"></p>
+  </div>
+</section>
+
+<!-- ══════════ FILES OUT ══════════ -->
+<section class="section" id="files">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">07 · Files</span>
+      <h2 class="h2">파일로 나갑니다</h2>
+      <p class="sec-lede">
+        실무자는 화면이 아니라 파일을 신뢰합니다. 앞의 두 개는 위 해석이 그대로 뱉은 산출물이고,
+        세 번째는 <b>입력용</b> 예제 BIM 파일입니다 — 다른 모델이며, 이 앱에 IFC 내보내기는 없습니다.
+      </p>
+    </header>
+
+    <div class="file-grid">
+      <a class="file-card" href="files/tables_example.xlsx" download>
+        <span class="file-ext">XLSX</span>
+        <strong>결과 표 전체</strong>
+        <span class="file-size" data-file="tables_example.xlsx">125 KB</span>
+        <ul>
+          <li>5시트 — 변위 / 부재력 / 반력 / 포락 / 메타데이터</li>
+          <li>Member_Forces 부재 63행 × 263열 (하중케이스·조합 × N/Vy/Vz/T/My/Mz)</li>
+          <li>화면 표는 400행에서 잘리지만 이 파일은 전량입니다</li>
+        </ul>
+      </a>
+
+      <a class="file-card" href="files/drawing_example.dxf" download>
+        <span class="file-ext">DXF</span>
+        <strong>도면 세트</strong>
+        <span class="file-size" data-file="drawing_example.dxf">256 KB</span>
+        <ul>
+          <li>평면 4장 (GL·1F·2F·3F) + 입면 6장 (X1~X3 · Y1~Y3)</li>
+          <li>LINE 192 · DIMENSION 66 · TEXT 76 · 레이어 62</li>
+          <li>치수선·축번호·표제란 포함</li>
+        </ul>
+      </a>
+
+      <a class="file-card" href="files/ifc_example.ifc" download>
+        <span class="file-ext">IFC</span>
+        <strong>예제 BIM 모델</strong>
+        <span class="file-size" data-file="ifc_example.ifc">46 KB</span>
+        <ul>
+          <li>IFC2X3 · 기둥 36 · 보 51 (3층 3×2경간)</li>
+          <li>입력으로 다시 넣어볼 수 있는 실제 파일</li>
+          <li>논문에서 ETABS와 31/31 항목 일치를 확인한 모델</li>
+        </ul>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ INPUT PATHS ══════════ -->
+<section class="section section--alt" id="inputs">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">08 · Inputs</span>
+      <h2 class="h2">모델을 넣는 방법은 세 가지입니다</h2>
+      <p class="sec-lede">
+        아래 이미지는 목업이 아니라 지금 이 앱을 캡처한 것입니다. 링크를 누르면 같은 화면이 열립니다.
+      </p>
+    </header>
+
+    <div class="path-grid">
+      <article class="path">
+        <figure>
+          <img src="assets/shots/input-sections.png" alt="Frame Properties 창 — KS D 3502/3568 단면 738건 목록과 Type 필터" loading="lazy">
+        </figure>
+        <h3>① 직접 입력</h3>
+        <p>
+          층수·경간·단면·재료를 폼으로. 단면은 <b>KS D 3502/3568 738건</b>을 그대로
+          조회하고 (H형강 94 · 원형강관 235 · 정사각중공 132 …), 재료는 <b>18강종</b>을
+          두께별 항복강도까지 읽습니다.
+        </p>
+        <a class="deep" href="#" data-app-path="/editor-figma?demo=bench&amp;panel=sections">단면 카탈로그 열어보기 →</a>
+      </article>
+
+      <article class="path">
+        <figure>
+          <img src="assets/shots/input-ifc.png" alt="예제 IFC를 파싱해 3D 뷰에 올린 화면 — 절점 48, 부재 87" loading="lazy">
+        </figure>
+        <h3>② IFC 가져오기</h3>
+        <p>
+          BIM에서 내보낸 <code>.ifc</code>를 올리면 절점·부재로 변환하고 접합부를 스냅합니다.
+          예제 파일 기준 파싱 <b>0.38초</b>(절점 150 · 부재 87), 병합·스냅을 거쳐 절점 48 · 부재 87.
+          이 모델이 논문에서 <b>ETABS와 31/31 항목 일치</b>를 확인한 것입니다.
+        </p>
+        <a class="deep" href="#" data-app-path="/editor-figma?demo=ifc">예제 IFC 자동으로 올려보기 →</a>
+      </article>
+
+      <article class="path">
+        <figure>
+          <img src="assets/shots/input-loads.png" alt="활하중 정의 팝업 — 층별 용도에 따라 KDS 표에서 조회된 활하중" loading="lazy">
+        </figure>
+        <h3>③ 하중은 표에서</h3>
+        <p>
+          어느 경로로 넣든 하중은 층 용도에서 <b>KDS 41 12 00 표 3.2-1</b>을 조회해 만듭니다.
+          사무실 2.5 → 창고 6.0 kN/m²로 즉시 바뀌고, 그 값이 그대로 해석에 들어갑니다.
+        </p>
+        <a class="deep" href="#" data-app-path="/editor-figma?demo=bench&amp;panel=load-live">활하중 표 열어보기 →</a>
+      </article>
+    </div>
+
+    <p class="sec-foot muted">
+      평면을 직접 그리는 네 번째 경로(절점·보·기둥 스냅 작도)도 앱에 있지만,
+      편집 내용이 조용히 사라지는 알려진 버그가 있어 이 데모에서는 안내하지 않습니다.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════ LIMITS ══════════ -->
+<section class="section" id="limits">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">09 · Limits</span>
+      <h2 class="h2">안 되는 것들</h2>
+      <p class="sec-lede">
+        아래는 마케팅 문구가 아니라 위 해석이 스스로 출력한 값과 범위입니다.
+      </p>
+    </header>
+
+    <ul class="limits">
+      <li>
+        <b>지진질량에 부재 자중이 포함되지 않습니다.</b>
+        <span class="quote">mass_info: "Member self-weight not included separately" · basis: floor_dead_load</span>
+        그래서 기둥 단면을 바꿔도 총 중량 <b data-bind="W">3916.8</b> kN과 밑면전단
+        <b data-bind="V">421.98</b> kN은 변하지 않습니다.
+      </li>
+      <li>
+        <b>H형강의 비틀림상수 J는 개방단면 근사값입니다.</b>
+        <span class="quote">j_source: "approximate"</span>
+        대칭 평면골조에서는 비틀림이 비연성이라 영향이 없지만, 비정형·편심 모델에서는 확인이 필요합니다.
+      </li>
+      <li>
+        <b>RC·접합부·기초·내진상세는 검토하지 않습니다.</b>
+        강구조 골조 부재의 강도/사용성 검토만 수행합니다.
+      </li>
+      <li>
+        <b>기둥 유효좌굴길이계수 K는 1.2로 고정</b>이고, 비지지길이는 층고를 씁니다.
+        <span class="quote">column_K: 1.2 · column_unbraced_basis: "story_height"</span>
+      </li>
+      <li>
+        <b>응답스펙트럼해석(RSA) 조합은 부재강도를 검토하지 않습니다.</b>
+        <span class="quote">design_check.py:1097 — RSA 조합은 부재력(N/V/M) 미생성 → 부재강도 미검토</span>
+        RSA를 켜면 변위·층응답은 나오지만 부재검토는 등가정적해석 조합만으로 수행되고,
+        해당 조합 수가 <code>rsa_unchecked_combos</code>로 결과에 남습니다.
+      </li>
+      <li>
+        <b>재료는 모델 전체에 1강종만 적용됩니다.</b>
+        <span class="quote">frame_3d.py:2793 — primary_material = sorted(materials_used)[0]</span>
+        부재마다 다른 강종을 지정해도 해석 모델에는 그중 하나만 전달됩니다.
+      </li>
+      <li>
+        <b>이 결과에 날인 책임은 없습니다.</b> 연구 프로토타입이며 실무 적용 시 반드시 기술사의 독립 검토가 필요합니다.
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════ RUN IT YOURSELF ══════════ -->
+<section class="section section--alt" id="run">
+  <div class="wrap">
+    <header class="sec-head">
+      <span class="kicker">10 · Try it</span>
+      <h2 class="h2">이 페이지의 숫자를 직접 재현해 보세요</h2>
+      <p class="sec-lede">
+        위 결과는 미리 계산해 둔 것입니다. 아래 버튼은 <b>같은 모델을 열고, 지금 실제로 해석을 돌립니다</b> —
+        총중량 <b data-bind="W">3916.8</b> kN, 밑면전단 <b data-bind="V">421.98</b> kN,
+        최대 상관비 <b data-bind="max-ratio">1.4933</b>이 그대로 나와야 맞습니다.
+        가입도 설치도 없습니다.
+      </p>
+    </header>
+
+    <div class="run-grid">
+      <ol class="run-steps">
+        <li><b>링크를 엽니다.</b> 이 페이지가 보여준 3층 골조가 에디터에 그대로 세팅된 채 열립니다.</li>
+        <li><b>▶ Run을 누릅니다.</b> KDS 하중 7케이스·조합 36개 생성 → OpenSees 3D 해석 → 설계검토 10항목(이 모델은 9개 판정 + 1개 미평가).</li>
+        <li><b>대조합니다.</b> 종합 NG, NG 부재 <b data-bind="ng-members">10</b>개, 지배조합까지 위 카드와 같아야 합니다.</li>
+      </ol>
+
+      <div class="run-card">
+        <a class="btn btn-primary btn-lg btn-block" id="run-cta"
+           href="#" data-app-path="/editor-figma?demo=bench" rel="noopener">
+          이 모델 직접 돌려보기 →
+        </a>
+        <p class="run-note" id="run-health">
+          해석에 <b>약 12초</b>가 걸립니다. 진행 중에는 화면이 멈춘 것처럼 보일 수 있습니다.
+        </p>
+        <ul class="run-facts">
+          <li>3층 (4.0 / 3.5 / 3.5 m) · 8m&times;8m 2&times;2경간 · 사무실</li>
+          <li>기둥 H-300x300 · 보 H-400x200 · SS275 · 고정지점 · 서울 · 중요도 II</li>
+          <li>절점 36 · 부재 63 — 해석 <b>1회</b>면 이 페이지 전체가 검증됩니다</li>
+        </ul>
+        <p class="run-dl">
+          <a class="deep" href="#" data-app-path="/editor-figma?demo=ifc">IFC로 시작하기 →</a>
+          <span class="muted">— 다른 경로를 보고 싶다면. 87부재 예제가 자동으로 파싱·접합되어 올라갑니다
+          (이 모델은 논문에서 <b>ETABS와 31/31 항목 일치</b>를 확인한 것입니다).</span>
+        </p>
+      </div>
+    </div>
+
+    <p class="run-warn">
+      <b>연구용 시험 서버입니다.</b> 실제 프로젝트 IFC는 올리지 말아 주세요 —
+      업로드한 파일은 서버 디스크에 남고, 다른 방문자가 접근할 가능성을 배제할 수 없습니다.
+      동시에 여러 명이 실행하면 느려지거나 실패할 수 있습니다.
+    </p>
+  </div>
+</section>
+
+<section class="section" id="feedback">
+  <div class="wrap sec-head">
+    <span class="kicker">11 · Feedback</span>
+    <h2 class="h2">틀린 곳을 지적해 주십시오</h2>
+    <p class="sec-lede">
+      석사과정 학생이 만든 연구 프로토타입입니다. 좋게 봐주신 말씀보다 냉정한 평가가 훨씬 도움이 됩니다.
+      특히 <b>이 페이지의 숫자가 실무 감각과 어긋나는 지점</b>이 가장 값진 지적입니다.
+    </p>
+
+    <div class="fb-card">
+      <a class="btn btn-primary btn-lg" id="fb-mail" href="mailto:mk0010@khu.ac.kr">
+        메일로 지적하기 →
+      </a>
+      <p class="fb-addr">
+        <code>mk0010@khu.ac.kr</code>
+        <span class="muted">— 위 버튼은 어느 항목을 보고 있었는지(단면 변형·commit)를 본문에 미리 채웁니다.</span>
+      </p>
+
+      <ul class="fb-asks">
+        <li>이 값은 실무에서 이렇게 안 나온다 — <b>어느 값이, 얼마여야 하는지</b></li>
+        <li>이 검토가 빠졌다 / 이 조항 적용이 틀렸다</li>
+        <li>실무에 쓰려면 무엇이 먼저 있어야 하는지</li>
+        <li>어디서 막혔는지 — 화면이 이해되지 않은 지점도 포함해서</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>OpenSees · MCP — 자연어 × IFC × KDS 오픈소스 구조해석 어시스턴트</span>
+    <span class="muted">
+      적용 기준 KDS 41 12 00 / 41 17 00 / 41 31 00 · AISC 360 · OpenSeesPy
+    </span>
+  </div>
+</footer>
+
+<script type="application/json" id="demo-bundle"><!--{{BUNDLE_JSON}}--></script>
+<script src="assets/bench.js"></script>
+</body>
+</html>

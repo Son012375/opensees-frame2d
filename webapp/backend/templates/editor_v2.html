@@ -6,8 +6,8 @@
     <title>V2 3D Building Editor - OpenSees</title>
 
     <!-- Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="/static/vendor/three.min.js?v=r128"></script>
+    <script src="/static/vendor/OrbitControls.js?v=r128"></script>
 
     <!-- Editor CSS (V2 copy) -->
     <link rel="stylesheet" href="/static/css/editor_v2.css?v=1">
@@ -1063,6 +1063,10 @@
 
                     <!-- Report Button (항상 하단 고정) -->
                     <div id="report-link" style="display:none; margin-top:10px; border-top:1px solid var(--border-input,#ddd); padding-top:8px;">
+                        <button type="button" id="cover-input-btn" onclick="openCoverModal()" class="btn btn-block"
+                                style="width:100%; text-align:center; display:block; margin-bottom:6px; background:#fff; color:#16335c; border:1px solid #b6bcc6; padding:8px; border-radius:6px; font-weight:600; cursor:pointer;">
+                            📋 표지·도장란 입력
+                        </button>
                         <a id="report-url" href="#" target="_blank" class="btn btn-primary btn-block" style="text-align:center; text-decoration:none; display:block;">
                             상세 리포트 (HTML Report)
                         </a>
@@ -1163,7 +1167,158 @@
     <!-- Floating toast container for Apply/rollback feedback (Phase 2) -->
     <div id="rec-toast-container"></div>
 
-    <script src="/static/js/editor3d_v2.js?v=5"></script>
+    <!-- 표지·도장란 입력 모달 (step 2) — cover_info 수집 후 리포트 재생성 -->
+    <div id="cover-modal" onclick="if(event.target===this) closeCoverModal()"
+         style="display:none; position:fixed; inset:0; z-index:9000;
+         background:rgba(15,26,45,0.55); align-items:flex-start; justify-content:center; padding:32px 16px; overflow:auto;">
+      <style>
+        #cover-modal .cv-card{ width:100%; max-width:680px; background:#fff; border-radius:8px;
+          box-shadow:0 12px 40px rgba(0,0,0,0.32); overflow:hidden; font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif; color:#1f2733; font-size:14px; }
+        #cover-modal .cv-head{ background:#16335c; color:#fff; padding:16px 22px; }
+        #cover-modal .cv-head h1{ margin:0; font-size:16px; font-weight:600; }
+        #cover-modal .cv-head .cv-sub{ margin:4px 0 0; font-size:12px; color:#c7d2e2; }
+        #cover-modal .cv-help{ background:#eef2f8; border-bottom:1px solid #d4d8de; color:#33445f; font-size:12px; padding:9px 22px; }
+        #cover-modal .cv-help b{ color:#16335c; }
+        #cover-modal .cv-body{ padding:6px 22px 4px; max-height:62vh; overflow:auto; }
+        #cover-modal .cv-sec{ padding:14px 0; border-bottom:1px solid #eceef1; }
+        #cover-modal .cv-sec:last-child{ border-bottom:none; }
+        #cover-modal .cv-sec-title{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#16335c; margin:0 0 12px; }
+        #cover-modal .cv-bar{ width:4px; height:14px; background:#16335c; border-radius:2px; display:inline-block; }
+        #cover-modal .cv-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; }
+        #cover-modal .cv-field{ display:flex; flex-direction:column; }
+        #cover-modal .cv-field.full{ grid-column:1 / -1; }
+        #cover-modal label{ font-size:12px; font-weight:600; color:#2c3440; margin-bottom:5px; }
+        #cover-modal .req{ color:#c0392b; margin-left:2px; }
+        #cover-modal input[type=text], #cover-modal input[type=date], #cover-modal input[type=number], #cover-modal select{
+          width:100%; padding:7px 9px; border:1px solid #d4d8de; border-radius:5px; font-size:13px; font-family:inherit; color:#1f2733; background:#fff; }
+        #cover-modal input:focus, #cover-modal select:focus{ outline:none; border-color:#16335c; box-shadow:0 0 0 2px rgba(22,51,92,0.12); }
+        #cover-modal .cv-help-text{ font-size:11px; color:#6b7280; margin-top:4px; }
+        #cover-modal .cv-invalid input, #cover-modal .cv-invalid select{ border-color:#c0392b; }
+        #cover-modal .cv-stamp{ border:1px solid #d4d8de; border-radius:6px; padding:11px 13px; margin-bottom:10px; background:#f7f8fa; }
+        #cover-modal .cv-stamp:last-child{ margin-bottom:0; }
+        #cover-modal .cv-stamp-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+        #cover-modal .cv-role{ font-size:12px; font-weight:700; color:#16335c; }
+        #cover-modal .cv-role .opt{ font-weight:500; color:#6b7280; font-size:11px; margin-left:4px; }
+        #cover-modal .cv-seal{ width:42px; height:42px; border:1.5px dashed #b6bcc6; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; color:#9aa1ab; background:#fff; }
+        #cover-modal .cv-stamp-fields{ display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:9px 11px; }
+        #cover-modal .cv-stamp-fields label{ font-size:11px; }
+        #cover-modal .cv-foot{ display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:14px 22px; background:#fafbfc; border-top:1px solid #d4d8de; }
+        #cover-modal .cv-btn{ font-family:inherit; font-size:13px; font-weight:600; padding:8px 16px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
+        #cover-modal .cv-btn-primary{ background:#16335c; color:#fff; border-color:#16335c; }
+        #cover-modal .cv-btn-primary:hover{ background:#0f2545; }
+        #cover-modal .cv-btn-ghost{ background:#fff; color:#46505e; border-color:#b6bcc6; }
+        #cover-modal .cv-btn-ghost:hover{ background:#f1f3f6; }
+        @media (max-width:560px){ #cover-modal .cv-grid{ grid-template-columns:1fr; } #cover-modal .cv-stamp-fields{ grid-template-columns:1fr; } }
+      </style>
+      <div class="cv-card">
+        <div class="cv-head">
+          <h1>구조계산서 표지·도장란 입력</h1>
+          <p class="cv-sub">입력값은 구조계산서 표지·도장란에 반영됩니다. <b style="color:#fff;">재해석 없이</b> 리포트만 갱신됩니다.</p>
+        </div>
+        <div class="cv-help">필수: <b>공사명·작성일·작성자 성명</b>. 미입력 항목은 리포트에 <b>[입력]</b> 으로 표기됩니다.</div>
+        <div class="cv-body">
+
+          <!-- A. 표지 정보 -->
+          <div class="cv-sec">
+            <h2 class="cv-sec-title"><span class="cv-bar"></span>A. 표지 정보</h2>
+            <div class="cv-grid">
+              <div class="cv-field full" data-required>
+                <label>공사명 (프로젝트명)<span class="req">*</span></label>
+                <input type="text" id="cv-project_name" placeholder="예) ○○ 업무시설 신축공사">
+              </div>
+              <div class="cv-field full">
+                <label>대지위치 (주소)</label>
+                <input type="text" id="cv-location" placeholder="예) 서울특별시 강남구 ○○로 12">
+              </div>
+              <div class="cv-field">
+                <label>건축주</label>
+                <input type="text" id="cv-client" placeholder="예) ○○개발(주)">
+              </div>
+              <div class="cv-field">
+                <label>구조형식</label>
+                <input type="text" id="cv-structure_type" placeholder="강구조 보통모멘트골조">
+                <span class="cv-help-text">해석 결과에서 자동 입력됨, 수정 가능</span>
+              </div>
+              <div class="cv-field">
+                <label>연면적 (m²)</label>
+                <input type="number" id="cv-gross_floor_area" min="0" step="0.1" placeholder="미입력 시 외곽치수×층수 자동">
+                <span class="cv-help-text">정확값 입력 시 자동산정값을 덮어씀</span>
+              </div>
+              <div class="cv-field" data-required>
+                <label>작성일<span class="req">*</span></label>
+                <input type="date" id="cv-date">
+              </div>
+              <div class="cv-field">
+                <label>회사명 (작성업체)</label>
+                <input type="text" id="cv-firm" placeholder="예) ○○구조엔지니어링">
+              </div>
+              <div class="cv-field full">
+                <label>회사 로고/직인 이미지 (선택)</label>
+                <input type="file" id="cv-logo" accept="image/*" onchange="_cvReadImage('cv-logo','logo')">
+                <span class="cv-help-text" id="cv-logo-status">표지 상단에 표시 · 300KB 이하 이미지</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- B. 도장란 -->
+          <div class="cv-sec">
+            <h2 class="cv-sec-title"><span class="cv-bar"></span>B. 도장란 (서명·날인)</h2>
+
+            <div class="cv-stamp" data-required>
+              <div class="cv-stamp-head"><span class="cv-role">작성자<span class="req">*</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field" data-required><label>성명<span class="req">*</span></label><input type="text" id="cv-author_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-author_qual"><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-author_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-author_seal" accept="image/*" onchange="_cvReadImage('cv-author_seal','author_seal')">
+                <span class="cv-help-text" id="cv-author_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+
+            <div class="cv-stamp">
+              <div class="cv-stamp-head"><span class="cv-role">검토자<span class="opt">(선택)</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field"><label>성명</label><input type="text" id="cv-reviewer_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-reviewer_qual"><option value="">선택</option><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-reviewer_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-reviewer_seal" accept="image/*" onchange="_cvReadImage('cv-reviewer_seal','reviewer_seal')">
+                <span class="cv-help-text" id="cv-reviewer_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+
+            <div class="cv-stamp">
+              <div class="cv-stamp-head"><span class="cv-role">승인자<span class="opt">(선택)</span></span><div class="cv-seal">(인)</div></div>
+              <div class="cv-stamp-fields">
+                <div class="cv-field"><label>성명</label><input type="text" id="cv-approver_name" placeholder="성명"></div>
+                <div class="cv-field"><label>자격</label>
+                  <select id="cv-approver_qual"><option value="">선택</option><option>건축구조기술사</option><option>건축사</option><option>기타</option></select></div>
+                <div class="cv-field"><label>자격번호</label><input type="text" id="cv-approver_license" placeholder="제 ○○○○ 호"></div>
+              </div>
+              <div class="cv-field" style="margin-top:9px;">
+                <label>직인 이미지 (선택)</label>
+                <input type="file" id="cv-approver_seal" accept="image/*" onchange="_cvReadImage('cv-approver_seal','approver_seal')">
+                <span class="cv-help-text" id="cv-approver_seal-status">(인) 자리에 표시 · 300KB 이하</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="cv-foot">
+          <button type="button" class="cv-btn cv-btn-ghost" onclick="closeCoverModal()">취소</button>
+          <button type="button" class="cv-btn cv-btn-primary" id="cv-submit" onclick="submitCoverInfo()">구조계산서 생성</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/editor3d_v2.js?v=7"></script>
     <script src="/static/js/v2_edit.js?v=4"></script>
     <script src="/static/js/v2_tools.js?v=2"></script>
 

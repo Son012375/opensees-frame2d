@@ -1932,7 +1932,7 @@ async function runAnalysisV2({ rethrow = false, skipUndo = false } = {}) {
         const resp = await fetch('/api/v2/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: window._v2Model, config }),
+            body: JSON.stringify({ model: window._v2Model, config, cover_info: window._coverInfo || null }),
         });
 
         if (!resp.ok) {
@@ -2270,7 +2270,7 @@ async function runAnalysis(configOverride = null) {
         const response = await fetch('/api/v2/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ config }),
+            body: JSON.stringify({ config, cover_info: window._coverInfo || null }),
         });
 
         if (!response.ok) {
@@ -3722,6 +3722,177 @@ function updateResultsPanel(result) {
 
     // Auto-save
     if (typeof _autoSave === 'function') _autoSave();
+}
+
+// ─── 표지·도장란 (구조계산서 cover_info) — step 2 ─────────────────────────
+//
+// 해석은 cover_info=None(=placeholder)로 리포트를 1차 생성한다. 사용자가
+// "표지·도장란 입력" 버튼을 누르면 이 모달이 뜨고, 제출 시 재해석 없이
+// /api/jobs/{job_id}/report-cover 가 calc_data.json 사이드카만 다시 렌더한다.
+// cover_info 는 localStorage 에 저장 + 다음 해석 요청에도 동봉되어 유지된다.
+var _COVER_LS_KEY = 'opensees_cover_info_v1';
+try {
+    var _cvStored = localStorage.getItem(_COVER_LS_KEY);
+    window._coverInfo = _cvStored ? JSON.parse(_cvStored) : null;
+} catch (e) { window._coverInfo = null; }
+
+function _cvVal(id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; }
+function _cvSet(id, v) { var e = document.getElementById(id); if (e && v != null) e.value = v; }
+
+// 로고/직인 이미지(data URL) 보관소. 파일 input은 프로그램으로 값 복원이 불가하므로
+// 읽어들인 data URL을 여기에 들고 있다가 cover_info에 실어 보낸다.
+window._cvImages = { logo: null, author_seal: null, reviewer_seal: null, approver_seal: null };
+var _CV_IMG_MAX = 300 * 1024;  // 300KB
+
+function _cvImageStatus(key, on) {
+    var span = document.getElementById('cv-' + key + '-status');
+    if (span) span.innerHTML = on ? '✔ 업로드됨 (지우려면 다시 선택 취소)' : '300KB 이하 이미지';
+}
+
+function _cvReadImage(inputId, key) {
+    var inp = document.getElementById(inputId);
+    var f = inp && inp.files && inp.files[0];
+    if (!f) { window._cvImages[key] = null; _cvImageStatus(key, false); return; }
+    if (!/^image\//.test(f.type)) { alert('이미지 파일만 업로드할 수 있습니다.'); inp.value = ''; return; }
+    if (f.size > _CV_IMG_MAX) { alert('이미지는 300KB 이하만 가능합니다. (현재 ' + Math.round(f.size / 1024) + 'KB)'); inp.value = ''; return; }
+    var reader = new FileReader();
+    reader.onload = function () { window._cvImages[key] = reader.result; _cvImageStatus(key, true); };
+    reader.onerror = function () { alert('이미지 읽기에 실패했습니다.'); };
+    reader.readAsDataURL(f);
+}
+
+function openCoverModal() {
+    var c = window._coverInfo || {};
+    var st = c.stamp || {};
+    var au = st.author || {}, rv = st.reviewer || {}, ap = st.approver || {};
+    _cvSet('cv-project_name', c.project_name || '');
+    _cvSet('cv-location', c.location || '');
+    _cvSet('cv-client', c.client || '');
+    _cvSet('cv-structure_type', c.structure_type || '');
+    _cvSet('cv-gross_floor_area', (c.gross_floor_area != null ? c.gross_floor_area : ''));
+    // 저장형식 YYYY.MM.DD → <input type=date> 는 YYYY-MM-DD 필요
+    if (c.date) _cvSet('cv-date', String(c.date).replace(/\./g, '-'));
+    _cvSet('cv-firm', c.firm || '');
+    _cvSet('cv-author_name', au.name || '');
+    _cvSet('cv-author_qual', au.qualification || '건축구조기술사');
+    _cvSet('cv-author_license', au.license_no || '');
+    _cvSet('cv-reviewer_name', rv.name || '');
+    _cvSet('cv-reviewer_qual', rv.qualification || '');
+    _cvSet('cv-reviewer_license', rv.license_no || '');
+    _cvSet('cv-approver_name', ap.name || '');
+    _cvSet('cv-approver_qual', ap.qualification || '');
+    _cvSet('cv-approver_license', ap.license_no || '');
+    // 로고/직인 이미지 복원 (파일 input은 복원 불가 → 보관소 + 상태표시로 유지)
+    window._cvImages = {
+        logo: c.logo || null,
+        author_seal: au.seal || null,
+        reviewer_seal: rv.seal || null,
+        approver_seal: ap.seal || null,
+    };
+    ['logo', 'author_seal', 'reviewer_seal', 'approver_seal'].forEach(function (k) {
+        var inp = document.getElementById('cv-' + k); if (inp) inp.value = '';
+        _cvImageStatus(k, !!window._cvImages[k]);
+    });
+    var m = document.getElementById('cover-modal');
+    if (m) {
+        // 이전 제출의 빨간 테두리(cv-invalid) 잔상 제거 후 표시
+        m.querySelectorAll('.cv-invalid').forEach(function (el) { el.classList.remove('cv-invalid'); });
+        m.style.display = 'flex';
+    }
+}
+
+function closeCoverModal() {
+    var m = document.getElementById('cover-modal');
+    if (m) m.style.display = 'none';
+}
+
+// 폼 → cover_info 객체 (Python _normalize_cover 스키마와 일치). 필수 미입력 시 null.
+function collectCoverInfoFromForm() {
+    var card = document.getElementById('cover-modal');
+    var ok = true;
+    card.querySelectorAll('[data-required]').forEach(function (g) {
+        var ctrl = g.querySelector('input, select');
+        if (ctrl && !ctrl.value.trim()) { g.classList.add('cv-invalid'); ok = false; }
+        else { g.classList.remove('cv-invalid'); }
+    });
+    if (!ok) {
+        var first = card.querySelector('.cv-invalid input, .cv-invalid select');
+        if (first) first.focus();
+        return null;
+    }
+    var rawDate = _cvVal('cv-date');
+    var gfaRaw = _cvVal('cv-gross_floor_area');
+    var gfa = gfaRaw ? parseFloat(gfaRaw) : null;
+    var imgs = window._cvImages || {};
+    function stamp(p) {
+        return {
+            name: _cvVal('cv-' + p + '_name'),
+            qualification: _cvVal('cv-' + p + '_qual'),
+            license_no: _cvVal('cv-' + p + '_license'),
+            seal: imgs[p + '_seal'] || null,
+        };
+    }
+    return {
+        project_name: _cvVal('cv-project_name'),
+        location: _cvVal('cv-location'),
+        client: _cvVal('cv-client'),
+        structure_type: _cvVal('cv-structure_type'),
+        date: rawDate ? rawDate.replace(/-/g, '.') : '',
+        firm: _cvVal('cv-firm'),
+        gross_floor_area: (gfa && gfa > 0) ? gfa : null,
+        logo: imgs.logo || null,
+        stamp: { author: stamp('author'), reviewer: stamp('reviewer'), approver: stamp('approver') },
+    };
+}
+
+async function submitCoverInfo() {
+    var ci = collectCoverInfoFromForm();
+    if (!ci) return;
+    window._coverInfo = ci;
+    try {
+        localStorage.setItem(_COVER_LS_KEY, JSON.stringify(ci));
+    } catch (e) {
+        // quota 초과(대용량 이미지 등) → 이미지 제외하고 텍스트만이라도 영속
+        try {
+            var lite = JSON.parse(JSON.stringify(ci));
+            lite.logo = null;
+            if (lite.stamp) {
+                ['author', 'reviewer', 'approver'].forEach(function (r) { if (lite.stamp[r]) lite.stamp[r].seal = null; });
+            }
+            localStorage.setItem(_COVER_LS_KEY, JSON.stringify(lite));
+        } catch (e2) { /* 영속 실패 — 세션 내에서는 window._coverInfo로 유지 */ }
+        // 이미지가 커서 영속 못 함을 1회 안내 (리포트 자체는 정상 — 세션 내 유지됨)
+        if (!window._coverImgQuotaWarned) {
+            window._coverImgQuotaWarned = true;
+            alert('로고/직인 이미지가 커서 브라우저에 저장되지 않았습니다.\n이번 세션에서는 정상 적용되지만, 새로고침 시 이미지는 다시 업로드해야 합니다.');
+        }
+    }
+    if (!currentJobId) { alert('해석을 먼저 실행하세요.'); return; }
+    var btn = document.getElementById('cv-submit');
+    var old = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '생성 중...'; }
+    try {
+        var resp = await fetch('/api/jobs/' + currentJobId + '/report-cover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cover_info: ci }),
+        });
+        if (!resp.ok) {
+            var err = await resp.json().catch(function () { return { detail: resp.statusText }; });
+            throw new Error(err.detail || '리포트 재생성 실패');
+        }
+        var data = await resp.json();
+        closeCoverModal();
+        // 캐시 무력화 위해 timestamp 부착 후 새 탭 열기 + 링크 갱신
+        var url = (data.report_url || ('/api/jobs/' + currentJobId + '/report')) + '?t=' + Date.now();
+        var link = document.getElementById('report-url');
+        if (link) link.href = url;
+        window.open(url, '_blank');
+    } catch (e) {
+        alert('표지 반영 실패: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = old || '구조계산서 생성'; }
+    }
 }
 
 // ─── Recommendations Tab (Phase 1 — display + Evaluate only) ──────────────
@@ -7372,7 +7543,7 @@ function loadProject(event) {
                     project.model.elements.length, 'elems,',
                     (a.case_names?.length || 0), 'cases');
             } else {
-                if (typeof fitCameraToModel === 'function') fitCameraToModel();
+                _fitCameraFromModel(project.model);
                 setStatus('Project loaded (model only): ' + file.name, 'success');
                 console.log('[Project] Loaded:', project.model.nodes.length, 'nodes,', project.model.elements.length, 'elems');
             }
@@ -7396,6 +7567,19 @@ function _buildViewerFromModel(model) {
         section: e.section
     }));
     return { nodes, elements };
+}
+
+function _fitCameraFromModel(model) {
+    // model.nodes의 bbox로 fitCameraToModel(viewer) 안전 호출
+    if (typeof fitCameraToModel !== 'function') return;
+    const nodes = (model && model.nodes) || [];
+    if (!nodes.length) return;
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y), zs = nodes.map(n => n.z);
+    fitCameraToModel({
+        total_width_x: Math.max(...xs) - Math.min(...xs) || 1,
+        total_width_y: Math.max(...ys) - Math.min(...ys) || 1,
+        total_height:  Math.max(...zs) - Math.min(...zs) || 1,
+    });
 }
 
 function _gatherConfig() {
@@ -7463,7 +7647,7 @@ function _checkAutoRestore() {
             window._v2Model = data.model;
             if (data.config) _applyConfig(data.config);
             if (typeof refreshEditPreview === 'function') refreshEditPreview();
-            if (typeof fitCameraToModel === 'function') fitCameraToModel();
+            _fitCameraFromModel(data.model);
             setStatus('Auto-saved project restored', 'success');
         }
     } catch (e) { /* 무시 */ }

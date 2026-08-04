@@ -15,16 +15,18 @@ private executor directly.
 from __future__ import annotations
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
+
+from app.services.solver_pool import MAX_PARALLEL_SOLVER, solver_executor
 
 eval_jobs_db: dict[str, dict] = {}
 _EVAL_JOBS_LOCK = threading.Lock()
 
-MAX_PARALLEL_EVALS = 1
-_eval_executor = ThreadPoolExecutor(
-    max_workers=MAX_PARALLEL_EVALS,
-    thread_name_prefix="rec-eval",
-)
+# Evaluation runs share the ONE solver thread with the analyse endpoints — a
+# private pool here would let an evaluation and an analysis interleave inside
+# OpenSees' global state. Kept under the original names so existing callers do
+# not change; :mod:`app.services.solver_pool` is the real owner.
+MAX_PARALLEL_EVALS = MAX_PARALLEL_SOLVER
+_eval_executor = solver_executor
 
 
 def _rehydrate_candidate(cand_dict: dict):
