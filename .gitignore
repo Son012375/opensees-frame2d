@@ -132,3 +132,12 @@ data/kds_sample_index.jsonl
 data/kds_index.jsonl
 scripts/smoke_voyage_explain.py
 .codex_tmp/
+
+# Never useful in any branch of this repo. Deliberately NOT listing the
+# manuscript or the ETABS comparison data here: those live in the research
+# branch's working tree as untracked files, and an ignore rule reaching that
+# tree would hide them from `git status` — which is how work gets lost. The
+# public repo keeps them out with an actively failing CI check instead
+# (.github/workflows/ci.yml: "no non-public paths"), which cannot silence
+# anything on a branch it does not run on.
+node_modules/
